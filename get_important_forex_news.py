@@ -86,6 +86,11 @@ async def main():
         except Exception as inner:
             logging.error(f"Telegram send error: {inner}")
 
-# точка входа для Render
+# 👉 Вызов, который Render запускает
 def run_async():
+    import subprocess
+    chromium_path = "/opt/render/.cache/ms-playwright"
+    if not os.path.exists(chromium_path):
+        print("▶ Installing Chromium manually at runtime...")
+        subprocess.run(["playwright", "install", "chromium"], check=True)
     asyncio.run(main())
