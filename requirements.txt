@@ -1,0 +1,5 @@
+flask
+selenium
+telebot
+beautifulsoup4
+webdriver-manager
