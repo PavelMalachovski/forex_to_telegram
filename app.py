@@ -11,7 +11,7 @@ def index():
 @app.route('/run')
 def run_script():
     try:
-        get_forex_news_test.main()
+        get_important_forex_news.main()
         return '✅ Script executed successfully!'
     except Exception as e:
         return f'❌ Error occurred: {str(e)}'
