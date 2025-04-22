@@ -1,5 +1,5 @@
 from flask import Flask
-import get_important_forex_news.py
+import get_important_forex_news
 
 app = Flask(__name__)
 
