@@ -1,5 +1,6 @@
+# requirements.txt
 flask
-selenium
 telebot
 beautifulsoup4
+undetected-chromedriver
 webdriver-manager

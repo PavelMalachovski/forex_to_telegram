@@ -1,5 +1,6 @@
 import os
 import logging
+import undetected_chromedriver as uc
 from datetime import datetime
 from contextlib import contextmanager
 from selenium import webdriver
@@ -28,16 +29,14 @@ def escape_markdown_v2(text):
 
 @contextmanager
 def get_driver():
-    options = webdriver.ChromeOptions()
-    options.add_argument('--headless')
+    options = uc.ChromeOptions()
+    options.headless = True
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--log-level=3')
-    options.add_argument("user-agent=Mozilla/5.0")
+    options.add_argument("--disable-blink-features=AutomationControlled")
     driver = None
     try:
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = uc.Chrome(options=options, use_subprocess=True)
         yield driver
     finally:
         if driver:
