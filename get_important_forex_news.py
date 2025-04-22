@@ -68,23 +68,16 @@ def main():
                 impact_classes = impact_span.get('class', [])
                 if 'icon--ff-impact-red' in impact_classes:
                     news_items_formatted.append(
-                        f"⏰ *Time:* {escape_markdown_v2(time_tag.text.strip())}
-"
-                        f"💰 *Currency:* {escape_markdown_v2(currency_tag.text.strip())}
-"
-                        f"📰 *Event:* {escape_markdown_v2(event_tag.text.strip())}
-"
-                        f"📈 *Forecast:* {escape_markdown_v2(forecast_tag.text.strip() if forecast_tag else 'N/A')}
-"
-                        f"📊 *Previous:* {escape_markdown_v2(previous_tag.text.strip() if previous_tag else 'N/A')}
-"
+                        f"⏰ *Time:* {escape_markdown_v2(time_tag.text.strip())}"
+                        f"💰 *Currency:* {escape_markdown_v2(currency_tag.text.strip())}"
+                        f"📰 *Event:* {escape_markdown_v2(event_tag.text.strip())}"
+                        f"📈 *Forecast:* {escape_markdown_v2(forecast_tag.text.strip() if forecast_tag else 'N/A')}"
+                        f"📊 *Previous:* {escape_markdown_v2(previous_tag.text.strip() if previous_tag else 'N/A')}"
                         f"\-\-\-"
                     )
 
         escaped_date = escape_markdown_v2(scraped_date_display)
-        message = f"🗓️ *_High\-Impact Forex News for {escaped_date} \(EST\):_*
-
-"
+        message = f"🗓️ *_High\-Impact Forex News for {escaped_date} \(EST\):_*"
         message += "\n".join(news_items_formatted) if news_items_formatted else f"✅ No high\-importance news found for {escaped_date}\."
 
         if len(message) > 4096:
