@@ -1,13 +1,11 @@
 import os
 import logging
 from datetime import datetime
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 import telebot
-import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from playwright.async_api import async_playwright
+import asyncio
 
 API_TOKEN_TELEGRAM = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -18,39 +16,33 @@ logging.basicConfig(filename='scraper.log', level=logging.DEBUG, format='%(ascti
 def escape_markdown_v2(text):
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for char in special_chars:
-        text = text.replace(char, f'\{char}')
+        text = text.replace(char, f'\\{char}')
     return text
 
-@contextmanager
-def get_driver():
-    options = uc.ChromeOptions()
-    options.headless = True
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    driver = None
-    try:
-        driver = uc.Chrome(options=options, use_subprocess=True, version_main=114)
-        yield driver
-    finally:
-        if driver:
-            driver.quit()
+@asynccontextmanager
+async def get_page():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        try:
+            yield page
+        finally:
+            await browser.close()
 
-def main():
+async def main():
     try:
         today = datetime.now()
         scraped_date_display = today.strftime("%d.%m.%Y")
         scraped_date_url = today.strftime("%b%d.%Y").lower()
         url = f"https://www.forexfactory.com/calendar?day={scraped_date_url}"
 
-        with get_driver() as driver:
-            driver.get(url)
-            WebDriverWait(driver, 25).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'table.calendar__table tbody'))
-            )
-            soup = BeautifulSoup(driver.page_source, 'html.parser')
+        async with get_page() as page:
+            await page.goto(url, timeout=30000)
+            html = await page.content()
 
+        soup = BeautifulSoup(html, 'html.parser')
         news_items_formatted = []
+
         table_body = soup.select_one('table.calendar__table tbody')
         if table_body:
             rows = table_body.select('tr.calendar__row[data-event-id]')
@@ -68,20 +60,20 @@ def main():
                 impact_classes = impact_span.get('class', [])
                 if 'icon--ff-impact-red' in impact_classes:
                     news_items_formatted.append(
-                        f"⏰ *Time:* {escape_markdown_v2(time_tag.text.strip())}"
-                        f"💰 *Currency:* {escape_markdown_v2(currency_tag.text.strip())}"
-                        f"📰 *Event:* {escape_markdown_v2(event_tag.text.strip())}"
-                        f"📈 *Forecast:* {escape_markdown_v2(forecast_tag.text.strip() if forecast_tag else 'N/A')}"
-                        f"📊 *Previous:* {escape_markdown_v2(previous_tag.text.strip() if previous_tag else 'N/A')}"
-                        f"\-\-\-"
+                        f"⏰ *Time:* {escape_markdown_v2(time_tag.text.strip())}\n"
+                        f"💰 *Currency:* {escape_markdown_v2(currency_tag.text.strip())}\n"
+                        f"📰 *Event:* {escape_markdown_v2(event_tag.text.strip())}\n"
+                        f"📈 *Forecast:* {escape_markdown_v2(forecast_tag.text.strip() if forecast_tag else 'N/A')}\n"
+                        f"📊 *Previous:* {escape_markdown_v2(previous_tag.text.strip() if previous_tag else 'N/A')}\n"
+                        f"\\-\\-\\-"
                     )
 
         escaped_date = escape_markdown_v2(scraped_date_display)
-        message = f"🗓️ *_High\-Impact Forex News for {escaped_date} \(EST\):_*"
-        message += "\n".join(news_items_formatted) if news_items_formatted else f"✅ No high\-importance news found for {escaped_date}\."
+        message = f"🗓️ *_High\\-Impact Forex News for {escaped_date} \\(EST\\):_*\n\n"
+        message += "\n".join(news_items_formatted) if news_items_formatted else f"✅ No high\\-importance news found for {escaped_date}\\."
 
         if len(message) > 4096:
-            message = message[:message.rfind('\n', 0, 4090)] + "\n\n\.\.\. \(message truncated\)"
+            message = message[:message.rfind('\n', 0, 4090)] + "\n\n\\.\\.\\. \\(message truncated\\)"
 
         bot.send_message(CHAT_ID, message, parse_mode='MarkdownV2')
 
@@ -89,7 +81,11 @@ def main():
         error_message = f"⚠️ Script Error: {escape_markdown_v2(str(e))}"
         try:
             if len(error_message) > 4000:
-                error_message = error_message[:4000] + "\.\.\."
+                error_message = error_message[:4000] + "\\.\\.\\."
             bot.send_message(CHAT_ID, error_message, parse_mode='MarkdownV2')
         except Exception as inner:
             logging.error(f"Telegram send error: {inner}")
+
+# точка входа для Render
+def run_async():
+    asyncio.run(main())

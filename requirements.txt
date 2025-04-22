@@ -1,6 +1,4 @@
-# requirements.txt
 flask
 telebot
 beautifulsoup4
-undetected-chromedriver==3.5.5
-webdriver-manager
+playwright
