@@ -69,7 +69,7 @@ async def main():
                     )
 
         escaped_date = escape_markdown_v2(scraped_date_display)
-        message = f"🗓️ *_High\\-Impact Forex News for {escaped_date} \\(EST\\):_*\n\n"
+        message = f"🗓️ *_High\\-Impact Forex News for {escaped_date} \\(CET\\):_*\n\n"
         message += "\n".join(news_items_formatted) if news_items_formatted else f"✅ No high\\-importance news found for {escaped_date}\\."
 
         if len(message) > 4096:
