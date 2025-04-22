@@ -2,5 +2,5 @@
 flask
 telebot
 beautifulsoup4
-undetected-chromedriver
+undetected-chromedriver==3.5.5
 webdriver-manager
