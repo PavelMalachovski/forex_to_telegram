@@ -39,6 +39,13 @@ if not CHAT_ID:
 else:
     logging.info("TELEGRAM_CHAT_ID is set")
 
+# Check OPENAI_API_KEY
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    logging.warning("OPENAI_API_KEY is not set. News analysis with ChatGPT will be skipped.")
+else:
+    logging.info("OPENAI_API_KEY is set")
+
 user_selected_date = {}
 user_selected_impact = {}
 
@@ -64,6 +71,46 @@ if os.getenv('RENDER_EXTERNAL_HOSTNAME'):
     logging.info("Started APScheduler for self-ping every 5 minutes")
 else:
     logging.warning("RENDER_EXTERNAL_HOSTNAME not set, skipping self-ping")
+
+# --- ChatGPT API Integration ---
+def analyze_news_with_chatgpt(news_item):
+    if not OPENAI_API_KEY:
+        return "⚠️ ChatGPT analysis skipped: API key not configured."
+
+    try:
+        # Формируем запрос к OpenAI ChatGPT API
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        prompt = (
+            f"Analyze the following Forex news and predict its potential market impact:\n"
+            f"Time: {news_item['time']}\n"
+            f"Currency: {news_item['currency']}\n"
+            f"Event: {news_item['event']}\n"
+            f"Forecast: {news_item['forecast']}\n"
+            f"Previous: {news_item['previous']}\n"
+            "Provide a concise analysis (up to 100 words) of how this news might affect the market."
+        )
+        data = {
+            "model": "gpt-4",
+            "messages": [
+                {"role": "system", "content": "You are a financial analyst specializing in Forex markets."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 150,
+            "temperature": 0.7
+        }
+
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+        analysis = result["choices"][0]["message"]["content"].strip()
+        return escape_markdown_v2(analysis)
+    except Exception as e:
+        logging.error(f"ChatGPT analysis failed: {e}")
+        return "⚠️ Error in ChatGPT analysis."
 
 # --- News parsing functions ---
 def escape_markdown_v2(text: str) -> str:
@@ -126,6 +173,7 @@ async def main(target_date=None, impact_level="high", debug=False):
             logging.debug(f"[DEBUG] Row {i} snippet: {str(row)[:200]}")
 
         news = []
+        last_time = "N/A"  # Храним последнее известное время
         for r in rows:
             imp = r.select_one('.calendar__impact span.icon') or r.select_one('.impact span.icon')
             if not imp:
@@ -136,18 +184,29 @@ async def main(target_date=None, impact_level="high", debug=False):
             is_medium = 'icon--ff-impact-orange' in classes
 
             if (impact_level == 'medium' and (is_high or is_medium)) or (impact_level == 'high' and is_high):
-                time = escape_markdown_v2(r.select_one('.calendar__time').text.strip() if r.select_one('.calendar__time') else 'N/A')
+                time = r.select_one('.calendar__time').text.strip() if r.select_one('.calendar__time') else 'N/A'
+                if time == "N/A":
+                    time = last_time  # Используем время предыдущей новости
+                else:
+                    last_time = time  # Обновляем последнее известное время
+                time = escape_markdown_v2(time)
+
                 cur = escape_markdown_v2(r.select_one('.calendar__currency').text.strip() if r.select_one('.calendar__currency') else 'N/A')
                 evt = escape_markdown_v2(r.select_one('.calendar__event-title').text.strip() if r.select_one('.calendar__event-title') else 'N/A')
                 fct = escape_markdown_v2(r.select_one('.calendar__forecast').text.strip() if r.select_one('.calendar__forecast') else 'N/A')
                 prv = escape_markdown_v2(r.select_one('.calendar__previous').text.strip() if r.select_one('.calendar__previous') else 'N/A')
-                news.append({
+
+                news_item = {
                     "time": time,
                     "currency": cur,
                     "event": evt,
                     "forecast": fct,
                     "previous": prv
-                })
+                }
+                # Анализируем новость через ChatGPT API
+                analysis = analyze_news_with_chatgpt(news_item)
+                news_item["analysis"] = analysis
+                news.append(news_item)
 
         logging.info(f"[DEBUG] News items collected: {len(news)}")
         if debug:
@@ -162,7 +221,9 @@ async def main(target_date=None, impact_level="high", debug=False):
                     f"💰 Currency: {item['currency']}\n"
                     f"📰 Event: {item['event']}\n"
                     f"📈 Forecast: {item['forecast']}\n"
-                    f"📊 Previous: {item['previous']}\n---\n"
+                    f"📊 Previous: {item['previous']}\n"
+                    f"🔍 ChatGPT Analysis: {item['analysis']}\n\n"
+                    f"{'-' * 40}\n\n"  # Добавляем разделитель между новостями
                 )
                 message_parts.append(part)
             message = "".join(message_parts)
