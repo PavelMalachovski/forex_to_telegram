@@ -1,157 +1,291 @@
-# Forex News Bot
 
-A lean Telegram bot that scrapes Forex news from Forex Factory and pushes it straight to your channel—no fluff, just the headlines you need.
+# Forex Bot with PostgreSQL
 
-## Table of Contents
+A Telegram bot for forex news notifications with PostgreSQL database and make.com integration.
 
-- [Forex News Bot](#forex-news-bot)
-  - [Table of Contents](#table-of-contents)
-  - [Features](#features)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-    - [Clone \& Virtualenv](#clone--virtualenv)
-    - [Install Dependencies](#install-dependencies)
-  - [Configuration](#configuration)
-  - [Running Locally](#running-locally)
-  - [Deployment on Render.com](#deployment-on-rendercom)
-  - [Usage](#usage)
-    - [Telegram Commands](#telegram-commands)
-    - [API Endpoints](#api-endpoints)
-      - [Examples](#examples)
-  - [Testing](#testing)
-  - [Troubleshooting](#troubleshooting)
-  - [Contributing](#contributing)
+## Architecture
 
----
+The project is now split into two main components:
+
+1. **Telegram Bot** (`main.py`) - Handles user interactions
+2. **API Server** (`api_server.py`) - Provides endpoints for make.com automation
 
 ## Features
 
-- **Date-picker interface** via Telegram calendar.
-- **Impact filtering**: high — or medium+high — because you don’t have time for the noise.
-- **Markdown-formatted** messages so headlines look sharp.
-- **Keep-alive**: APScheduler pings itself every 5 min on Render to dodge idling.
-- **Debug mode**: hit `/run?debug=1` and get raw JSON.
+- Real-time forex news scraping from ForexFactory
+- Telegram bot for user interactions
+- PostgreSQL database for data persistence
+- API endpoints for external automation
+- User preference management
+- High-impact news notifications
 
-## Prerequisites
+## Project Structure
 
-- Python 3.9+
-- Telegram bot token (via BotFather)
-- Telegram channel/chat ID (e.g., `@YourChannel` or numeric ID)
-- (Optional) Render.com account for hassle-free hosting
+```
+forex_bot_postgresql/
+├── app/                          # Main application package
+│   ├── bot/                      # Telegram bot handlers
+│   ├── database/                 # Database models and connection
+│   ├── scrapers/                 # Web scrapers
+│   ├── services/                 # Business logic services
+│   └── utils/                    # Utility functions
+├── api_server.py                 # Flask API server
+├── main.py                       # Telegram bot entry point
+├── wsgi.py                       # WSGI entry point
+├── requirements.txt              # Python dependencies
+├── Dockerfile                    # Docker for bot
+├── Dockerfile.api                # Docker for API server
+└── docker-compose.yml            # Docker compose configuration
+```
 
 ## Installation
 
-### Clone & Virtualenv
+### Prerequisites
 
+- Python 3.11+
+- PostgreSQL 12+
+- Telegram Bot Token
+
+### Local Development
+
+1. Clone the repository:
 ```bash
-git clone https://github.com/your-username/forex_to_telegram.git
-cd forex_to_telegram
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+git clone <repository-url>
+cd forex_bot_postgresql
 ```
 
-### Install Dependencies
-
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
-playwright install
 ```
 
-_If your `requirements.txt` is stale:_
+3. Install Playwright browsers:
+```bash
+playwright install chromium
+```
+
+4. Set up environment variables:
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+5. Initialize database:
+```bash
+python init_data.py
+```
+
+### Docker Deployment
+
+#### Telegram Bot
+```bash
+docker build -t forex-bot .
+docker run -d --name forex-bot --env-file .env forex-bot
+```
+
+#### API Server
+```bash
+docker build -f Dockerfile.api -t forex-api .
+docker run -d --name forex-api -p 8000:8000 --env-file .env forex-api
+```
+
+#### Using Docker Compose
+```bash
+docker-compose up -d
+```
+
+## API Endpoints
+
+The API server provides the following endpoints for make.com integration:
+
+### Health Check
+```
+GET /health
+```
+Returns server health status.
+
+### Load Data
+```
+POST /api/load-data
+```
+Loads forex data starting from the previous day (for updating actual impact values).
+
+**Request Body (optional):**
+```json
+{
+  "days_ahead": 5
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "result": {
+    "status": "success",
+    "events_loaded": 25,
+    "errors_count": 0,
+    "duration_seconds": 45,
+    "start_date": "2025-06-23",
+    "end_date": "2025-06-28"
+  },
+  "timestamp": "2025-06-24T16:30:00"
+}
+```
+
+### Send Today
+```
+POST /api/send-today
+```
+Sends today's high-impact news to all active users.
+
+**Response:**
+```json
+{
+  "success": true,
+  "result": {
+    "status": "success",
+    "users_notified": 15,
+    "errors_count": 0,
+    "total_users": 15
+  },
+  "timestamp": "2025-06-24T07:00:00"
+}
+```
+
+### Status
+```
+GET /api/status
+```
+Returns API server status and configuration.
+
+## Make.com Integration
+
+### Setup Instructions
+
+1. **Create a Make.com Account**
+   - Sign up at [make.com](https://make.com)
+   - Create a new scenario
+
+2. **Configure Data Loading (05:00 Schedule)**
+   - Add a "Schedule" trigger module
+   - Set time to 05:00 (your timezone)
+   - Set frequency to "Every day"
+   - Add an "HTTP" action module
+   - Configure:
+     - URL: `https://your-api-server.com/api/load-data`
+     - Method: POST
+     - Headers: `Content-Type: application/json`
+     - Body: `{"days_ahead": 5}`
+
+3. **Configure Today News Sending (07:00 Schedule)**
+   - Create a second scenario or add to existing
+   - Add a "Schedule" trigger module
+   - Set time to 07:00 (your timezone)
+   - Set frequency to "Every day"
+   - Add an "HTTP" action module
+   - Configure:
+     - URL: `https://your-api-server.com/api/send-today`
+     - Method: POST
+     - Headers: `Content-Type: application/json`
+
+4. **Error Handling (Optional)**
+   - Add error handling modules to retry failed requests
+   - Add notification modules to alert on failures
+   - Use the `/api/status` endpoint for health monitoring
+
+### Webhook URLs
+
+Replace `your-api-server.com` with your actual API server domain:
+
+- **Data Loading**: `https://your-api-server.com/api/load-data`
+- **Today News**: `https://your-api-server.com/api/send-today`
+- **Health Check**: `https://your-api-server.com/health`
+- **Status**: `https://your-api-server.com/api/status`
+
+### Scheduling Recommendations
+
+- **05:00**: Load data from previous day (updates actual impact values)
+- **07:00**: Send today's news to all users
+- **Health checks**: Every 15 minutes using `/health` endpoint
+
+## Environment Variables
 
 ```bash
-pip install flask python-telegram-bot playwright beautifulsoup4 requests pytz apscheduler
-playwright install
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/forex_bot
+
+# Telegram
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
+
+# Flask
+FLASK_HOST=0.0.0.0
+FLASK_PORT=8000
+FLASK_DEBUG=false
+
+# Timezone
+TIMEZONE=Europe/Berlin
+
+# Optional: Render.com
+RENDER_EXTERNAL_HOSTNAME=your-app.onrender.com
 ```
 
-## Configuration
+## Bot Commands
 
-Create a `.env` file in the project root:
+- `/start` - Start the bot and register user
+- `/today` - Get today's high-impact news
+- `/tomorrow` - Get tomorrow's high-impact news
+- `/week` - Get this week's high-impact news
+- `/calendar` - Interactive calendar for date selection
+- `/settings` - Manage notification preferences
+- `/help` - Show available commands
 
-```dotenv
-TELEGRAM_BOT_TOKEN=your-telegram-bot-token
-TELEGRAM_CHAT_ID=your-telegram-chat-id
-API_KEY=your-secret-api-key
-RENDER_EXTERNAL_HOSTNAME=your-render-hostname  # e.g., forex-to-telegram-1j5p.onrender.com
-```
+## Development
 
-- **TELEGRAM_BOT_TOKEN**: From BotFather.
-- **TELEGRAM_CHAT_ID**: Channel or group ID (must be bot-admin).
-- **API_KEY**: Guards the `/run` endpoint.
-- **RENDER_EXTERNAL_HOSTNAME**: Used for self-pings.
-
-## Running Locally
-
+### Running Tests
 ```bash
-python app.py
+pytest tests/
 ```
 
-Open `http://0.0.0.0:5000` to check the bot’s heartbeat.
-
-## Deployment on Render.com
-
-1. **New Web Service** → Link GitHub repo → Branch: `main` (or your feature branch).
-2. **Build Command**
-   ```bash
-   pip install -r requirements.txt && playwright install
-   ```
-3. **Start Command**
-   ```bash
-   python app.py
-   ```
-4. **Env Vars**: Paste the `.env` keys into Render’s dashboard.
-5. **Deploy** and watch it stay alive with self-pings.
-
-## Usage
-
-### Telegram Commands
-
-- `/start` or `/help` — Show commands.
-- `/today` — Blast today’s high-impact news.
-- `/calendar` — Pick a date & impact level.
-
-### API Endpoints
-
-- `GET /`
-  Returns “Bot is online”
-- `GET /ping`
-  Self-ping endpoint for APScheduler.
-- `GET /run?api_key=<KEY>&date=<YYYY-MM-DD>&impact=<high|medium>&debug=<0|1>`
-  Scrapes news (defaults: today, high-impact).
-- `POST /webhook`
-  Telegram updates webhook.
-
-#### Examples
-
+### Database Migrations
 ```bash
-# Trigger news for April 1, 2025
-curl "https://<your-host>/run?api_key=KEY&date=2025-04-01"
+# Create migration
+alembic revision --autogenerate -m "description"
 
-# Debug mode
-curl "https://<your-host>/run?api_key=KEY&debug=1&date=2025-04-01"
+# Apply migrations
+alembic upgrade head
 ```
 
-## Testing
-
-1. **Logs** on Render should show:
-   ```
-   [INFO] All required environment variables are set
-   [INFO] Telegram bot initialized
-   [INFO] Webhook set to https://<your-host>/webhook
-   [INFO] APScheduler started (5 min ping)
-   ```
-2. **Webhook status**:
-   ```bash
-   curl "https://api.telegram.org/bot<token>/getWebhookInfo"
-   ```
-3. **Bot commands**: `/start`, `/today`, `/calendar` → verify messages.
+### Logs
+Application logs are stored in the `logs/` directory:
+- `app.log` - General application logs
+- `error.log` - Error logs
 
 ## Troubleshooting
 
-- **Webhook fails**: Double-check `RENDER_EXTERNAL_HOSTNAME`.
-- **Scraping errors**: Ensure `playwright install` ran; inspect `scraper.log`.
-- **Telegram “403”**: Bot needs admin rights; verify `TELEGRAM_CHAT_ID`.
+### Common Issues
 
-## Contributing
+1. **Database Connection Issues**
+   - Check DATABASE_URL format
+   - Ensure PostgreSQL is running
+   - Verify network connectivity
 
-Feel free to fork, tweak, and PR. For big changes, open an issue first.
+2. **Telegram Bot Not Responding**
+   - Verify TELEGRAM_BOT_TOKEN
+   - Check bot permissions
+   - Review logs for errors
+
+3. **API Endpoints Not Working**
+   - Check Flask server is running
+   - Verify port configuration
+   - Check firewall settings
+
+4. **Make.com Integration Issues**
+   - Verify webhook URLs are accessible
+   - Check API server logs
+   - Test endpoints manually with curl
+
+### Support
+
+For issues and questions, please check the logs first and ensure all environment variables are properly configured.

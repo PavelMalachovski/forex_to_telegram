@@ -1,0 +1,43 @@
+{"asctime": "2025-06-24 16:23:01,299", "name": "app.utils.logging_config", "levelname": "INFO", "funcName": "setup_logging", "message": "Logging configured with level: INFO"}
+{"asctime": "2025-06-24 16:23:01,300", "name": "api_server", "levelname": "INFO", "funcName": "<module>", "message": "Telegram bot initialized successfully"}
+{"asctime": "2025-06-24 16:23:02,113", "name": "app.utils.logging_config", "levelname": "INFO", "funcName": "setup_logging", "message": "Logging configured with level: INFO"}
+{"asctime": "2025-06-24 16:25:00,047", "name": "app.utils.logging_config", "levelname": "INFO", "funcName": "setup_logging", "message": "Logging configured with level: INFO"}
+{"asctime": "2025-06-24 16:25:00,048", "name": "api_server", "levelname": "INFO", "funcName": "<module>", "message": "Telegram bot initialized successfully"}
+{"asctime": "2025-06-24 18:33:44,043", "name": "app.utils.logging_config", "levelname": "INFO", "funcName": "setup_logging", "message": "Logging configured with level: INFO"}
+{"asctime": "2025-06-24 18:33:44,043", "name": "__main__", "levelname": "INFO", "funcName": "initialize", "message": "Initializing Telegram Bot application..."}
+{"asctime": "2025-06-24 18:33:44,241", "name": "app.database.connection", "levelname": "INFO", "funcName": "init_database", "message": "Database tables created successfully"}
+{"asctime": "2025-06-24 18:33:44,242", "name": "__main__", "levelname": "INFO", "funcName": "initialize", "message": "Database initialized successfully"}
+{"asctime": "2025-06-24 18:33:44,243", "name": "__main__", "levelname": "INFO", "funcName": "initialize", "message": "Telegram bot initialized successfully"}
+{"asctime": "2025-06-24 18:33:44,244", "name": "__main__", "levelname": "INFO", "funcName": "initialize", "message": "Application initialized successfully"}
+{"asctime": "2025-06-24 18:33:44,244", "name": "__main__", "levelname": "INFO", "funcName": "start", "message": "Starting Telegram Bot application..."}
+{"asctime": "2025-06-24 18:33:44,244", "name": "__main__", "levelname": "INFO", "funcName": "start", "message": "Starting Telegram bot polling..."}
+{"asctime": "2025-06-24 18:33:54,664", "name": "app.services.user_service", "levelname": "INFO", "funcName": "get_or_create_user", "message": "Updated user: 540529430"}
+{"asctime": "2025-06-24 18:34:34,743", "name": "app.services.user_service", "levelname": "INFO", "funcName": "get_or_create_user", "message": "Updated user: 540529430"}
+{"asctime": "2025-06-24 18:34:49,516", "name": "app.services.auto_scraper_service", "levelname": "INFO", "funcName": "scrape_date_if_missing", "message": "Checking data availability for 2025-06-04"}
+{"asctime": "2025-06-24 18:34:49,520", "name": "app.services.auto_scraper_service", "levelname": "INFO", "funcName": "scrape_date_if_missing", "message": "No data found for 2025-06-04, starting automatic scraping"}
+{"asctime": "2025-06-24 18:34:50,117", "name": "app.scrapers.forex_factory_scraper", "levelname": "INFO", "funcName": "_scrape_single_date_with_browser", "message": "Scraping data for date: 2025-06-04"}
+{"asctime": "2025-06-24 18:34:59,601", "name": "app.scrapers.forex_factory_scraper", "levelname": "INFO", "funcName": "_parse_calendar_page", "message": "Found 18 events for 2025-06-04"}
+{"asctime": "2025-06-24 18:35:02,696", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:04,856", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:07,499", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:09,774", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:11,600", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:14,173", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:16,420", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:19,160", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:21,589", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:26,275", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:28,549", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:30,793", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:32,677", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:35,128", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:37,657", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:40,096", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:41,612", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:44,011", "name": "app.services.analysis_service", "levelname": "INFO", "funcName": "_make_api_request", "message": "ChatGPT analysis completed successfully"}
+{"asctime": "2025-06-24 18:35:44,303", "name": "app.services.auto_scraper_service", "levelname": "INFO", "funcName": "scrape_date_if_missing", "message": "Successfully scraped and saved 18 events for 2025-06-04"}
+{"asctime": "2025-06-24 18:35:44,509", "name": "app.bot.handlers", "levelname": "WARNING", "funcName": "_safe_answer_callback_query", "message": "Callback query expired or invalid: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: query is too old and response timeout expired or query ID is invalid"}
+{"asctime": "2025-06-24 18:38:35,564", "name": "__main__", "levelname": "INFO", "funcName": "_signal_handler", "message": "Received signal 2, shutting down..."}
+{"asctime": "2025-06-24 18:38:35,564", "name": "__main__", "levelname": "INFO", "funcName": "stop", "message": "Stopping Telegram Bot application..."}
+{"asctime": "2025-06-24 18:38:35,564", "name": "__main__", "levelname": "INFO", "funcName": "stop", "message": "Telegram bot polling stopped"}
+{"asctime": "2025-06-24 18:38:35,564", "name": "__main__", "levelname": "INFO", "funcName": "stop", "message": "Application stopped"}
