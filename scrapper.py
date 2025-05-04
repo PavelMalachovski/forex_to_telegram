@@ -213,12 +213,12 @@ def scrape_forex_news():
                         continue
 
                     # Forecast, Previous, Actual
-                    forecast = (row.find("td", class_=lambda c: c and "calendar__forecast" in c).text.strip()
-                                if row.find("td", class_=lambda c: c and "calendar__forecast" in c) else "N/A")
-                    previous = (row.find("td", class_:=lambda c: c and "calendar__previous" in c).text.strip()
-                                if row.find("td", class_=lambda c: c and "calendar__previous" in c) else "N/A")
-                    actual = (row.find("td", class_=lambda c: c and "calendar__actual" in c).text.strip()
-                              if row.find("td":=lambda c: c and "calendar__actual" in c) else "N/A")
+                    forecast = row.find("td", class_=lambda c: c and "calendar__forecast" in c)
+                    forecast = forecast.text.strip() if forecast else "N/A"
+                    previous = row.find("td", class_=lambda c: c and "calendar__previous" in c)
+                    previous = previous.text.strip() if previous else "N/A"
+                    actual = row.find("td", class_=lambda c: c and "calendar__actual" in c)
+                    actual = actual.text.strip() if actual else "N/A"
 
                     # Impact
                     impact = "N/A"
