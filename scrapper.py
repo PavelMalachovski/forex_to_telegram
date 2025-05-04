@@ -80,8 +80,6 @@ class Database:
         logger.info(f"Inserted/Updated event: {event_data[0]}, {event_data[1]}, {event_data[2]}, {event_data[3]}")
 
 # Function to perform ChatGPT analysis
-# (keep your existing implementation of analyze_event)
-
 def analyze_event(currency, event, forecast, previous):
     analysis = "⚠️ ChatGPT analysis skipped"
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -111,7 +109,6 @@ IMPACT_MAP = {
     "ora": "Medium",
     "red": "High",
 }
-
 
 def scrape_forex_news():
     # Calculate date range: today + 7 days
@@ -151,8 +148,7 @@ def scrape_forex_news():
                 page = context.new_page()
 
                 # Format day as MonthDay.Year (e.g., May5.2025)
-                url = f"https://www.forexfactory.com/calendar?day={current.strftime('%b')}%{current.day}.{current.year}".replace('%', '')
-                # example: 'May5.2025'
+                url = f"https://www.forexfactory.com/calendar?day={current.strftime('%b')}{current.day}.{current.year}"
                 logger.debug(f"Navigating to URL: {url}")
 
                 try:
