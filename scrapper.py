@@ -209,16 +209,19 @@ def scrape_forex_news():
                 for row in rows:
                     # Time
                     time_cell = row.find("td", class_=lambda c: c and ("calendar__time" in c or "--time" in c))
-                    raw_time = time_cell.text.strip() if time_cell else None
+                    raw_time = time_cell.text.strip() if time_cell else ""
 
-                    # Handle invalid or missing time
-                    if not raw_time or raw_time.lower() == "all day":
+                    # Handle invalid time (e.g., "All Day")
+                    if raw_time.lower() in ["all day", "tentative"]:
                         logger.debug(f"Skipping event due to invalid time: {raw_time}")
                         continue
-                    elif raw_time:
+
+                    # Parse time or use last_time if missing
+                    if raw_time:
                         try:
                             event_time = datetime.strptime(raw_time, "%I:%M%p").strftime("%H:%M")
                             last_time = event_time  # Update last seen time
+                            logger.debug(f"Parsed time: {event_time}")
                         except ValueError:
                             logger.debug(f"Failed to parse time {raw_time}, skipping event")
                             continue
