@@ -113,8 +113,11 @@ IMPACT_MAP = {
 }
 
 
-def scrape_forex_news(start_day=1, end_day=11):
-    logger.info(f"Starting scraping from May {start_day} to May {end_day}...")
+def scrape_forex_news():
+    # Calculate date range: today + 7 days
+    start_date = datetime.now(prague_tz).date()
+    end_date = start_date + timedelta(days=7)
+    logger.info(f"Starting scraping from {start_date} to {end_date}...")
     db = Database()
 
     with sync_playwright() as p:
@@ -128,9 +131,9 @@ def scrape_forex_news(start_day=1, end_day=11):
             ]
         )
         try:
-            for day in range(start_day, end_day + 1):
-                target_date = datetime(2025, 5, day, tzinfo=prague_tz)
-                date_str = target_date.strftime("%Y-%m-%d")
+            current = start_date
+            while current <= end_date:
+                date_str = current.strftime("%Y-%m-%d")
                 logger.info(f"Scraping data for date: {date_str}")
 
                 context = browser.new_context(
@@ -147,7 +150,9 @@ def scrape_forex_news(start_day=1, end_day=11):
                 })
                 page = context.new_page()
 
-                url = f"https://www.forexfactory.com/calendar?day=May{day}.2025"
+                # Format day as MonthDay.Year (e.g., May5.2025)
+                url = f"https://www.forexfactory.com/calendar?day={current.strftime('%b')}%{current.day}.{current.year}".replace('%', '')
+                # example: 'May5.2025'
                 logger.debug(f"Navigating to URL: {url}")
 
                 try:
@@ -159,18 +164,21 @@ def scrape_forex_news(start_day=1, end_day=11):
                         page.wait_for_load_state("domcontentloaded", timeout=60000)
                     except PlaywrightTimeoutError as e:
                         logger.error(f"Failed loading {date_str}: {e}. Skipping.")
+                        current += timedelta(days=1)
                         continue
 
                 time.sleep(random.uniform(3, 5))
                 html = page.content()
                 if "Just a moment..." in html:
                     logger.error(f"Blocked by CAPTCHA on {date_str}. Skipping.")
+                    current += timedelta(days=1)
                     continue
 
                 soup = BeautifulSoup(html, "html.parser")
                 table = soup.find("table", class_="calendar__table")
                 if not table:
                     logger.error(f"No calendar table on {date_str}. Skipping.")
+                    current += timedelta(days=1)
                     continue
 
                 rows = table.find_all("tr", class_=lambda c: c and "calendar__row" in c)
@@ -207,10 +215,10 @@ def scrape_forex_news(start_day=1, end_day=11):
                     # Forecast, Previous, Actual
                     forecast = (row.find("td", class_=lambda c: c and "calendar__forecast" in c).text.strip()
                                 if row.find("td", class_=lambda c: c and "calendar__forecast" in c) else "N/A")
-                    previous = (row.find("td", class_=lambda c: c and "calendar__previous" in c).text.strip()
+                    previous = (row.find("td", class_:=lambda c: c and "calendar__previous" in c).text.strip()
                                 if row.find("td", class_=lambda c: c and "calendar__previous" in c) else "N/A")
                     actual = (row.find("td", class_=lambda c: c and "calendar__actual" in c).text.strip()
-                              if row.find("td", class_=lambda c: c and "calendar__actual" in c) else "N/A")
+                              if row.find("td":=lambda c: c and "calendar__actual" in c) else "N/A")
 
                     # Impact
                     impact = "N/A"
@@ -234,6 +242,7 @@ def scrape_forex_news(start_day=1, end_day=11):
                         logger.error(f"Insert failed for {date_str} {event}: {e}")
 
                 page.close()
+                current += timedelta(days=1)
 
         except Exception as e:
             logger.error(f"Scraping failed overall: {e}")
@@ -244,4 +253,4 @@ def scrape_forex_news(start_day=1, end_day=11):
     logger.info("Scraping completed successfully")
 
 if __name__ == "__main__":
-    scrape_forex_news(1, 11)
+    scrape_forex_news()
