@@ -57,6 +57,15 @@ class Database:
             conn.commit()
         logger.info("Database initialized successfully.")
 
+    def log_existing_events(self):
+        """Log all existing events in the database for debugging."""
+        with sqlite3.connect(self.db_name) as conn:
+            c = conn.cursor()
+            c.execute("SELECT date, time, currency, event FROM news")
+            existing_events = c.fetchall()
+            for event in existing_events:
+                logger.debug(f"Existing event in DB: {event}")
+
     def check_duplicate_event(self, date, time, currency, event):
         """Check if an event already exists in the database."""
         with sqlite3.connect(self.db_name) as conn:
@@ -78,6 +87,14 @@ class Database:
             ''', event_data)
             conn.commit()
         logger.info(f"Inserted/Updated event: {event_data[0]}, {event_data[1]}, {event_data[2]}, {event_data[3]}")
+
+    def clear_db(self):
+        """Clear all events from the database for a fresh scrape."""
+        with sqlite3.connect(self.db_name) as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM news")
+            conn.commit()
+        logger.info("Database cleared for fresh scrape.")
 
 # Function to perform ChatGPT analysis
 def analyze_event(currency, event, forecast, previous):
@@ -116,6 +133,12 @@ def scrape_forex_news():
     end_date = start_date + timedelta(days=7)
     logger.info(f"Starting scraping from {start_date} to {end_date}...")
     db = Database()
+
+    # Log existing events for debugging
+    db.log_existing_events()
+
+    # Optional: Clear database for fresh scrape (uncomment to enable)
+    # db.clear_db()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -186,26 +209,31 @@ def scrape_forex_news():
                     time_cell = row.find("td", class_=lambda c: c and ("calendar__time" in c or "--time" in c))
                     raw_time = time_cell.text.strip() if time_cell else None
                     if not raw_time or raw_time.lower() == "all day":
+                        logger.debug(f"Skipping event due to invalid time: {raw_time}")
                         continue
                     try:
                         event_time = datetime.strptime(raw_time, "%I:%M%p").strftime("%H:%M")
                     except ValueError:
+                        logger.debug(f"Failed to parse time {raw_time}, skipping event")
                         continue
 
                     # Currency
                     currency_td = row.find("td", class_=lambda c: c and "calendar__currency" in c)
                     currency = currency_td.text.strip() if currency_td else ""
                     if not currency:
+                        logger.debug("Skipping event due to missing currency")
                         continue
 
                     # Event name
                     event_td = row.find("td", class_=lambda c: c and "calendar__event" in c)
                     event = event_td.text.strip() if event_td else ""
                     if not event:
+                        logger.debug("Skipping event due to missing event name")
                         continue
 
                     # Duplicate
                     if db.check_duplicate_event(date_str, event_time, currency, event):
+                        logger.debug(f"Skipping duplicate event: {date_str}, {event_time}, {currency}, {event}")
                         continue
 
                     # Forecast, Previous, Actual

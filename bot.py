@@ -226,23 +226,28 @@ def scrape_forex_news(start_date: str, end_date: str) -> List[dict]:
                     time_cell = row.find("td", class_=lambda c: c and ("calendar__time" in c or "--time" in c))
                     raw_time = time_cell.text.strip() if time_cell else None
                     if not raw_time or raw_time.lower() == "all day":
+                        logger.debug(f"Skipping event due to invalid time: {raw_time}")
                         continue
                     try:
                         event_time = datetime.strptime(raw_time, "%I:%M%p").strftime("%H:%M")
                     except ValueError:
+                        logger.debug(f"Failed to parse time {raw_time}, skipping event")
                         continue
 
                     currency_td = row.find("td", class_=lambda c: c and "calendar__currency" in c)
                     currency = currency_td.text.strip() if currency_td else ""
                     if not currency:
+                        logger.debug("Skipping event due to missing currency")
                         continue
 
                     event_td = row.find("td", class_=lambda c: c and "calendar__event" in c)
                     event = event_td.text.strip() if event_td else ""
                     if not event:
+                        logger.debug("Skipping event due to missing event name")
                         continue
 
                     if db.check_duplicate_event(date_str, event_time, currency, event):
+                        logger.debug(f"Skipping duplicate event: {date_str}, {event_time}, {currency}, {event}")
                         continue
 
                     forecast = row.find("td", class_=lambda c: c and "calendar__forecast" in c)
@@ -260,7 +265,7 @@ def scrape_forex_news(start_date: str, end_date: str) -> List[dict]:
                             cls = next((cl for cl in span["class"] if cl.startswith("icon--ff-impact-")), "")
                             code = cls.rsplit("-", 1)[-1]
                             impact = IMPACT_MAP.get(code, "N/A")
-                    logger.debug(f"Scraped event impact: {impact} for {event}")
+                    logger.debug(f"Scraped event: {event}, time: {event_time}, currency: {currency}, impact: {impact}")
 
                     analysis = analyze_event([{"currency": currency, "event": event, "forecast": forecast,
                                              "previous": previous, "actual": actual}])
