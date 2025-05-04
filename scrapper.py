@@ -51,7 +51,7 @@ class Database:
                     actual TEXT,
                     impact TEXT,
                     analysis TEXT,
-                    UNIQUE(date, time, currency, event)
+                    UNIQUE(date, currency, event)
                 )
             ''')
             conn.commit()
@@ -72,8 +72,8 @@ class Database:
             c = conn.cursor()
             c.execute('''
                 SELECT COUNT(*) FROM news
-                WHERE date = ? AND time = ? AND currency = ? AND event = ?
-            ''', (date, time, currency, event))
+                WHERE date = ? AND currency = ? AND event = ?
+            ''', (date, currency, event))
             count = c.fetchone()[0]
         return count > 0
 
@@ -204,18 +204,32 @@ def scrape_forex_news():
                 rows = [r for r in rows if r.get("data-event-id")]
                 logger.info(f"Found {len(rows)} events for {date_str}")
 
+                last_time = None  # Track the last seen time for events with missing times
+
                 for row in rows:
                     # Time
                     time_cell = row.find("td", class_=lambda c: c and ("calendar__time" in c or "--time" in c))
                     raw_time = time_cell.text.strip() if time_cell else None
+
+                    # Handle invalid or missing time
                     if not raw_time or raw_time.lower() == "all day":
                         logger.debug(f"Skipping event due to invalid time: {raw_time}")
                         continue
-                    try:
-                        event_time = datetime.strptime(raw_time, "%I:%M%p").strftime("%H:%M")
-                    except ValueError:
-                        logger.debug(f"Failed to parse time {raw_time}, skipping event")
-                        continue
+                    elif raw_time:
+                        try:
+                            event_time = datetime.strptime(raw_time, "%I:%M%p").strftime("%H:%M")
+                            last_time = event_time  # Update last seen time
+                        except ValueError:
+                            logger.debug(f"Failed to parse time {raw_time}, skipping event")
+                            continue
+                    else:
+                        # If time is missing, use the last seen time
+                        if last_time:
+                            event_time = last_time
+                            logger.debug(f"Using last seen time {event_time} for event with missing time")
+                        else:
+                            logger.debug("No previous time available, skipping event with missing time")
+                            continue
 
                     # Currency
                     currency_td = row.find("td", class_=lambda c: c and "calendar__currency" in c)
