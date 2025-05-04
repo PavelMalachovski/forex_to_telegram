@@ -1,7 +1,7 @@
 import os
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 import pytz
 import random
@@ -80,6 +80,8 @@ class Database:
         logger.info(f"Inserted/Updated event: {event_data[0]}, {event_data[1]}, {event_data[2]}, {event_data[3]}")
 
 # Function to perform ChatGPT analysis
+# (keep your existing implementation of analyze_event)
+
 def analyze_event(currency, event, forecast, previous):
     analysis = "⚠️ ChatGPT analysis skipped"
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -102,14 +104,18 @@ def analyze_event(currency, event, forecast, previous):
             logger.error(f"ChatGPT analysis failed: {e}")
     return analysis
 
-def scrape_forex_news():
-    logger.info("Starting scraping process...")
-    db = Database()
+# Impact mapping: CSS suffix to human-readable category
+IMPACT_MAP = {
+    "gra": "Non-Economic",
+    "yel": "Low",
+    "ora": "Medium",
+    "red": "High",
+}
 
-    # Set the specific date to May 1, 2025
-    target_date = datetime(2025, 5, 1, tzinfo=prague_tz)
-    date_str = target_date.strftime("%Y-%m-%d")
-    logger.info(f"Scraping data for date: {date_str}")
+
+def scrape_forex_news(start_day=1, end_day=11):
+    logger.info(f"Starting scraping from May {start_day} to May {end_day}...")
+    db = Database()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -122,40 +128,11 @@ def scrape_forex_news():
             ]
         )
         try:
-            context = browser.new_context(
-                user_agent=random.choice(USER_AGENTS),
-                viewport={"width": 1280, "height": 720},
-                java_script_enabled=True,
-                bypass_csp=True,
-            )
-            context.set_extra_http_headers({
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1",
-            })
-            page = context.new_page()
+            for day in range(start_day, end_day + 1):
+                target_date = datetime(2025, 5, day, tzinfo=prague_tz)
+                date_str = target_date.strftime("%Y-%m-%d")
+                logger.info(f"Scraping data for date: {date_str}")
 
-            # Use the daily calendar URL for May 1, 2025
-            url = f"https://www.forexfactory.com/calendar?day=May1.2025"
-            logger.debug(f"Navigating to URL: {url}")
-
-            try:
-                page.goto(url, timeout=60000)
-                page.wait_for_load_state("networkidle", timeout=60000)
-            except PlaywrightTimeoutError as e:
-                logger.warning(f"Networkidle failed: {e}. Falling back to domcontentloaded.")
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=60000)
-                except PlaywrightTimeoutError as e:
-                    logger.error(f"Domcontentloaded failed: {e}. Skipping date {date_str}.")
-                    return
-
-            time.sleep(random.uniform(3, 5))  # Random delay to avoid detection
-
-            html = page.content()
-            if "Just a moment..." in html:
-                logger.error("Blocked by Cloudflare CAPTCHA. Rotating User-Agent and retrying.")
                 context = browser.new_context(
                     user_agent=random.choice(USER_AGENTS),
                     viewport={"width": 1280, "height": 720},
@@ -169,106 +146,97 @@ def scrape_forex_news():
                     "Upgrade-Insecure-Requests": "1",
                 })
                 page = context.new_page()
+
+                url = f"https://www.forexfactory.com/calendar?day=May{day}.2025"
+                logger.debug(f"Navigating to URL: {url}")
+
                 try:
                     page.goto(url, timeout=60000)
                     page.wait_for_load_state("networkidle", timeout=60000)
-                except PlaywrightTimeoutError:
-                    logger.error("Still blocked by Cloudflare after retry. Skipping date.")
-                    return
-
-            soup = BeautifulSoup(html, "html.parser")
-            table = soup.find("table", class_="calendar__table")
-            if not table:
-                tables = soup.find_all("table")
-                for t in tables:
-                    if "calendar" in str(t.get("class", [])) or "event" in str(t.get("class", [])):
-                        table = t
-                        break
-                if not table:
-                    logger.error(f"Could not find the calendar table for date {date_str}.")
-                    return
-
-            logger.info(f"Found table for date {date_str} with classes: {table.get('class', [])}")
-            rows = table.find_all("tr", class_=lambda c: c and "calendar__row" in c)
-            rows = [r for r in rows if r.get("data-event-id")]
-            logger.info(f"Found {len(rows)} rows for date {date_str}")
-
-            for idx, row in enumerate(rows):
-                if idx == 0:
-                    logger.debug(f"First row HTML: {row.prettify()[:500]}")
-
-                logger.debug(f"Event row HTML: {row.prettify()[:1000]}")
-                possible_time_classes = [
-                    "calendar__cell calendar__time",
-                    "calendar__cell--time",
-                    "time",
-                ]
-                time_cell = None
-                for time_class in possible_time_classes:
-                    time_cell = row.find("td", class_=time_class)
-                    if time_cell:
-                        break
-
-                raw_time = time_cell.text.strip() if time_cell and time_cell.text.strip() else None
-                logger.debug(f"Raw time text: {raw_time}")
-                if raw_time and raw_time.lower() == "all day":
-                    logger.info(f"Skipping 'all day' event for date {date_str}")
-                    continue
-
-                event_time = None
-                if raw_time:
+                except PlaywrightTimeoutError as e:
+                    logger.warning(f"Networkidle failed on {date_str}: {e}. Falling back to domcontentloaded.")
                     try:
-                        time_obj = datetime.strptime(raw_time, "%I:%M%p")
-                        event_time = time_obj.strftime("%H:%M")
-                        logger.debug(f"Parsed time: {event_time}")
-                    except ValueError as e:
-                        logger.warning(f"Could not parse time '{raw_time}': {e}")
+                        page.wait_for_load_state("domcontentloaded", timeout=60000)
+                    except PlaywrightTimeoutError as e:
+                        logger.error(f"Failed loading {date_str}: {e}. Skipping.")
                         continue
-                else:
-                    logger.warning(f"Skipping event: No time found for date {date_str}")
+
+                time.sleep(random.uniform(3, 5))
+                html = page.content()
+                if "Just a moment..." in html:
+                    logger.error(f"Blocked by CAPTCHA on {date_str}. Skipping.")
                     continue
 
-                if not event_time:
+                soup = BeautifulSoup(html, "html.parser")
+                table = soup.find("table", class_="calendar__table")
+                if not table:
+                    logger.error(f"No calendar table on {date_str}. Skipping.")
                     continue
 
-                currency_td = row.find("td", class_=lambda c: c and "calendar__currency" in c)
-                currency = currency_td.text.strip() if currency_td else ""
-                if not currency:
-                    logger.warning(f"Skipping event: No currency found for date {date_str}, time {event_time}")
-                    continue
+                rows = table.find_all("tr", class_=lambda c: c and "calendar__row" in c)
+                rows = [r for r in rows if r.get("data-event-id")]
+                logger.info(f"Found {len(rows)} events for {date_str}")
 
-                event_td = row.find("td", class_=lambda c: c and "calendar__event" in c)
-                event = event_td.text.strip() if event_td else ""
-                if not event:
-                    logger.warning(f"Skipping event: No event name found for date {date_str}, time {event_time}, currency {currency}")
-                    continue
+                for row in rows:
+                    # Time
+                    time_cell = row.find("td", class_=lambda c: c and ("calendar__time" in c or "--time" in c))
+                    raw_time = time_cell.text.strip() if time_cell else None
+                    if not raw_time or raw_time.lower() == "all day":
+                        continue
+                    try:
+                        event_time = datetime.strptime(raw_time, "%I:%M%p").strftime("%H:%M")
+                    except ValueError:
+                        continue
 
-                if db.check_duplicate_event(date_str, event_time, currency, event):
-                    logger.info(f"Skipping duplicate event: {date_str}, {event_time}, {currency}, {event}")
-                    continue
+                    # Currency
+                    currency_td = row.find("td", class_=lambda c: c and "calendar__currency" in c)
+                    currency = currency_td.text.strip() if currency_td else ""
+                    if not currency:
+                        continue
 
-                impact = row.find("td", class_="calendar__cell--impact")
-                impact = impact.find("span")["class"][-1].split("-")[-1] if impact and impact.find("span") else "N/A"
-                forecast_td = row.find("td", class_=lambda c: c and "calendar__forecast" in c)
-                forecast = forecast_td.text.strip() if forecast_td else "N/A"
-                previous_td = row.find("td", class_=lambda c: c and "calendar__previous" in c)
-                previous = previous_td.text.strip() if previous_td else "N/A"
-                actual_td = row.find("td", class_=lambda c: c and "calendar__actual" in c)
-                actual = actual_td.text.strip() if actual_td else "N/A"
+                    # Event name
+                    event_td = row.find("td", class_=lambda c: c and "calendar__event" in c)
+                    event = event_td.text.strip() if event_td else ""
+                    if not event:
+                        continue
 
-                if not (date_str and event_time and currency and event):
-                    logger.warning(f"Skipping incomplete event: {date_str}, {event_time}, {currency}, {event}")
-                    continue
+                    # Duplicate
+                    if db.check_duplicate_event(date_str, event_time, currency, event):
+                        continue
 
-                analysis = analyze_event(currency, event, forecast, previous)
-                event_data = (date_str, event_time, currency, event, forecast, previous, actual, impact, analysis)
-                try:
-                    db.insert_event(event_data)
-                except Exception as e:
-                    logger.error(f"Failed to insert event into DB: {e}")
+                    # Forecast, Previous, Actual
+                    forecast = (row.find("td", class_=lambda c: c and "calendar__forecast" in c).text.strip()
+                                if row.find("td", class_=lambda c: c and "calendar__forecast" in c) else "N/A")
+                    previous = (row.find("td", class_=lambda c: c and "calendar__previous" in c).text.strip()
+                                if row.find("td", class_=lambda c: c and "calendar__previous" in c) else "N/A")
+                    actual = (row.find("td", class_=lambda c: c and "calendar__actual" in c).text.strip()
+                              if row.find("td", class_=lambda c: c and "calendar__actual" in c) else "N/A")
+
+                    # Impact
+                    impact = "N/A"
+                    impact_td = row.find("td", class_=lambda c: c and "calendar__impact" in c)
+                    if impact_td:
+                        span = impact_td.find("span", class_=lambda cl: cl and cl.startswith("icon--ff-impact-"))
+                        if span:
+                            cls = next((cl for cl in span["class"] if cl.startswith("icon--ff-impact-")), "")
+                            code = cls.rsplit("-", 1)[-1]
+                            impact = IMPACT_MAP.get(code, "N/A")
+
+                    # Analysis
+                    analysis = analyze_event(currency, event, forecast, previous)
+                    event_data = (date_str, event_time, currency, event, forecast, previous, actual, impact, analysis)
+
+                    # Insert
+                    logger.debug(f"Inserting: {event_data}")
+                    try:
+                        db.insert_event(event_data)
+                    except Exception as e:
+                        logger.error(f"Insert failed for {date_str} {event}: {e}")
+
+                page.close()
 
         except Exception as e:
-            logger.error(f"Scraping failed: {e}")
+            logger.error(f"Scraping failed overall: {e}")
         finally:
             browser.close()
             logger.info("Browser closed.")
@@ -276,4 +244,4 @@ def scrape_forex_news():
     logger.info("Scraping completed successfully")
 
 if __name__ == "__main__":
-    scrape_forex_news()
+    scrape_forex_news(1, 11)
