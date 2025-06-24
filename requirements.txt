@@ -25,6 +25,9 @@ python-json-logger==2.0.7
 # Progress bars (optional)
 tqdm>=4.0
 
+# Retry functionality (optional)
+tenacity>=8.0.0
+
 # Development and testing
 pytest==7.4.3
 pytest-asyncio==0.21.1

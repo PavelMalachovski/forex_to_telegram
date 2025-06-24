@@ -41,8 +41,15 @@ class BotHandlers:
             
             # Check if callback query is not too old (older than 1 hour is considered stale)
             if hasattr(call, 'message') and call.message:
-                message_time = datetime.fromtimestamp(call.message.date)
+                # Создаем aware datetime из timestamp
+                import pytz
+                message_time = datetime.fromtimestamp(call.message.date, tz=pytz.UTC)
                 current_time = get_current_time()
+                
+                # Конвертируем в одинаковый часовой пояс для корректного сравнения
+                if current_time.tzinfo != message_time.tzinfo:
+                    message_time = message_time.astimezone(current_time.tzinfo)
+                
                 time_diff = current_time - message_time
                 
                 if time_diff.total_seconds() > 3600:  # 1 hour

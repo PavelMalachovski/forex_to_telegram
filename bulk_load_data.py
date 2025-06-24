@@ -50,7 +50,40 @@ except ImportError:
         def set_postfix(self, postfix_dict):
             pass  # Игнорируем постфикс в fallback режиме
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+# Опциональный импорт tenacity для retry функциональности
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    TENACITY_AVAILABLE = True
+except ImportError:
+    TENACITY_AVAILABLE = False
+    # Создаем заглушки для tenacity декораторов
+    def retry(*args, **kwargs):
+        """Fallback decorator when tenacity is not available."""
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                # Простая реализация retry без tenacity
+                max_attempts = 3
+                for attempt in range(max_attempts):
+                    try:
+                        return func(*args, **kwargs)
+                    except Exception as e:
+                        if attempt == max_attempts - 1:
+                            raise e
+                        logger.warning(f"Попытка {attempt + 1} неудачна: {e}. Повторяем...")
+                        time.sleep(2 ** attempt)  # Экспоненциальная задержка
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
+    
+    # Заглушки для других функций tenacity
+    def stop_after_attempt(attempts):
+        return None
+    
+    def wait_exponential(multiplier=1, min=1, max=10):
+        return None
+    
+    def retry_if_exception_type(exception_type):
+        return None
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_
 
@@ -70,9 +103,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Информация о доступности tqdm
+# Информация о доступности библиотек
 if not TQDM_AVAILABLE:
     logger.info("tqdm не установлен - используется упрощенный индикатор прогресса")
+if not TENACITY_AVAILABLE:
+    logger.info("tenacity не установлен - используется упрощенная реализация retry")
 
 class BulkDataLoader:
     """Класс для массовой загрузки данных."""
