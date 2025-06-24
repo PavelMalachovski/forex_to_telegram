@@ -203,6 +203,42 @@ The bot provides API endpoints for Make.com automation:
 - `/settings` - Configure notification preferences
 - `/help` - Show help message
 
+## Data Management Scripts
+
+### Bulk Data Loading
+
+Use `bulk_load_data.py` for loading historical forex data:
+
+```bash
+# Load data for a specific period
+python bulk_load_data.py --from 2024-06-01 --to 2024-06-30
+
+# Load data from start of year to today
+python bulk_load_data.py --from 2024-01-01 --to today
+
+# Load without overwriting existing data
+python bulk_load_data.py --from 2024-06-01 --to 2024-06-30 --no-overwrite
+
+# Verbose logging
+python bulk_load_data.py --from 2024-06-01 --to 2024-06-30 --verbose
+```
+
+**Progress Display**: The script uses `tqdm` for progress bars. If `tqdm` is not installed, it will automatically fall back to a simple text-based progress indicator.
+
+**Installation with progress bars**:
+```bash
+pip install tqdm
+# or
+pip install -r requirements.txt  # tqdm is included as optional dependency
+```
+
+### Database Initialization
+
+Initialize database with reference data:
+```bash
+python init_data.py
+```
+
 ## Development
 
 ### Project Structure

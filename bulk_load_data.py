@@ -1,4 +1,5 @@
 
+
 #!/usr/bin/env python3
 """
 Скрипт для массовой загрузки данных за указанный период.
@@ -18,7 +19,37 @@ from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple
 import time
 
-from tqdm import tqdm
+# Опциональный импорт tqdm для прогресс-бара
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+    # Создаем заглушку для tqdm
+    class tqdm:
+        def __init__(self, total=None, desc="", **kwargs):
+            self.total = total
+            self.desc = desc
+            self.current = 0
+            print(f"{desc}: 0/{total}")
+        
+        def __enter__(self):
+            return self
+        
+        def __exit__(self, *args):
+            print(f"{self.desc}: {self.current}/{self.total} - Завершено")
+        
+        def update(self, n=1):
+            self.current += n
+            if self.total and self.current % max(1, self.total // 10) == 0:
+                print(f"{self.desc}: {self.current}/{self.total}")
+        
+        def set_description(self, desc):
+            self.desc = desc
+        
+        def set_postfix(self, postfix_dict):
+            pass  # Игнорируем постфикс в fallback режиме
+
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_
@@ -38,6 +69,10 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Информация о доступности tqdm
+if not TQDM_AVAILABLE:
+    logger.info("tqdm не установлен - используется упрощенный индикатор прогресса")
 
 class BulkDataLoader:
     """Класс для массовой загрузки данных."""
@@ -409,6 +444,8 @@ def main():
   python bulk_load_data.py --from 2024-06-01 --to 2024-06-30    # Загрузить данные за июнь 2024
   python bulk_load_data.py --from 2024-01-01 --to today         # Загрузить данные с начала года
   python bulk_load_data.py --from 2024-06-01 --to 2024-06-30 --no-overwrite  # Не перезаписывать существующие
+
+Примечание: Для лучшего отображения прогресса установите tqdm: pip install tqdm
         """
     )
     
