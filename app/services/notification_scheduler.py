@@ -12,7 +12,7 @@ from apscheduler.triggers.date import DateTrigger
 
 from app.database.models import NewsEvent, BotUser, UserNotificationSettings
 from app.services.news_service import NewsService
-from app.utils.timezone_utils import get_current_time
+from app.utils.timezone_utils import get_current_time, get_local_timezone
 from app.utils.text_utils import format_news_message, escape_markdown_v2
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,10 @@ class NotificationScheduler:
                     logger.debug(f"Event {event.event_name} already scheduled, skipping")
                     continue
                 
-                event_datetime = datetime.combine(event.event_date, event.event_time)
+                # Create timezone-aware datetime
+                local_tz = get_local_timezone()
+                naive_datetime = datetime.combine(event.event_date, event.event_time)
+                event_datetime = local_tz.localize(naive_datetime)
                 notifications_scheduled = False
                 
                 for user in users_with_notifications:
