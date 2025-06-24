@@ -31,6 +31,8 @@ class Config:
     
     # Deployment Configuration
     RENDER_EXTERNAL_HOSTNAME: Optional[str] = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+    WEBHOOK_MODE: Optional[str] = os.getenv('WEBHOOK_MODE')  # Force webhook mode
+    WEBHOOK_URL: Optional[str] = os.getenv('WEBHOOK_URL')    # Custom webhook URL
     
     # Logging Configuration
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
@@ -83,6 +85,19 @@ class Config:
                 return False
         
         return True
+    
+    @classmethod
+    def is_production(cls) -> bool:
+        """Check if running in production environment."""
+        return cls.RENDER_EXTERNAL_HOSTNAME is not None
+    
+    @classmethod
+    def is_webhook_mode(cls) -> bool:
+        """Check if webhook mode should be used."""
+        return (
+            cls.is_production() or
+            cls.WEBHOOK_MODE and cls.WEBHOOK_MODE.lower() == 'true'
+        )
 
 # Global config instance
 config = Config()
