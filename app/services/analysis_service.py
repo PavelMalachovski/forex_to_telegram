@@ -40,7 +40,7 @@ class AnalysisService:
         Returns:
             Analysis text
         """
-        if not self.api_key:
+        if not self.api_key or self.api_key.startswith('your_'):
             return "⚠️ ChatGPT analysis skipped - API key not configured"
         
         try:
@@ -51,8 +51,8 @@ class AnalysisService:
             return self._make_api_request(prompt)
             
         except Exception as e:
-            logger.error(f"ChatGPT analysis failed for single event: {e}")
-            return "⚠️ ChatGPT analysis failed"
+            logger.error(f"ChatGPT analysis failed for single event: {e}", exc_info=True)
+            return f"⚠️ ChatGPT analysis failed: {str(e)}"
     
     def analyze_combined_events(self, events: List[Dict]) -> str:
         """
@@ -64,16 +64,16 @@ class AnalysisService:
         Returns:
             Combined analysis text
         """
-        if not events or not self.api_key:
-            return "⚠️ ChatGPT analysis skipped"
+        if not events or not self.api_key or self.api_key.startswith('your_'):
+            return "⚠️ ChatGPT analysis skipped - API key not configured"
         
         try:
             prompt = self._build_combined_events_prompt(events)
             return self._make_api_request(prompt)
             
         except Exception as e:
-            logger.error(f"ChatGPT analysis failed for combined events: {e}")
-            return "⚠️ ChatGPT analysis failed"
+            logger.error(f"ChatGPT analysis failed for combined events: {e}", exc_info=True)
+            return f"⚠️ ChatGPT analysis failed: {str(e)}"
     
     def _build_single_event_prompt(
         self,

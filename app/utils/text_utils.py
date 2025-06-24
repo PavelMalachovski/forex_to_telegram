@@ -9,6 +9,7 @@ import re
 from typing import List
 from datetime import datetime
 from app.database.models import NewsEvent
+from app.utils.timezone_utils import format_time_for_display
 
 
 def escape_markdown_v2(text: str) -> str:
@@ -121,7 +122,7 @@ def format_news_message(news_events: List[NewsEvent], date_str: str, impact_leve
     for event in news_events:
         # Create key from date, time, and currency
         event_date = event.event_date.strftime('%Y-%m-%d')
-        event_time = event.event_time.strftime('%H:%M') if event.event_time else 'N/A'
+        event_time = format_time_for_display(event.event_time) if event.event_time else 'N/A'
         currency = event.currency.code if event.currency else 'Unknown'
         
         key = (event_date, event_time, currency)

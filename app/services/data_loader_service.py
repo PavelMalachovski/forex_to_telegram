@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import config
 from app.services.news_service import NewsService
 from app.scrapers.forex_factory_scraper import ForexFactoryScraper
+from app.utils.timezone_utils import get_current_time
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class DataLoaderService:
         
         try:
             # Calculate date range: yesterday + days_ahead
-            start_date = (datetime.now() - timedelta(days=1)).date()
+            start_date = (get_current_time() - timedelta(days=1)).date()
             end_date = start_date + timedelta(days=days_ahead)
             
             logger.info(f"Loading data for date range: {start_date} to {end_date}")
@@ -61,7 +62,7 @@ class DataLoaderService:
         logger.info("Starting data loading for today")
         
         try:
-            today = datetime.now().date()
+            today = get_current_time().date()
             return self._load_data_for_range(today, today)
             
         except Exception as e:
@@ -85,7 +86,7 @@ class DataLoaderService:
             Dictionary with loading results
         """
         # Track loading metrics
-        start_time = datetime.now()
+        start_time = get_current_time()
         events_loaded = 0
         events_updated = 0
         errors_count = 0
@@ -134,7 +135,7 @@ class DataLoaderService:
             errors_count += 1
         
         # Calculate duration
-        duration_seconds = int((datetime.now() - start_time).total_seconds())
+        duration_seconds = int((get_current_time() - start_time).total_seconds())
         
         # Log scraping session
         self.news_service.log_scraping_session(

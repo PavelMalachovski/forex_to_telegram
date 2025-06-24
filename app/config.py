@@ -40,7 +40,7 @@ class Config:
     # Scheduler Configuration
     SCRAPER_SCHEDULE_HOUR: int = int(os.getenv('SCRAPER_SCHEDULE_HOUR', '3'))
     SCRAPER_SCHEDULE_MINUTE: int = int(os.getenv('SCRAPER_SCHEDULE_MINUTE', '0'))
-    TIMEZONE: str = os.getenv('TIMEZONE', 'Europe/Prague')
+    TIMEZONE: str = os.getenv('TIMEZONE', os.getenv('TZ', 'Europe/Berlin'))
     
     # Application Configuration
     FLASK_PORT: int = int(os.getenv('FLASK_PORT', '5000'))

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 from app.config import config
 from app.utils.logging_config import setup_logging
+from app.utils.timezone_utils import get_current_time_iso
 from app.database.connection import init_database, SessionLocal
 from app.services.data_loader_service import DataLoaderService
 from app.services.today_service import TodayService
@@ -41,7 +42,7 @@ def health_check():
     """Health check endpoint."""
     return jsonify({
         'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': get_current_time_iso(),
         'bot_available': bot is not None
     })
 
@@ -71,7 +72,7 @@ def load_data():
             return jsonify({
                 'success': result['status'] in ['success', 'partial'],
                 'result': result,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': get_current_time_iso()
             })
             
         finally:
@@ -82,7 +83,7 @@ def load_data():
         return jsonify({
             'success': False,
             'error': str(e),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_current_time_iso()
         }), 500
 
 @app.route('/api/send-today', methods=['POST'])
@@ -98,7 +99,7 @@ def send_today():
             return jsonify({
                 'success': False,
                 'error': 'Telegram bot not available',
-                'timestamp': datetime.now().isoformat()
+                'timestamp': get_current_time_iso()
             }), 500
         
         # Initialize database session
@@ -114,7 +115,7 @@ def send_today():
             return jsonify({
                 'success': result['status'] in ['success', 'partial'],
                 'result': result,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': get_current_time_iso()
             })
             
         finally:
@@ -125,7 +126,7 @@ def send_today():
         return jsonify({
             'success': False,
             'error': str(e),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_current_time_iso()
         }), 500
 
 @app.route('/api/status', methods=['GET'])
@@ -148,7 +149,7 @@ def get_status():
             'database_status': db_status,
             'bot_available': bot is not None,
             'timezone': config.TIMEZONE,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_current_time_iso()
         })
         
     except Exception as e:
@@ -156,7 +157,7 @@ def get_status():
         return jsonify({
             'api_status': 'error',
             'error': str(e),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_current_time_iso()
         }), 500
 
 if __name__ == '__main__':

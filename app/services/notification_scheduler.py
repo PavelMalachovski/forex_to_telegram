@@ -12,6 +12,7 @@ from apscheduler.triggers.date import DateTrigger
 
 from app.database.models import NewsEvent, BotUser, UserNotificationSettings
 from app.services.news_service import NewsService
+from app.utils.timezone_utils import get_current_time
 from app.utils.text_utils import format_news_message, escape_markdown_v2
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ class NotificationScheduler:
                     # Schedule 15-minute notification
                     if settings.notify_15_minutes:
                         notify_time = event_datetime - timedelta(minutes=15)
-                        if notify_time > datetime.now():
+                        if notify_time > get_current_time():
                             self._schedule_single_notification(
                                 user.telegram_user_id,
                                 event,
@@ -78,7 +79,7 @@ class NotificationScheduler:
                     # Schedule 30-minute notification
                     if settings.notify_30_minutes:
                         notify_time = event_datetime - timedelta(minutes=30)
-                        if notify_time > datetime.now():
+                        if notify_time > get_current_time():
                             self._schedule_single_notification(
                                 user.telegram_user_id,
                                 event,
@@ -90,7 +91,7 @@ class NotificationScheduler:
                     # Schedule 60-minute notification
                     if settings.notify_60_minutes:
                         notify_time = event_datetime - timedelta(minutes=60)
-                        if notify_time > datetime.now():
+                        if notify_time > get_current_time():
                             self._schedule_single_notification(
                                 user.telegram_user_id,
                                 event,
@@ -177,7 +178,7 @@ class NotificationScheduler:
     
     def cleanup_old_events(self):
         """Очистка устаревших событий из отслеживания."""
-        current_time = datetime.now()
+        current_time = get_current_time()
         events_to_remove = set()
         
         for event_key in self.scheduled_events:

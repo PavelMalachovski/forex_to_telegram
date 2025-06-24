@@ -18,6 +18,7 @@ from app.database.models import User, NewsEvent, ImpactLevel
 from app.services.news_service import NewsService
 from app.services.user_service import UserService
 from app.utils.text_utils import escape_markdown_v2, format_news_message
+from app.utils.timezone_utils import get_current_time, format_time_for_display, format_datetime_for_display
 from app.bot.utils.calendar import create_calendar_markup, process_calendar_callback, get_date_selection_message
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class BotHandlers:
             # Check if callback query is not too old (older than 1 hour is considered stale)
             if hasattr(call, 'message') and call.message:
                 message_time = datetime.fromtimestamp(call.message.date)
-                current_time = datetime.now()
+                current_time = get_current_time()
                 time_diff = current_time - message_time
                 
                 if time_diff.total_seconds() > 3600:  # 1 hour
@@ -275,7 +276,7 @@ class BotHandlers:
         
         with self.db_session_factory() as db:
             try:
-                today = datetime.now().date()
+                today = get_current_time().date()
                 news_service = NewsService(db)
                 
                 # Show loading message
@@ -342,7 +343,7 @@ class BotHandlers:
         
         with self.db_session_factory() as db:
             try:
-                tomorrow = datetime.now().date() + timedelta(days=1)
+                tomorrow = get_current_time().date() + timedelta(days=1)
                 news_service = NewsService(db)
                 
                 # Show loading message
@@ -407,7 +408,7 @@ class BotHandlers:
         """Handle /week command."""
         with self.db_session_factory() as db:
             try:
-                today = datetime.now().date()
+                today = get_current_time().date()
                 week_end = today + timedelta(days=7)
                 
                 news_service = NewsService(db)
@@ -576,7 +577,7 @@ class BotHandlers:
         with self.db_session_factory() as db:
             try:
                 impact_level = call.data.replace('impact_', '')
-                today = datetime.now().date()
+                today = get_current_time().date()
                 
                 # Edit message to show loading
                 self.bot.edit_message_text(
@@ -815,7 +816,7 @@ class BotHandlers:
                 
                 elif action == "today":
                     # Select today's date
-                    selected_date = datetime.now().date()
+                    selected_date = get_current_time().date()
                 
                 elif action == "select":
                     # Date was selected

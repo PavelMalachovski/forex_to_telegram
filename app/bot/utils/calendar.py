@@ -8,6 +8,7 @@ import calendar
 from datetime import datetime, date, timedelta
 from typing import Tuple, Optional
 from telebot import types
+from app.utils.timezone_utils import get_current_time
 
 
 class InlineCalendar:
@@ -32,7 +33,7 @@ class InlineCalendar:
         Returns:
             InlineKeyboardMarkup with calendar
         """
-        now = datetime.now()
+        now = get_current_time()
         if year is None:
             year = now.year
         if month is None:
@@ -62,7 +63,7 @@ class InlineCalendar:
         
         # Calendar days
         cal = calendar.monthcalendar(year, month)
-        today = datetime.now().date()
+        today = get_current_time().date()
         
         for week in cal:
             week_buttons = []
@@ -119,7 +120,7 @@ class InlineCalendar:
             return action, None, (year, month)
         
         elif action == "today":
-            return "today", datetime.now().date(), None
+            return "today", get_current_time().date(), None
         
         elif action == "close":
             return "close", None, None

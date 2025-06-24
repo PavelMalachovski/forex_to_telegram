@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 from app.config import config
 from app.utils.logging_config import setup_logging
+from app.utils.timezone_utils import get_current_time_iso
 from app.database.connection import init_database, SessionLocal
 from app.bot.handlers import BotHandlers
 from app.services.data_loader_service import DataLoaderService
@@ -120,7 +121,7 @@ class TelegramBotApplication:
             return jsonify({
                 'status': 'healthy',
                 'mode': 'webhook' if self.is_webhook_mode else 'polling',
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': get_current_time_iso(),
                 'bot_available': self.bot is not None
             })
         
@@ -158,7 +159,7 @@ class TelegramBotApplication:
                     return jsonify({
                         'success': result['status'] in ['success', 'partial'],
                         'result': result,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': get_current_time_iso()
                     })
                 finally:
                     db.close()
@@ -168,7 +169,7 @@ class TelegramBotApplication:
                 return jsonify({
                     'success': False,
                     'error': str(e),
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': get_current_time_iso()
                 }), 500
         
         @self.flask_app.route('/api/send-today', methods=['POST'])
@@ -180,7 +181,7 @@ class TelegramBotApplication:
                     return jsonify({
                         'success': False,
                         'error': 'Telegram bot not available',
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': get_current_time_iso()
                     }), 500
                 
                 db = SessionLocal()
@@ -193,7 +194,7 @@ class TelegramBotApplication:
                     return jsonify({
                         'success': result['status'] in ['success', 'partial'],
                         'result': result,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': get_current_time_iso()
                     })
                 finally:
                     db.close()
@@ -203,7 +204,7 @@ class TelegramBotApplication:
                 return jsonify({
                     'success': False,
                     'error': str(e),
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': get_current_time_iso()
                 }), 500
         
         @self.flask_app.route('/api/status', methods=['GET'])
@@ -225,7 +226,7 @@ class TelegramBotApplication:
                     'bot_available': self.bot is not None,
                     'webhook_url': self.webhook_url,
                     'timezone': config.TIMEZONE,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': get_current_time_iso()
                 })
                 
             except Exception as e:
@@ -233,7 +234,7 @@ class TelegramBotApplication:
                 return jsonify({
                     'api_status': 'error',
                     'error': str(e),
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': get_current_time_iso()
                 }), 500
     
     def _setup_webhook(self):
