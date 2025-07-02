@@ -44,7 +44,7 @@
   },
   "scheduler_test": {
     "scheduler_initialized": true,
-    "jobs_scheduled": 12,
+    "jobs_scheduled": 0,
     "error": null
   },
   "logic_test": {
@@ -55,19 +55,19 @@
         "chat_id": 123456789,
         "text": "\ud83d\udea8 *HIGH IMPACT EVENT ALERT* \ud83d\udea8\n\n\ud83d\udd34 *HIGH* impact in *15 minutes*\n\n\u23f0 Time: 05:15 CET\n\ud83d\udcb1 Currency: $ USD\n\ud83d\udcf0 Event: ADP Non\\-Farm Employment Change\n\ud83d\udcc8 Forecast: 99K\n\ud83d\udcca Previous: 29K\n\n\ud83d\udd0d Analysis: \u26a0\ufe0f ChatGPT analysis skipped \\- API key not configured\n\n\ud83d\udca1 *Prepare for potential market volatility\\!*",
         "parse_mode": "MarkdownV2",
-        "timestamp": "2025-07-02T16:39:25.421882"
+        "timestamp": "2025-07-02T17:25:37.751045"
       },
       {
         "chat_id": 123456789,
         "text": "\ud83d\udea8 *HIGH IMPACT EVENT ALERT* \ud83d\udea8\n\n\ud83d\udd34 *HIGH* impact in *15 minutes*\n\n\u23f0 Time: 23:30 CET\n\ud83d\udcb1 Currency: \u20a3 CHF\n\ud83d\udcf0 Event: CPI m/m\n\ud83d\udcc8 Forecast: 0\\.1%\n\ud83d\udcca Previous: 0\\.1%\n\n\ud83d\udd0d Analysis: \u26a0\ufe0f ChatGPT analysis skipped \\- API key not configured\n\n\ud83d\udca1 *Prepare for potential market volatility\\!*",
         "parse_mode": "MarkdownV2",
-        "timestamp": "2025-07-02T16:39:25.433036"
+        "timestamp": "2025-07-02T17:25:37.761015"
       },
       {
         "chat_id": 123456789,
         "text": "\ud83d\udea8 *HIGH IMPACT EVENT ALERT* \ud83d\udea8\n\n\ud83d\udd34 *HIGH* impact in *15 minutes*\n\n\u23f0 Time: 05:30 CET\n\ud83d\udcb1 Currency: $ USD\n\ud83d\udcf0 Event: Average Hourly Earnings m/m\n\ud83d\udcc8 Forecast: 0\\.3%\n\ud83d\udcca Previous: 0\\.4%\n\n\ud83d\udd0d Analysis: \u26a0\ufe0f ChatGPT analysis skipped \\- API key not configured\n\n\ud83d\udca1 *Prepare for potential market volatility\\!*",
         "parse_mode": "MarkdownV2",
-        "timestamp": "2025-07-02T16:39:25.433186"
+        "timestamp": "2025-07-02T17:25:37.761130"
       }
     ],
     "error": null

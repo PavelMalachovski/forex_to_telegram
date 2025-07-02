@@ -7,8 +7,16 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Set
 from sqlalchemy.orm import Session
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.date import DateTrigger
+
+# Optional APScheduler import with fallback
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.date import DateTrigger
+    APSCHEDULER_AVAILABLE = True
+except ImportError:
+    APSCHEDULER_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("APScheduler not available. Notification scheduling will be disabled.")
 
 from app.database.models import NewsEvent, BotUser, UserNotificationSettings
 from app.services.news_service import NewsService
@@ -17,16 +25,44 @@ from app.utils.text_utils import format_news_message, escape_markdown_v2
 
 logger = logging.getLogger(__name__)
 
+class DummyScheduler:
+    """Dummy scheduler for when APScheduler is not available."""
+    
+    def __init__(self):
+        self.running = False
+    
+    def start(self):
+        self.running = True
+        logger.info("Dummy scheduler started (APScheduler not available)")
+    
+    def add_job(self, *args, **kwargs):
+        logger.debug("Dummy scheduler: job scheduling skipped (APScheduler not available)")
+    
+    def get_jobs(self):
+        """Return empty list of jobs for compatibility."""
+        return []
+    
+    def shutdown(self):
+        self.running = False
+        logger.info("Dummy scheduler stopped")
+
 class NotificationScheduler:
     """Service for scheduling and sending notifications."""
     
     def __init__(self, bot, db_session_factory):
         self.bot = bot
         self.db_session_factory = db_session_factory
-        self.scheduler = BackgroundScheduler()
         self.scheduled_events: Set[str] = set()  # Отслеживание запланированных событий
-        self.scheduler.start()
-        logger.info("Notification scheduler started")
+        
+        # Initialize scheduler based on availability
+        if APSCHEDULER_AVAILABLE:
+            self.scheduler = BackgroundScheduler()
+            self.scheduler.start()
+            logger.info("Notification scheduler started with APScheduler")
+        else:
+            self.scheduler = DummyScheduler()
+            self.scheduler.start()
+            logger.warning("Notification scheduler started with dummy scheduler (APScheduler not available)")
     
     def schedule_notifications_for_events(self, events: List[NewsEvent]):
         """
@@ -121,14 +157,18 @@ class NotificationScheduler:
         job_id = f"notify_{user_id}_{event.id}_{time_before.replace(' ', '_')}"
         
         try:
-            self.scheduler.add_job(
-                func=self._send_notification,
-                trigger=DateTrigger(run_date=notify_time),
-                args=[user_id, event, time_before],
-                id=job_id,
-                replace_existing=True
-            )
-            logger.info(f"Scheduled notification for user {user_id} at {notify_time} for event {event.event_name}")
+            if APSCHEDULER_AVAILABLE:
+                self.scheduler.add_job(
+                    func=self._send_notification,
+                    trigger=DateTrigger(run_date=notify_time),
+                    args=[user_id, event, time_before],
+                    id=job_id,
+                    replace_existing=True
+                )
+                logger.info(f"Scheduled notification for user {user_id} at {notify_time} for event {event.event_name}")
+            else:
+                self.scheduler.add_job()  # Dummy call
+                logger.debug(f"Notification scheduling skipped for user {user_id} (APScheduler not available)")
         except Exception as e:
             logger.error(f"Failed to schedule notification: {e}")
     
