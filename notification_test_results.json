@@ -1,0 +1,81 @@
+{
+  "notification_data": {
+    "users_with_notifications": 1,
+    "high_impact_events_today": 2,
+    "high_impact_events_tomorrow": 4,
+    "high_impact_events_future": 13,
+    "sample_events": [
+      {
+        "date": "2025-07-02",
+        "time": "05:15:00",
+        "currency": "USD",
+        "name": "ADP Non-Farm Employment Change",
+        "impact": "HIGH"
+      },
+      {
+        "date": "2025-07-02",
+        "time": "23:30:00",
+        "currency": "CHF",
+        "name": "CPI m/m",
+        "impact": "HIGH"
+      },
+      {
+        "date": "2025-07-03",
+        "time": "05:30:00",
+        "currency": "USD",
+        "name": "Average Hourly Earnings m/m",
+        "impact": "HIGH"
+      },
+      {
+        "date": "2025-07-03",
+        "time": "05:30:00",
+        "currency": "USD",
+        "name": "Non-Farm Employment Change",
+        "impact": "HIGH"
+      },
+      {
+        "date": "2025-07-03",
+        "time": "05:30:00",
+        "currency": "USD",
+        "name": "Unemployment Rate",
+        "impact": "HIGH"
+      }
+    ]
+  },
+  "scheduler_test": {
+    "scheduler_initialized": true,
+    "jobs_scheduled": 12,
+    "error": null
+  },
+  "logic_test": {
+    "test_notifications_sent": 3,
+    "test_successful": true,
+    "sample_messages": [
+      {
+        "chat_id": 123456789,
+        "text": "\ud83d\udea8 *HIGH IMPACT EVENT ALERT* \ud83d\udea8\n\n\ud83d\udd34 *HIGH* impact in *15 minutes*\n\n\u23f0 Time: 05:15 CET\n\ud83d\udcb1 Currency: $ USD\n\ud83d\udcf0 Event: ADP Non\\-Farm Employment Change\n\ud83d\udcc8 Forecast: 99K\n\ud83d\udcca Previous: 29K\n\n\ud83d\udd0d Analysis: \u26a0\ufe0f ChatGPT analysis skipped \\- API key not configured\n\n\ud83d\udca1 *Prepare for potential market volatility\\!*",
+        "parse_mode": "MarkdownV2",
+        "timestamp": "2025-07-02T16:39:25.421882"
+      },
+      {
+        "chat_id": 123456789,
+        "text": "\ud83d\udea8 *HIGH IMPACT EVENT ALERT* \ud83d\udea8\n\n\ud83d\udd34 *HIGH* impact in *15 minutes*\n\n\u23f0 Time: 23:30 CET\n\ud83d\udcb1 Currency: \u20a3 CHF\n\ud83d\udcf0 Event: CPI m/m\n\ud83d\udcc8 Forecast: 0\\.1%\n\ud83d\udcca Previous: 0\\.1%\n\n\ud83d\udd0d Analysis: \u26a0\ufe0f ChatGPT analysis skipped \\- API key not configured\n\n\ud83d\udca1 *Prepare for potential market volatility\\!*",
+        "parse_mode": "MarkdownV2",
+        "timestamp": "2025-07-02T16:39:25.433036"
+      },
+      {
+        "chat_id": 123456789,
+        "text": "\ud83d\udea8 *HIGH IMPACT EVENT ALERT* \ud83d\udea8\n\n\ud83d\udd34 *HIGH* impact in *15 minutes*\n\n\u23f0 Time: 05:30 CET\n\ud83d\udcb1 Currency: $ USD\n\ud83d\udcf0 Event: Average Hourly Earnings m/m\n\ud83d\udcc8 Forecast: 0\\.3%\n\ud83d\udcca Previous: 0\\.4%\n\n\ud83d\udd0d Analysis: \u26a0\ufe0f ChatGPT analysis skipped \\- API key not configured\n\n\ud83d\udca1 *Prepare for potential market volatility\\!*",
+        "parse_mode": "MarkdownV2",
+        "timestamp": "2025-07-02T16:39:25.433186"
+      }
+    ],
+    "error": null
+  },
+  "summary": {
+    "tests_passed": 3,
+    "total_tests": 3,
+    "status": "fully_functional",
+    "mock_messages_sent": 3
+  }
+}

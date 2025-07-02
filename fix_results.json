@@ -1,0 +1,32 @@
+{
+  "data_loading": {
+    "dates_loaded": [
+      "2025-07-02",
+      "2025-07-03",
+      "2025-07-04",
+      "2025-07-05",
+      "2025-07-06",
+      "2025-07-07",
+      "2025-07-08",
+      "2025-07-09"
+    ],
+    "total_events_loaded": 87,
+    "errors": []
+  },
+  "scraper_test": {
+    "test_successful": true,
+    "events_found": 15,
+    "test_date": "2025-07-02",
+    "error": null
+  },
+  "test_user": {
+    "test_user_created": true,
+    "notification_settings_created": true,
+    "error": null
+  },
+  "summary": {
+    "fixes_applied": 3,
+    "total_fixes": 3,
+    "status": "success"
+  }
+}

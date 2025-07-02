@@ -1,0 +1,94 @@
+{
+  "configuration": {
+    "database_url": "sqlite:///./forex_bot.db",
+    "telegram_token_set": false,
+    "telegram_chat_id_set": false,
+    "timezone": "Europe/Berlin",
+    "scraper_schedule": "03:00",
+    "log_level": "INFO"
+  },
+  "database": {
+    "connection": true,
+    "tables": {
+      "currencies": 8,
+      "impact_levels": 4,
+      "scraping_logs": 5,
+      "news_events": 44,
+      "user_currency_preferences": 0,
+      "alembic_version": 1,
+      "user_notification_settings": 0,
+      "bot_users": 0
+    },
+    "file_exists": true
+  },
+  "data_analysis": {
+    "total_events": 44,
+    "date_range": "2024-06-02 to 2025-06-23",
+    "events_today": 0,
+    "events_tomorrow": 0,
+    "events_by_impact": {},
+    "recent_scraping_logs": [
+      {
+        "timestamp": "2025-06-24T19:03:00.096032",
+        "status": "success",
+        "events_scraped": 20,
+        "error_message": null
+      },
+      {
+        "timestamp": "2025-06-24T19:02:50.986217",
+        "status": "success",
+        "events_scraped": 20,
+        "error_message": null
+      },
+      {
+        "timestamp": "2025-06-24T17:53:39.773930",
+        "status": "success",
+        "events_scraped": 20,
+        "error_message": null
+      },
+      {
+        "timestamp": "2025-06-24T17:53:31.099662",
+        "status": "success",
+        "events_scraped": 20,
+        "error_message": null
+      },
+      {
+        "timestamp": "2025-06-24T17:52:51.663823",
+        "status": "success",
+        "events_scraped": 25,
+        "error_message": null
+      }
+    ],
+    "users_count": 0,
+    "notification_settings_count": 0
+  },
+  "scraper_test": {
+    "scraper_initialized": true,
+    "test_scrape_successful": true,
+    "test_events_count": 24,
+    "test_error": null
+  },
+  "notification_check": {
+    "scheduler_initialized": false,
+    "users_with_notifications": 0,
+    "notification_logic_working": true,
+    "test_error": null
+  },
+  "summary": {
+    "total_checks": 5,
+    "passed_checks": 5,
+    "errors_count": 1,
+    "warnings_count": 5,
+    "errors": [
+      "Telegram bot token not configured"
+    ],
+    "warnings": [
+      "Telegram chat ID not configured",
+      "No events for today or tomorrow - scraper may need to run",
+      "No users registered - notifications won't work",
+      "No users have notifications enabled",
+      "No high impact events found for notifications"
+    ],
+    "status": "needs_attention"
+  }
+}
