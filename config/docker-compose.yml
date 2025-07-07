@@ -30,7 +30,7 @@ services:
 
   bot:
     build: 
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile
     depends_on:
       postgres:
@@ -48,7 +48,7 @@ services:
 
   api:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.api
     depends_on:
       postgres:

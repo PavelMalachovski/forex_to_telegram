@@ -3,7 +3,7 @@ services:
   - type: web
     name: forex-bot-scheduler-enhanced
     env: docker
-    dockerfilePath: ./docker/Dockerfile.enhanced
+    dockerfilePath: ./Dockerfile.enhanced
     plan: standard  # Upgraded from starter for better stability
     region: frankfurt
     branch: main

@@ -3,7 +3,7 @@ services:
   - type: web
     name: forex-bot-scheduler
     env: docker
-    dockerfilePath: ./docker/Dockerfile.production
+    dockerfilePath: ./Dockerfile
     plan: starter
     region: frankfurt
     branch: main
