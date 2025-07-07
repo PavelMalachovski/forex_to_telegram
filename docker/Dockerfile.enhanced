@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements_enhanced.txt .
+COPY config/requirements_enhanced.txt .
 RUN pip install --no-cache-dir -r requirements_enhanced.txt
 
 # Install Playwright browsers

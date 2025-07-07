@@ -11,9 +11,22 @@
   "test_scripts.py::test_help_commands",
   "test_tomorrow_fix.py::test_timezone_aware_datetime_creation",
   "test_tomorrow_fix.py::test_tomorrow_command_logic",
+  "tests/test_comprehensive_fix.py::test_notification_scheduler_logic",
+  "tests/test_comprehensive_fix.py::test_text_utils_time_formatting",
+  "tests/test_comprehensive_fix.py::test_time_operations",
   "tests/test_config.py::test_config_defaults",
   "tests/test_config.py::test_config_validation",
+  "tests/test_fixes.py::test_chatgpt_integration",
+  "tests/test_fixes.py::test_configuration",
+  "tests/test_fixes.py::test_timezone_fixes",
   "tests/test_news_service.py::test_create_event",
   "tests/test_news_service.py::test_get_news_by_date",
-  "tests/test_news_service.py::test_get_news_by_date_range"
+  "tests/test_news_service.py::test_get_news_by_date_range",
+  "tests/test_scripts.py::test_bulk_load_no_overwrite",
+  "tests/test_scripts.py::test_bulk_load_single_day",
+  "tests/test_scripts.py::test_clean_database_dry_run",
+  "tests/test_scripts.py::test_help_commands",
+  "tests/test_stability.py::test_cleanup",
+  "tests/test_tomorrow_fix.py::test_timezone_aware_datetime_creation",
+  "tests/test_tomorrow_fix.py::test_tomorrow_command_logic"
 ]

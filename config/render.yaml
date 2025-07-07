@@ -1,15 +1,13 @@
 
 services:
   - type: web
-    name: forex-bot-scheduler-enhanced
+    name: forex-bot-scheduler
     env: docker
-    dockerfilePath: ./Dockerfile.enhanced
-    plan: standard  # Upgraded from starter for better stability
+    dockerfilePath: ./docker/Dockerfile.production
+    plan: starter
     region: frankfurt
     branch: main
-    healthCheckPath: /health
-    # Enhanced restart policy
-    autoDeploy: true
+    healthCheckPath: /ping
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -43,15 +41,6 @@ services:
         value: /app
       - key: PYTHONUNBUFFERED
         value: "1"
-      # Enhanced stability settings
-      - key: ENHANCED_STABILITY
-        value: "true"
-      - key: HEALTH_CHECK_ENABLED
-        value: "true"
-      - key: GRACEFUL_SHUTDOWN_TIMEOUT
-        value: "25"
-      - key: RESOURCE_MONITORING
-        value: "true"
 
 databases:
   - name: forex-bot-postgres
