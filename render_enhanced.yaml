@@ -1,0 +1,61 @@
+
+services:
+  - type: web
+    name: forex-bot-scheduler-enhanced
+    env: docker
+    dockerfilePath: ./Dockerfile.enhanced
+    plan: standard  # Upgraded from starter for better stability
+    region: frankfurt
+    branch: main
+    healthCheckPath: /health
+    # Enhanced restart policy
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: RENDER_EXTERNAL_HOSTNAME
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SCRAPER_SCHEDULE_HOUR
+        value: "3"
+      - key: SCRAPER_SCHEDULE_MINUTE
+        value: "0"
+      - key: TIMEZONE
+        value: Europe/Prague
+      - key: FLASK_PORT
+        value: "5000"
+      - key: FLASK_HOST
+        value: "0.0.0.0"
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: PYTHONPATH
+        value: /app
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Enhanced stability settings
+      - key: ENHANCED_STABILITY
+        value: "true"
+      - key: HEALTH_CHECK_ENABLED
+        value: "true"
+      - key: GRACEFUL_SHUTDOWN_TIMEOUT
+        value: "25"
+      - key: RESOURCE_MONITORING
+        value: "true"
+
+databases:
+  - name: forex-bot-postgres
+    databaseName: forex_bot
+    user: forex_bot_user
+    plan: starter
+    region: frankfurt

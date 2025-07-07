@@ -7,6 +7,10 @@ import os
 import sys
 import time
 import threading
+import signal
+import psutil
+import traceback
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -14,12 +18,6 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 from app.config import config
-from app.utils.enhanced_logging import setup_enhanced_logging, log_event, log_with_context
-from app.utils.signal_handler import (
-    setup_signal_handling, register_cleanup_callback, 
-    is_shutdown_requested, protect_critical_section
-)
-from app.utils.health_monitor import get_health_monitor, register_health_check
 from app.utils.timezone_utils import get_current_time_iso
 from app.database.connection import init_database, SessionLocal
 from app.bot.handlers import BotHandlers
@@ -29,6 +27,75 @@ from app.services.today_service import TodayService
 import telebot
 import logging
 from flask import Flask, request, jsonify
+
+# Setup basic logging first
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler('/home/ubuntu/forex_bot_postgresql/logs/enhanced_app.log'),
+        logging.StreamHandler()
+    ]
+)
+
+class SignalHandler:
+    """Enhanced signal handler with detailed logging."""
+    
+    def __init__(self, timeout=25):
+        self.timeout = timeout
+        self.shutdown_requested = False
+        self.cleanup_callbacks = []
+        self.logger = logging.getLogger(__name__)
+        
+    def setup(self):
+        """Setup signal handlers."""
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        self.logger.info("Signal handlers registered")
+        
+    def _signal_handler(self, signum, frame):
+        """Handle termination signals with detailed logging."""
+        signal_name = signal.Signals(signum).name
+        self.logger.info(f"Received signal {signum} ({signal_name}) - initiating graceful shutdown")
+        
+        # Log stack trace for debugging
+        stack_trace = ''.join(traceback.format_stack(frame))
+        self.logger.info(f"Signal received at:\n{stack_trace}")
+        
+        # Log system state
+        try:
+            memory = psutil.virtual_memory()
+            cpu_percent = psutil.cpu_percent()
+            process = psutil.Process()
+            process_memory = process.memory_info().rss / 1024 / 1024
+            
+            self.logger.info(f"System state at termination: "
+                           f"Memory: {memory.percent:.1f}%, "
+                           f"CPU: {cpu_percent:.1f}%, "
+                           f"Process Memory: {process_memory:.1f}MB")
+        except Exception as e:
+            self.logger.error(f"Failed to log system state: {e}")
+        
+        self.shutdown_requested = True
+        self._cleanup()
+        
+    def _cleanup(self):
+        """Execute cleanup callbacks."""
+        self.logger.info("Starting cleanup process")
+        for callback in self.cleanup_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                self.logger.error(f"Cleanup callback error: {e}")
+        self.logger.info("Cleanup completed")
+        
+    def register_cleanup(self, callback):
+        """Register cleanup callback."""
+        self.cleanup_callbacks.append(callback)
+        
+    def is_shutdown_requested(self):
+        """Check if shutdown was requested."""
+        return self.shutdown_requested
 
 class EnhancedTelegramBotApplication:
     """
