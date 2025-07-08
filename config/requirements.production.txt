@@ -6,7 +6,7 @@
 # os, sys, time, threading, signal, traceback, json, gc, datetime, pathlib
 
 # Core dependencies
-flask==2.3.3
+flask==3.0.0
 pyTelegramBotAPI==4.14.0
 telebot==0.0.5
 beautifulsoup4==4.12.2

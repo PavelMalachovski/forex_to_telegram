@@ -2,7 +2,9 @@ import os
 import sys
 import time
 import logging
+import threading
 from pathlib import Path
+from flask import Flask, jsonify
 
 # Add the project root to Python path
 project_root = Path(__file__).resolve().parent
@@ -41,13 +43,94 @@ def setup_enhanced_logging():
     
     return root_logger
 
+def create_flask_app():
+    """Create and configure Flask application."""
+    app = Flask(__name__)
+    
+    # Global variables for status tracking
+    app_status = {
+        'status': 'running',
+        'start_time': time.time(),
+        'heartbeat_count': 0,
+        'last_heartbeat': None
+    }
+    
+    @app.route('/health')
+    def health_check():
+        """Health check endpoint for Render."""
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': time.time(),
+            'uptime': time.time() - app_status['start_time']
+        }), 200
+    
+    @app.route('/status')
+    def status():
+        """Application status endpoint."""
+        return jsonify({
+            'status': app_status['status'],
+            'start_time': app_status['start_time'],
+            'uptime': time.time() - app_status['start_time'],
+            'heartbeat_count': app_status['heartbeat_count'],
+            'last_heartbeat': app_status['last_heartbeat'],
+            'project_root': str(project_root)
+        }), 200
+    
+    @app.route('/trigger-load')
+    def trigger_load():
+        """Endpoint for make.com to trigger data loading."""
+        try:
+            # Here you can add logic to trigger data loading
+            return jsonify({
+                'status': 'success',
+                'message': 'Data loading triggered',
+                'timestamp': time.time()
+            }), 200
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': str(e),
+                'timestamp': time.time()
+            }), 500
+    
+    @app.route('/trigger-today')
+    def trigger_today():
+        """Endpoint for make.com to trigger today's processing."""
+        try:
+            # Here you can add logic to trigger today's processing
+            return jsonify({
+                'status': 'success',
+                'message': 'Today processing triggered',
+                'timestamp': time.time()
+            }), 200
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': str(e),
+                'timestamp': time.time()
+            }), 500
+    
+    return app, app_status
+
+def run_flask_server(app, port, logger):
+    """Run Flask server in a separate thread."""
+    try:
+        logger.info(f"Starting Flask server on port {port}")
+        app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.error(f"Flask server error: {e}", exc_info=True)
+
 def main():
-    """Production scheduler main function to test path fixes."""
+    """Production scheduler main function with HTTP server."""
     # Setup logging first
     logger = setup_enhanced_logging()
-    logger.info("=== Production Scheduler Starting (Path Fix Test) ===")
+    logger.info("=== Production Scheduler Starting with HTTP Server ===")
     
     try:
+        # Get port from environment or use default
+        port = int(os.getenv('PORT', 8000))
+        logger.info(f"Using port: {port}")
+        
         # Test that paths work correctly
         logger.info(f"Project root: {project_root}")
         logger.info(f"Log directory: {Path(os.getenv('LOG_DIR', project_root / 'logs'))}")
@@ -71,14 +154,28 @@ def main():
         except ImportError as e:
             logger.warning(f"⚠️  Could not import DatabaseConnection: {e}")
         
-        logger.info("=== Production scheduler path fix test completed successfully ===")
+        # Create Flask app
+        app, app_status = create_flask_app()
         
-        # Keep running for testing purposes
+        # Start Flask server in a separate thread
+        flask_thread = threading.Thread(
+            target=run_flask_server,
+            args=(app, port, logger),
+            daemon=True
+        )
+        flask_thread.start()
+        logger.info(f"✅ Flask server started on port {port}")
+        
+        logger.info("=== Production scheduler with HTTP server started successfully ===")
+        
+        # Keep running with heartbeat
         logger.info("Application is running. Press Ctrl+C to stop.")
         try:
             while True:
                 time.sleep(60)
-                logger.info("Application heartbeat - still running...")
+                app_status['heartbeat_count'] += 1
+                app_status['last_heartbeat'] = time.time()
+                logger.info(f"Application heartbeat #{app_status['heartbeat_count']} - still running...")
         except KeyboardInterrupt:
             logger.info("Received interrupt signal, shutting down...")
         
