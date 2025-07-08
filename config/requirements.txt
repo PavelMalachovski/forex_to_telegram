@@ -114,7 +114,7 @@ pathlib2==2.3.7; python_version < "3.4"
 python-slugify==8.0.1
 
 # Email validation
-email-validator==2.1.0
+email-validator==2.1.1
 
 # Phone number validation
 phonenumbers==8.13.26
@@ -169,7 +169,7 @@ seaborn==0.13.0
 plotly==5.17.0
 
 # API documentation
-redoc==2.1.0
+redoc==0.2.3
 swagger-ui-bundle==0.0.9
 
 # WebSocket support
@@ -190,8 +190,7 @@ joblib==1.3.2
 
 # Concurrency (concurrent.futures is built-in in Python 3.2+)
 
-# Threading utilities
-threading2==0.1.2
+# Threading utilities (built-in threading module is sufficient for Python 3.11+)
 
 # Multiprocessing
 multiprocessing-logging==0.3.4
