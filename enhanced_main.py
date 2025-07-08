@@ -66,10 +66,10 @@ def main():
             logger.warning(f"⚠️  Could not import NotificationService: {e}")
         
         try:
-            from app.database.connection import DatabaseConnection
-            logger.info("✅ Successfully imported DatabaseConnection")
+            from app.database.connection import get_db, init_database
+            logger.info("✅ Successfully imported database connection functions")
         except ImportError as e:
-            logger.warning(f"⚠️  Could not import DatabaseConnection: {e}")
+            logger.warning(f"⚠️  Could not import database connection: {e}")
         
         logger.info("=== Enhanced path fix test completed successfully ===")
         return 0

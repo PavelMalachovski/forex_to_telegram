@@ -3,12 +3,42 @@ import sys
 import time
 import logging
 import threading
+import signal
+import atexit
 from pathlib import Path
 from flask import Flask, jsonify
 
 # Add the project root to Python path
 project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root))
+
+# Global variables for application state
+app_running = True
+flask_app = None
+logger = None
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully."""
+    global app_running, logger
+    if logger:
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    else:
+        print(f"Received signal {signum}, initiating graceful shutdown...")
+    app_running = False
+
+def cleanup_on_exit():
+    """Cleanup function called on exit."""
+    global logger
+    if logger:
+        logger.info("Application cleanup completed")
+    else:
+        print("Application cleanup completed")
+
+def setup_signal_handlers():
+    """Setup signal handlers for graceful shutdown."""
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    atexit.register(cleanup_on_exit)
 
 def setup_enhanced_logging():
     """Setup enhanced logging with detailed formatting."""
@@ -112,6 +142,47 @@ def create_flask_app():
     
     return app, app_status
 
+def create_telegram_bot():
+    """Create and configure Telegram bot."""
+    try:
+        from app.config import config
+        import telebot
+        from app.database.connection import SessionLocal
+        from app.bot.handlers import BotHandlers
+        
+        if not config.TELEGRAM_BOT_TOKEN:
+            logger.warning("⚠️  TELEGRAM_BOT_TOKEN not configured, bot will not start")
+            return None
+            
+        # Create bot instance
+        bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
+        
+        # Initialize handlers with database session factory
+        BotHandlers(bot, SessionLocal)
+        
+        logger.info("✅ Telegram bot created and handlers registered")
+        return bot
+        
+    except ImportError as e:
+        logger.warning(f"⚠️  Could not import Telegram bot dependencies: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Failed to create Telegram bot: {e}")
+        return None
+
+def run_telegram_bot(bot, logger):
+    """Run Telegram bot polling in a separate thread."""
+    try:
+        if bot is None:
+            logger.warning("⚠️  Bot is None, skipping bot polling")
+            return
+            
+        logger.info("🤖 Starting Telegram bot polling...")
+        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        
+    except Exception as e:
+        logger.error(f"❌ Telegram bot error: {e}", exc_info=True)
+
 def run_flask_server(app, port, logger):
     """Run Flask server in a separate thread."""
     try:
@@ -122,7 +193,12 @@ def run_flask_server(app, port, logger):
 
 def main():
     """Production scheduler main function with HTTP server."""
-    # Setup logging first
+    global app_running, flask_app, logger
+    
+    # Setup signal handlers first
+    setup_signal_handlers()
+    
+    # Setup logging
     logger = setup_enhanced_logging()
     logger.info("=== Production Scheduler Starting with HTTP Server ===")
     
@@ -149,36 +225,63 @@ def main():
             logger.warning(f"⚠️  Could not import NotificationService: {e}")
         
         try:
-            from app.database.connection import DatabaseConnection
-            logger.info("✅ Successfully imported DatabaseConnection")
+            from app.database.connection import get_db, init_database
+            logger.info("✅ Successfully imported database connection functions")
+            
+            # Initialize database
+            try:
+                init_database()
+                logger.info("✅ Database initialized successfully")
+            except Exception as e:
+                logger.warning(f"⚠️  Database initialization failed: {e}")
+                
         except ImportError as e:
-            logger.warning(f"⚠️  Could not import DatabaseConnection: {e}")
+            logger.warning(f"⚠️  Could not import database connection: {e}")
         
         # Create Flask app
-        app, app_status = create_flask_app()
+        flask_app, app_status = create_flask_app()
+        
+        # Create Telegram bot
+        telegram_bot = create_telegram_bot()
         
         # Start Flask server in a separate thread
         flask_thread = threading.Thread(
             target=run_flask_server,
-            args=(app, port, logger),
+            args=(flask_app, port, logger),
             daemon=True
         )
         flask_thread.start()
         logger.info(f"✅ Flask server started on port {port}")
         
+        # Start Telegram bot in a separate thread if available
+        bot_thread = None
+        if telegram_bot:
+            bot_thread = threading.Thread(
+                target=run_telegram_bot,
+                args=(telegram_bot, logger),
+                daemon=True
+            )
+            bot_thread.start()
+            logger.info("✅ Telegram bot started")
+        else:
+            logger.warning("⚠️  Telegram bot not started (token missing or error)")
+        
         logger.info("=== Production scheduler with HTTP server started successfully ===")
         
         # Keep running with heartbeat
-        logger.info("Application is running. Press Ctrl+C to stop.")
+        logger.info("Application is running. Use SIGTERM or Ctrl+C to stop.")
         try:
-            while True:
-                time.sleep(60)
-                app_status['heartbeat_count'] += 1
-                app_status['last_heartbeat'] = time.time()
-                logger.info(f"Application heartbeat #{app_status['heartbeat_count']} - still running...")
+            while app_running:
+                time.sleep(30)  # Reduced sleep time for more responsive shutdown
+                if app_running:  # Check again before logging
+                    app_status['heartbeat_count'] += 1
+                    app_status['last_heartbeat'] = time.time()
+                    logger.info(f"Application heartbeat #{app_status['heartbeat_count']} - still running...")
         except KeyboardInterrupt:
-            logger.info("Received interrupt signal, shutting down...")
+            logger.info("Received keyboard interrupt, shutting down...")
+            app_running = False
         
+        logger.info("Application shutdown completed")
         return 0
         
     except Exception as e:
