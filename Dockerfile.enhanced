@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install Python dependencies
-COPY config/requirements_enhanced.txt .
-RUN pip install --no-cache-dir -r requirements_enhanced.txt
+COPY config/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright browsers
 RUN playwright install chromium

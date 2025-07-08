@@ -98,9 +98,17 @@ class DataLoaderService:
             # Process and save events
             for event_data in scraped_events:
                 try:
+                    # Convert time string to time object
+                    event_time = None
+                    if event_data['time']:
+                        try:
+                            event_time = datetime.strptime(event_data['time'], '%H:%M').time()
+                        except ValueError:
+                            logger.warning(f"Could not parse time: {event_data['time']}")
+                    
                     self.news_service.create_or_update_event(
                         event_date=datetime.strptime(event_data['date'], '%Y-%m-%d').date(),
-                        event_time=event_data['time'],
+                        event_time=event_time,
                         currency_code=event_data['currency'],
                         event_name=event_data['event_name'],
                         forecast=event_data.get('forecast'),

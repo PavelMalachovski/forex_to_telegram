@@ -159,7 +159,7 @@ class ScrapingLog(Base):
     events_scraped: Mapped[int] = Column(Integer, default=0, nullable=False)
     events_saved: Mapped[int] = Column(Integer, default=0, nullable=False)
     error_message: Mapped[Optional[str]] = Column(Text)
-    metadata: Mapped[Optional[str]] = Column(Text)  # JSON string for additional data
+    extra_data: Mapped[Optional[str]] = Column(Text)  # JSON string for additional data
     created_at: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Indexes

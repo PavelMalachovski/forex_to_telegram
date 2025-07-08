@@ -13,9 +13,9 @@ from telebot.apihelper import ApiTelegramException
 
 from app.services.news_service import NewsService
 from app.services.user_service import UserService
-from app.utils.text_utils import escape_markdown_v2, format_news_message
+from app.utils.text_utils import escape_markdown, format_news_event_message
 from app.utils.timezone_utils import get_current_time
-from app.bot.utils.calendar import create_calendar_markup, process_calendar_callback, get_date_selection_message
+from app.bot.utils.calendar import create_calendar, process_calendar_callback
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class BotHandlers:
                 )
                 
                 welcome_text = (
-                    f"👋 Welcome to Forex News Bot, {escape_markdown_v2(user.first_name or 'User')}\\!\n\n"
+                    f"👋 Welcome to Forex News Bot, {escape_markdown(user.first_name or 'User')}\\!\n\n"
                     f"🔹 Get the latest forex news and economic events\n"
                     f"🔹 Filter by impact level and currency\n"
                     f"🔹 Set your preferences for personalized notifications\n\n"
@@ -142,7 +142,7 @@ class BotHandlers:
     def help_command(self, message):
         """Handle /help command."""
         try:
-            help_text = escape_markdown_v2(
+            help_text = escape_markdown(
                 "📋 Available Commands:\n\n"
                 "/start - Start the bot and register\n"
                 "/help - Show this help message\n"
@@ -216,7 +216,7 @@ class BotHandlers:
                 # Show loading message
                 loading_msg = self.bot.send_message(
                     message.chat.id,
-                    text=f"🔄 Fetching Forex news for *{escape_markdown_v2(date_str)}*\nImpact: *{escape_markdown_v2(impact_level)}*",
+                    text=f"🔄 Fetching Forex news for *{escape_markdown(date_str)}*\nImpact: *{escape_markdown(impact_level)}*",
                     parse_mode='MarkdownV2'
                 )
                 
@@ -226,7 +226,7 @@ class BotHandlers:
                 if not news_service.has_data_for_date(target_date):
                     # Update loading message to indicate scraping
                     self.bot.edit_message_text(
-                        f"🔄 No data found for *{escape_markdown_v2(date_str)}*\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                        f"🔄 No data found for *{escape_markdown(date_str)}*\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
                         loading_msg.chat.id,
                         loading_msg.message_id,
                         parse_mode='MarkdownV2'
@@ -247,7 +247,7 @@ class BotHandlers:
                 
                 if news_events:
                     # Format and send message
-                    formatted_message = format_news_message(news_events, date_str, impact_level)
+                    formatted_message = format_news_event_message(news_events, date_str, impact_level)
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
@@ -262,7 +262,7 @@ class BotHandlers:
                     scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
                     self.bot.send_message(
                         message.chat.id,
-                        f"✅ No news {scraping_status} for {escape_markdown_v2(date_str)} with impact: {escape_markdown_v2(impact_level)}\\.\nPlease check the website for updates\\.",
+                        f"✅ No news {scraping_status} for {escape_markdown(date_str)} with impact: {escape_markdown(impact_level)}\\.\nPlease check the website for updates\\.",
                         parse_mode='MarkdownV2'
                     )
                 
@@ -314,7 +314,7 @@ class BotHandlers:
                 
                 if news_events:
                     # Format and send message
-                    formatted_message = format_news_message(news_events, today.strftime('%Y-%m-%d'))
+                    formatted_message = format_news_event_message(news_events, today.strftime('%Y-%m-%d'))
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
@@ -329,7 +329,7 @@ class BotHandlers:
                     scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
                     self.bot.send_message(
                         message.chat.id,
-                        f"✅ No high\\-impact news {scraping_status} for today \\({escape_markdown_v2(today.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
+                        f"✅ No high\\-impact news {scraping_status} for today \\({escape_markdown(today.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
                         parse_mode='MarkdownV2'
                     )
                 
@@ -381,7 +381,7 @@ class BotHandlers:
                 
                 if news_events:
                     # Format and send message
-                    formatted_message = format_news_message(news_events, tomorrow.strftime('%Y-%m-%d'))
+                    formatted_message = format_news_event_message(news_events, tomorrow.strftime('%Y-%m-%d'))
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
@@ -396,7 +396,7 @@ class BotHandlers:
                     scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
                     self.bot.send_message(
                         message.chat.id,
-                        f"✅ No high\\-impact news {scraping_status} for tomorrow \\({escape_markdown_v2(tomorrow.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
+                        f"✅ No high\\-impact news {scraping_status} for tomorrow \\({escape_markdown(tomorrow.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
                         parse_mode='MarkdownV2'
                     )
                 
@@ -432,7 +432,7 @@ class BotHandlers:
                     
                     # Send message for each date
                     for date_str, events in sorted(events_by_date.items()):
-                        formatted_message = format_news_message(events, date_str)
+                        formatted_message = format_news_event_message(events, date_str)
                         
                         # Send message using notification service for long messages
                         from app.services.notification_service import NotificationService
@@ -492,7 +492,7 @@ class BotHandlers:
                     f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
                     f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
                     f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
-                    f"💱 Currency preferences: {escape_markdown_v2(currency_display)}\n\n"
+                    f"💱 Currency preferences: {escape_markdown(currency_display)}\n\n"
                     f"Choose options to modify:"
                 )
                 
@@ -546,13 +546,13 @@ class BotHandlers:
                 
                 status_text = (
                     f"👤 User Status:\n\n"
-                    f"🆔 ID: {escape_markdown_v2(str(user.telegram_user_id))}\n"
-                    f"👤 Name: {escape_markdown_v2(user.first_name or 'N/A')}\n"
-                    f"🏷️ Username: {escape_markdown_v2(user.telegram_username or 'N/A')}\n"
-                    f"🌐 Language: {escape_markdown_v2(user.language_code or 'N/A')}\n"
+                    f"🆔 ID: {escape_markdown(str(user.telegram_user_id))}\n"
+                    f"👤 Name: {escape_markdown(user.first_name or 'N/A')}\n"
+                    f"🏷️ Username: {escape_markdown(user.telegram_username or 'N/A')}\n"
+                    f"🌐 Language: {escape_markdown(user.language_code or 'N/A')}\n"
                     f"✅ Active: {'Yes' if user.is_active else 'No'}\n"
-                    f"📅 Registered: {escape_markdown_v2(user.created_at.strftime('%d.%m.%Y %H:%M'))}\n"
-                    f"🕐 Last Activity: {escape_markdown_v2(user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else 'N/A')}\n\n"
+                    f"📅 Registered: {escape_markdown(user.created_at.strftime('%d.%m.%Y %H:%M'))}\n"
+                    f"🕐 Last Activity: {escape_markdown(user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else 'N/A')}\n\n"
                     f"{notifications_status}"
                 )
                 
@@ -616,7 +616,7 @@ class BotHandlers:
                 
                 if news_events:
                     # Format and send message
-                    formatted_message = format_news_message(news_events, today.strftime('%Y-%m-%d'), impact_level)
+                    formatted_message = format_news_event_message(news_events, today.strftime('%Y-%m-%d'), impact_level)
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
@@ -770,8 +770,8 @@ class BotHandlers:
     def calendar_command(self, message):
         """Handle /calendar and /choose_date commands."""
         try:
-            calendar_markup = create_calendar_markup()
-            message_text = get_date_selection_message()
+            calendar_markup = create_calendar()
+            message_text = "📅 Please select a date:"
             
             self.bot.send_message(
                 message.chat.id,
@@ -808,7 +808,7 @@ class BotHandlers:
                 elif action == "prev" or action == "next":
                     # Navigate to different month
                     year, month = navigation_data
-                    new_markup = create_calendar_markup(year, month)
+                    new_markup = create_calendar(year, month)
                     
                     self.bot.edit_message_reply_markup(
                         call.message.chat.id,
@@ -843,7 +843,7 @@ class BotHandlers:
                     date_formatted = selected_date.strftime('%d.%m.%Y')
                     self.bot.send_message(
                         call.message.chat.id,
-                        f"📅 Выбрана дата: *{escape_markdown_v2(date_formatted)}*\n\n📊 Выберите уровень важности новостей:",
+                        f"📅 Выбрана дата: *{escape_markdown(date_formatted)}*\n\n📊 Выберите уровень важности новостей:",
                         parse_mode='MarkdownV2',
                         reply_markup=markup
                     )
@@ -882,7 +882,7 @@ class BotHandlers:
                 
                 # Edit message to show loading
                 self.bot.edit_message_text(
-                    f"🔄 Загружаем новости за {escape_markdown_v2(selected_date.strftime('%d.%m.%Y'))} с уровнем важности: {impact_level}...",
+                    f"🔄 Загружаем новости за {escape_markdown(selected_date.strftime('%d.%m.%Y'))} с уровнем важности: {impact_level}...",
                     call.message.chat.id,
                     call.message.message_id
                 )
@@ -893,7 +893,7 @@ class BotHandlers:
                 if not news_service.has_data_for_date(selected_date):
                     # Update loading message to indicate scraping
                     self.bot.edit_message_text(
-                        f"🔄 Данные за {escape_markdown_v2(selected_date.strftime('%d.%m.%Y'))} не найдены\\.\n🌐 Загружаем данные с ForexFactory\\.\\.\\.\n⏳ Это может занять некоторое время\\.",
+                        f"🔄 Данные за {escape_markdown(selected_date.strftime('%d.%m.%Y'))} не найдены\\.\n🌐 Загружаем данные с ForexFactory\\.\\.\\.\n⏳ Это может занять некоторое время\\.",
                         call.message.chat.id,
                         call.message.message_id,
                         parse_mode='MarkdownV2'
@@ -914,7 +914,7 @@ class BotHandlers:
                 
                 if news_events:
                     # Format and send message
-                    formatted_message = format_news_message(news_events, date_str, impact_level)
+                    formatted_message = format_news_event_message(news_events, date_str, impact_level)
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
@@ -930,7 +930,7 @@ class BotHandlers:
                     scraping_status = "загружены с ForexFactory" if was_scraped else "найдены в базе данных"
                     self.bot.send_message(
                         call.message.chat.id,
-                        f"✅ Новости не {scraping_status} за {escape_markdown_v2(date_formatted)} с уровнем важности: {escape_markdown_v2(impact_level)}\\.\nПроверьте сайт для обновлений\\.",
+                        f"✅ Новости не {scraping_status} за {escape_markdown(date_formatted)} с уровнем важности: {escape_markdown(impact_level)}\\.\nПроверьте сайт для обновлений\\.",
                         parse_mode='MarkdownV2'
                     )
                 

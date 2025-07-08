@@ -4,7 +4,7 @@ Database package for Forex Bot application.
 """
 
 from .connection import engine, SessionLocal, get_db
-from .models import Base, Currency, ImpactLevel, NewsEvent, BotUser, User, UserCurrencyPreference, ScrapingLog
+from .models import Base, Currency, ImpactLevel, NewsEvent, BotUser, UserCurrencyPreference, UserNotificationSettings, ScrapingLog
 
 __all__ = [
     'engine',
@@ -15,7 +15,7 @@ __all__ = [
     'ImpactLevel', 
     'NewsEvent',
     'BotUser',
-    'User',
     'UserCurrencyPreference',
+    'UserNotificationSettings',
     'ScrapingLog'
 ]

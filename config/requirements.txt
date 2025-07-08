@@ -25,6 +25,7 @@ pytz==2023.3
 # Logging and monitoring
 loguru==0.7.2
 structlog==23.2.0
+python-json-logger==2.0.7
 
 # System monitoring
 psutil==5.9.6
@@ -65,7 +66,7 @@ orjson==3.9.10
 zoneinfo==0.2.1; python_version < "3.9"
 
 # Security
-cryptography==41.0.8
+cryptography==42.0.8
 
 # Performance
 cachetools==5.3.2
@@ -81,7 +82,6 @@ factory-boy==3.3.0
 freezegun==1.2.2
 
 # Async support
-asyncio==3.4.3
 aiofiles==23.2.1
 
 # Health checks
@@ -105,8 +105,7 @@ environs==10.3.0
 # Retry logic
 tenacity==8.2.3
 
-# UUID utilities
-uuid==1.30
+# UUID utilities are built-in in Python 3.7+
 
 # File handling
 pathlib2==2.3.7; python_version < "3.4"
@@ -150,14 +149,7 @@ distro==1.8.0
 # File watching
 watchdog==3.0.0
 
-# Compression
-gzip==1.0
-
-# Archive handling
-tarfile==0.0.0
-
-# Temporary files
-tempfile==0.0.0
+# Compression, archive handling, and temporary files are built-in modules
 
 # Regular expressions
 regex==2023.10.3
@@ -196,8 +188,7 @@ dask==2023.11.0
 # Parallel processing
 joblib==1.3.2
 
-# Concurrency
-concurrent-futures==3.1.1
+# Concurrency (concurrent.futures is built-in in Python 3.2+)
 
 # Threading utilities
 threading2==0.1.2
@@ -205,8 +196,7 @@ threading2==0.1.2
 # Multiprocessing
 multiprocessing-logging==0.3.4
 
-# Signal handling
-signal==0.0.0
+# Signal handling is a built-in module
 
 # System calls
-subprocess32==3.5.4; python_version
+subprocess32==3.5.4; python_version < "3.7"

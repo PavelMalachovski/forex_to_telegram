@@ -6,6 +6,26 @@ from typing import Optional, Union
 from pathlib import Path
 
 
+def _get_bool_env(key: str, default: bool = False) -> bool:
+    """
+    Get boolean environment variable.
+    
+    Args:
+        key: Environment variable key
+        default: Default value if not found
+        
+    Returns:
+        Boolean value
+    """
+    value = os.getenv(key, '').lower()
+    if value in ('true', '1', 'yes', 'on'):
+        return True
+    elif value in ('false', '0', 'no', 'off'):
+        return False
+    else:
+        return default
+
+
 class Config:
     """Application configuration class."""
     
@@ -67,7 +87,8 @@ class Config:
     DEBUG: bool = _get_bool_env('DEBUG', ENVIRONMENT == 'development')
     
     # Timezone configuration
-    DEFAULT_TIMEZONE: str = os.getenv('DEFAULT_TIMEZONE', 'UTC')
+    DEFAULT_TIMEZONE: str = os.getenv('DEFAULT_TIMEZONE', 'Europe/Prague')
+    TIMEZONE: str = os.getenv('TIMEZONE', 'Europe/Prague')
     
     # Rate limiting
     RATE_LIMIT_ENABLED: bool = _get_bool_env('RATE_LIMIT_ENABLED', True)
@@ -111,26 +132,6 @@ class Config:
             url = url.replace('postgres://', 'postgresql://', 1)
         
         return url
-
-
-def _get_bool_env(key: str, default: bool = False) -> bool:
-    """
-    Get boolean environment variable.
-    
-    Args:
-        key: Environment variable key
-        default: Default value if not found
-        
-    Returns:
-        Boolean value
-    """
-    value = os.getenv(key, '').lower()
-    if value in ('true', '1', 'yes', 'on'):
-        return True
-    elif value in ('false', '0', 'no', 'off'):
-        return False
-    else:
-        return default
 
 
 # Global configuration instance

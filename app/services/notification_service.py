@@ -13,7 +13,7 @@ from app.config import config
 from app.services.news_service import NewsService
 from app.services.user_service import UserService
 from app.services.analysis_service import AnalysisService
-from app.utils.text_utils import escape_markdown_v2
+from app.utils.text_utils import escape_markdown
 import logging
 
 logger = logging.getLogger(__name__)
@@ -97,13 +97,13 @@ class NotificationService:
             
             message = (
                 f"⏰ Reminder: In 20 minutes, there will be a news event!\n"
-                f"💱 Currency: {escape_markdown_v2(currency)}\n"
-                f"📰 Events: {escape_markdown_v2(' & '.join(event_names))}\n"
-                f"📈 Forecast: {escape_markdown_v2(' & '.join(forecasts))}\n"
-                f"📊 Previous: {escape_markdown_v2(' & '.join(previous_values))}\n"
-                f"🎯 Actual: {escape_markdown_v2(' & '.join(actual_values))}\n"
-                f"🔍 Combined ChatGPT Analysis: {escape_markdown_v2(combined_analysis)}\n"
-                f"📅 Time: {escape_markdown_v2(event_time)}"
+                f"💱 Currency: {escape_markdown(currency)}\n"
+                f"📰 Events: {escape_markdown(' & '.join(event_names))}\n"
+                f"📈 Forecast: {escape_markdown(' & '.join(forecasts))}\n"
+                f"📊 Previous: {escape_markdown(' & '.join(previous_values))}\n"
+                f"🎯 Actual: {escape_markdown(' & '.join(actual_values))}\n"
+                f"🔍 Combined ChatGPT Analysis: {escape_markdown(combined_analysis)}\n"
+                f"📅 Time: {escape_markdown(event_time)}"
             )
             
             # Send to users with currency preference
