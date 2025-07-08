@@ -1,0 +1,113 @@
+# Enhanced Multi-stage production Dockerfile for Forex Bot
+# Includes better error handling and dependency management
+
+FROM python:3.11-slim as builder
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    gcc \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip and install wheel first
+RUN pip install --upgrade pip setuptools wheel
+
+# Copy requirements and install Python dependencies
+# Try multiple requirements files in order of preference
+COPY config/requirements.production.txt /tmp/requirements.production.txt
+COPY config/requirements_enhanced.txt /tmp/requirements_enhanced.txt 2>/dev/null || true
+COPY config/requirements.txt /tmp/requirements.txt 2>/dev/null || true
+
+# Install from the most complete requirements file
+RUN if [ -f /tmp/requirements.production.txt ]; then \
+        echo "Installing from requirements.production.txt" && \
+        pip install -r /tmp/requirements.production.txt; \
+    elif [ -f /tmp/requirements_enhanced.txt ]; then \
+        echo "Installing from requirements_enhanced.txt" && \
+        pip install -r /tmp/requirements_enhanced.txt; \
+    elif [ -f /tmp/requirements.txt ]; then \
+        echo "Installing from requirements.txt" && \
+        pip install -r /tmp/requirements.txt; \
+    else \
+        echo "No requirements file found!" && exit 1; \
+    fi
+
+# Install commonly missing packages explicitly
+RUN pip install loguru tqdm || echo "Some packages already installed"
+
+# Production stage
+FROM python:3.11-slim as production
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    ENVIRONMENT=production
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user
+RUN groupadd -r forex && useradd -r -g forex forex
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Set working directory
+WORKDIR /app
+
+# Copy application code
+COPY --chown=forex:forex . .
+
+# Create necessary directories
+RUN mkdir -p logs data && \
+    chown -R forex:forex /app
+
+# Verify critical imports work
+RUN python -c "
+import sys
+critical_modules = ['loguru', 'flask', 'telebot', 'sqlalchemy', 'psutil']
+missing = []
+for module in critical_modules:
+    try:
+        __import__(module)
+        print(f'✓ {module}')
+    except ImportError:
+        missing.append(module)
+        print(f'✗ {module} - MISSING!')
+
+if missing:
+    print(f'ERROR: Missing critical modules: {missing}')
+    sys.exit(1)
+else:
+    print('All critical modules available!')
+"
+
+# Switch to non-root user
+USER forex
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)" || exit 1
+
+# Expose port
+EXPOSE 8000
+
+# Default command
+CMD ["python", "production_scheduler.py"]
