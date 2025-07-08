@@ -4,11 +4,11 @@ Tests for the NewsService.
 """
 
 import pytest
-from datetime import date, time, datetime
+from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.database.models import Base, Currency, ImpactLevel, NewsEvent
+from app.database.models import Base, Currency, ImpactLevel
 from app.services.news_service import NewsService
 
 @pytest.fixture

@@ -7,12 +7,10 @@ import logging
 import logging.config
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import os
-import sys
 import json
 from pathlib import Path
 from datetime import datetime
 import threading
-from pythonjsonlogger import jsonlogger
 from app.config import config
 
 class HealthAwareFormatter(logging.Formatter):

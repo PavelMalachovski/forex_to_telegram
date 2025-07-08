@@ -8,14 +8,13 @@ import os
 import sys
 import logging
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 # Add app directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
-from app.config import config
-from app.database.connection import SessionLocal, init_database
-from app.database.models import NewsEvent, BotUser, UserNotificationSettings, ScrapingLog
+from app.database.connection import SessionLocal
+from app.database.models import BotUser, UserNotificationSettings
 from app.scrapers.forex_factory_scraper import ForexFactoryScraper
 from app.services.news_service import NewsService
 
@@ -91,7 +90,7 @@ class ForexBotFixer:
                             saved_count = 0
                             for event_data in scraped_data:
                                 try:
-                                    event = news_service.create_or_update_event(
+                                    news_service.create_or_update_event(
                                         event_date=datetime.strptime(event_data['date'], '%Y-%m-%d').date(),
                                         event_time=event_data['time'],
                                         currency_code=event_data['currency'],
@@ -315,7 +314,7 @@ def main():
         with open('fix_results.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
         
-        print(f"\n📄 Detailed results saved to: fix_results.json")
+        print("\n📄 Detailed results saved to: fix_results.json")
         
         # Exit with appropriate code
         if results['summary']['status'] == 'success':

@@ -3,7 +3,6 @@
 Tests for configuration.
 """
 
-import pytest
 import os
 from app.config import Config
 

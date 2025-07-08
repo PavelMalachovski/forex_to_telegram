@@ -1,103 +1,137 @@
 
-"""
-Configuration management for the Forex Bot application.
-"""
+"""Configuration module for the Forex Bot application."""
 
 import os
-from typing import Optional
-from dotenv import load_dotenv
+from typing import Optional, Union
+from pathlib import Path
 
-# Load environment variables from .env file
-load_dotenv()
 
 class Config:
     """Application configuration class."""
     
-    # Database Configuration
-    DATABASE_URL: str = os.getenv('DATABASE_URL', 'sqlite:///forex_bot.db')
+    # Database configuration
+    DATABASE_URL: str = os.getenv(
+        'DATABASE_URL',
+        'postgresql://postgres:password@localhost:5432/forex_bot'
+    )
     
-    # Redis Configuration
-    REDIS_URL: str = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-    
-    # Telegram Configuration
+    # Telegram Bot configuration
     TELEGRAM_BOT_TOKEN: Optional[str] = os.getenv('TELEGRAM_BOT_TOKEN')
-    TELEGRAM_CHAT_ID: Optional[str] = os.getenv('TELEGRAM_CHAT_ID')
+    TELEGRAM_WEBHOOK_URL: Optional[str] = os.getenv('TELEGRAM_WEBHOOK_URL')
+    TELEGRAM_WEBHOOK_SECRET: Optional[str] = os.getenv('TELEGRAM_WEBHOOK_SECRET')
     
-    # OpenAI Configuration
-    OPENAI_API_KEY: Optional[str] = os.getenv('OPENAI_API_KEY')
+    # API configuration
+    API_HOST: str = os.getenv('API_HOST', '0.0.0.0')
+    API_PORT: int = int(os.getenv('API_PORT', '8000'))
+    API_DEBUG: bool = _get_bool_env('API_DEBUG', False)
     
-    # API Configuration
-    API_KEY: Optional[str] = os.getenv('API_KEY')
+    # Scraping configuration
+    SCRAPING_ENABLED: bool = _get_bool_env('SCRAPING_ENABLED', True)
+    SCRAPING_INTERVAL_HOURS: int = int(os.getenv('SCRAPING_INTERVAL_HOURS', '6'))
+    FOREX_FACTORY_BASE_URL: str = os.getenv(
+        'FOREX_FACTORY_BASE_URL',
+        'https://www.forexfactory.com'
+    )
     
-    # Deployment Configuration
-    RENDER_EXTERNAL_HOSTNAME: Optional[str] = os.getenv('RENDER_EXTERNAL_HOSTNAME')
-    WEBHOOK_MODE: Optional[str] = os.getenv('WEBHOOK_MODE')  # Force webhook mode
-    WEBHOOK_URL: Optional[str] = os.getenv('WEBHOOK_URL')    # Custom webhook URL
+    # Notification configuration
+    NOTIFICATIONS_ENABLED: bool = _get_bool_env('NOTIFICATIONS_ENABLED', True)
+    NOTIFICATION_ADVANCE_MINUTES: int = int(os.getenv('NOTIFICATION_ADVANCE_MINUTES', '30'))
+    DAILY_SUMMARY_ENABLED: bool = _get_bool_env('DAILY_SUMMARY_ENABLED', True)
+    DAILY_SUMMARY_TIME: str = os.getenv('DAILY_SUMMARY_TIME', '08:00')
     
-    # Logging Configuration
+    # Logging configuration
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
+    LOG_FORMAT: str = os.getenv(
+        'LOG_FORMAT',
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    LOG_FILE: Optional[str] = os.getenv('LOG_FILE')
+    STRUCTURED_LOGGING: bool = _get_bool_env('STRUCTURED_LOGGING', False)
     
-    # Scheduler Configuration
-    SCRAPER_SCHEDULE_HOUR: int = int(os.getenv('SCRAPER_SCHEDULE_HOUR', '3'))
-    SCRAPER_SCHEDULE_MINUTE: int = int(os.getenv('SCRAPER_SCHEDULE_MINUTE', '0'))
-    TIMEZONE: str = os.getenv('TIMEZONE', os.getenv('TZ', 'Europe/Berlin'))
+    # Health monitoring configuration
+    HEALTH_CHECK_ENABLED: bool = _get_bool_env('HEALTH_CHECK_ENABLED', True)
+    HEALTH_CHECK_INTERVAL: int = int(os.getenv('HEALTH_CHECK_INTERVAL', '300'))
+    METRICS_ENABLED: bool = _get_bool_env('METRICS_ENABLED', True)
     
-    # Application Configuration
-    FLASK_PORT: int = int(os.getenv('FLASK_PORT', '5000'))
-    FLASK_HOST: str = os.getenv('FLASK_HOST', '0.0.0.0')
-    FLASK_DEBUG: bool = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    # Security configuration
+    SECRET_KEY: str = os.getenv('SECRET_KEY', 'your-secret-key-here')
+    ALLOWED_HOSTS: list[str] = os.getenv('ALLOWED_HOSTS', '*').split(',')
     
-    # Available currencies
-    AVAILABLE_CURRENCIES = ["EUR", "USD", "JPY", "GBP", "CAD", "AUD", "CHF", "NZD"]
+    # File paths
+    BASE_DIR: Path = Path(__file__).parent.parent
+    LOGS_DIR: Path = BASE_DIR / 'logs'
+    DATA_DIR: Path = BASE_DIR / 'data'
     
-    # User agents for web scraping
-    USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    ]
+    # Environment
+    ENVIRONMENT: str = os.getenv('ENVIRONMENT', 'development')
+    DEBUG: bool = _get_bool_env('DEBUG', ENVIRONMENT == 'development')
     
-    # Impact mapping for scraping
-    IMPACT_MAP = {
-        "gra": "NON_ECONOMIC",
-        "yel": "LOW",
-        "ora": "MEDIUM", 
-        "red": "HIGH",
-    }
+    # Timezone configuration
+    DEFAULT_TIMEZONE: str = os.getenv('DEFAULT_TIMEZONE', 'UTC')
+    
+    # Rate limiting
+    RATE_LIMIT_ENABLED: bool = _get_bool_env('RATE_LIMIT_ENABLED', True)
+    RATE_LIMIT_REQUESTS: int = int(os.getenv('RATE_LIMIT_REQUESTS', '100'))
+    RATE_LIMIT_WINDOW: int = int(os.getenv('RATE_LIMIT_WINDOW', '3600'))
+    
+    # Cache configuration
+    CACHE_ENABLED: bool = _get_bool_env('CACHE_ENABLED', True)
+    CACHE_TTL: int = int(os.getenv('CACHE_TTL', '3600'))
     
     @classmethod
     def validate(cls) -> bool:
-        """Validate required configuration."""
-        required_vars = ['TELEGRAM_BOT_TOKEN']
-        missing_vars = [var for var in required_vars if not getattr(cls, var)]
+        """
+        Validate configuration settings.
         
-        if missing_vars:
-            print(f"Missing required environment variables: {', '.join(missing_vars)}")
+        Returns:
+            True if configuration is valid, False otherwise
+        """
+        if not cls.TELEGRAM_BOT_TOKEN:
+            print("ERROR: TELEGRAM_BOT_TOKEN is required")
             return False
         
-        # Check if token looks valid (basic format check)
-        if cls.TELEGRAM_BOT_TOKEN and not cls.TELEGRAM_BOT_TOKEN.startswith('your_'):
-            # Basic token format validation
-            parts = cls.TELEGRAM_BOT_TOKEN.split(':')
-            if len(parts) != 2 or not parts[0].isdigit() or len(parts[1]) < 10:
-                print("TELEGRAM_BOT_TOKEN appears to be invalid format")
-                return False
+        if not cls.DATABASE_URL:
+            print("ERROR: DATABASE_URL is required")
+            return False
         
         return True
     
     @classmethod
-    def is_production(cls) -> bool:
-        """Check if running in production environment."""
-        return cls.RENDER_EXTERNAL_HOSTNAME is not None
-    
-    @classmethod
-    def is_webhook_mode(cls) -> bool:
-        """Check if webhook mode should be used."""
-        return (
-            cls.is_production() or
-            cls.WEBHOOK_MODE and cls.WEBHOOK_MODE.lower() == 'true'
-        )
+    def get_database_url(cls) -> str:
+        """
+        Get the database URL with proper formatting.
+        
+        Returns:
+            Formatted database URL
+        """
+        url = cls.DATABASE_URL
+        
+        # Handle Render.com database URL format
+        if url.startswith('postgres://'):
+            url = url.replace('postgres://', 'postgresql://', 1)
+        
+        return url
 
-# Global config instance
+
+def _get_bool_env(key: str, default: bool = False) -> bool:
+    """
+    Get boolean environment variable.
+    
+    Args:
+        key: Environment variable key
+        default: Default value if not found
+        
+    Returns:
+        Boolean value
+    """
+    value = os.getenv(key, '').lower()
+    if value in ('true', '1', 'yes', 'on'):
+        return True
+    elif value in ('false', '0', 'no', 'off'):
+        return False
+    else:
+        return default
+
+
+# Global configuration instance
 config = Config()

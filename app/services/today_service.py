@@ -4,7 +4,6 @@ Service for sending today's news to all users.
 """
 
 import logging
-from datetime import datetime
 from sqlalchemy.orm import Session
 import telebot
 

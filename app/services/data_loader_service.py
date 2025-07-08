@@ -7,7 +7,6 @@ import logging
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
-from app.config import config
 from app.services.news_service import NewsService
 from app.scrapers.forex_factory_scraper import ForexFactoryScraper
 from app.utils.timezone_utils import get_current_time

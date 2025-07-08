@@ -1,231 +1,461 @@
 
 #!/usr/bin/env python3
-"""
-Standalone resource monitoring script for Render.com diagnostics.
-Can be run independently or alongside the main application.
-"""
+"""Resource monitoring script for the Forex Bot application."""
 
-import os
+import argparse
+import json
 import sys
 import time
-import psutil
-import json
-import signal
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+from loguru import logger
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 
 class ResourceMonitor:
-    def __init__(self, interval=10, log_file=None):
-        self.interval = interval
-        self.log_file = log_file
-        self.running = True
+    """Resource monitoring class."""
+    
+    def __init__(self, output_file: Optional[str] = None):
+        """
+        Initialize the resource monitor.
+        
+        Args:
+            output_file: Optional output file for metrics
+        """
+        self.output_file = output_file
         self.start_time = time.time()
+        self.metrics_history: List[Dict[str, Any]] = []
         
-        # Setup signal handlers
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        signal.signal(signal.SIGINT, self._signal_handler)
-    
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals."""
-        print(f"\n[{datetime.utcnow().isoformat()}] Received signal {signum}, shutting down monitor...")
-        self.running = False
-    
-    def log_message(self, message):
-        """Log message to file and stdout."""
-        timestamp = datetime.utcnow().isoformat()
-        log_line = f"[{timestamp}] {message}"
-        
-        print(log_line)
-        
-        if self.log_file:
-            try:
-                with open(self.log_file, 'a') as f:
-                    f.write(log_line + '\n')
-                    f.flush()
-            except Exception as e:
-                print(f"Failed to write to log file: {e}")
-    
-    def get_system_metrics(self):
-        """Get comprehensive system metrics."""
+        # Try to import psutil
         try:
-            # System metrics
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/')
-            cpu_percent = psutil.cpu_percent(interval=1)
+            import psutil
+            self.psutil = psutil
+            self.psutil_available = True
+        except ImportError:
+            self.psutil = None
+            self.psutil_available = False
+            logger.warning("psutil not available - limited monitoring capabilities")
+    
+    def get_system_metrics(self) -> Dict[str, Any]:
+        """
+        Get current system metrics.
+        
+        Returns:
+            Dictionary with system metrics
+        """
+        metrics = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'uptime_seconds': time.time() - self.start_time,
+        }
+        
+        if not self.psutil_available:
+            metrics['error'] = 'psutil not available'
+            return metrics
+        
+        try:
+            # CPU metrics
+            cpu_percent = self.psutil.cpu_percent(interval=1)
+            cpu_count = self.psutil.cpu_count()
             
-            # Process metrics
-            process = psutil.Process()
-            process_memory = process.memory_info()
+            metrics['cpu'] = {
+                'percent': cpu_percent,
+                'count': cpu_count,
+                'load_average': list(self.psutil.getloadavg()) if hasattr(self.psutil, 'getloadavg') else None
+            }
+            
+            # Memory metrics
+            memory = self.psutil.virtual_memory()
+            swap = self.psutil.swap_memory()
+            
+            metrics['memory'] = {
+                'total_gb': memory.total / 1024 / 1024 / 1024,
+                'available_gb': memory.available / 1024 / 1024 / 1024,
+                'used_gb': memory.used / 1024 / 1024 / 1024,
+                'percent': memory.percent,
+                'swap_total_gb': swap.total / 1024 / 1024 / 1024,
+                'swap_used_gb': swap.used / 1024 / 1024 / 1024,
+                'swap_percent': swap.percent
+            }
+            
+            # Disk metrics
+            disk_usage = self.psutil.disk_usage('/')
+            
+            metrics['disk'] = {
+                'total_gb': disk_usage.total / 1024 / 1024 / 1024,
+                'used_gb': disk_usage.used / 1024 / 1024 / 1024,
+                'free_gb': disk_usage.free / 1024 / 1024 / 1024,
+                'percent': (disk_usage.used / disk_usage.total) * 100
+            }
             
             # Network metrics (if available)
             try:
-                network = psutil.net_io_counters()
-                network_stats = {
+                network = self.psutil.net_io_counters()
+                metrics['network'] = {
                     'bytes_sent': network.bytes_sent,
                     'bytes_recv': network.bytes_recv,
                     'packets_sent': network.packets_sent,
                     'packets_recv': network.packets_recv,
                 }
-            except:
-                network_stats = None
+            except Exception:
+                metrics['network'] = None
             
-            metrics = {
-                'timestamp': datetime.utcnow().isoformat(),
-                'uptime_seconds': time.time() - self.start_time,
-                'system': {
-                    'cpu_percent': cpu_percent,
-                    'cpu_count': psutil.cpu_count(),
-                    'memory_total_gb': memory.total / 1024 / 1024 / 1024,
-                    'memory_available_gb': memory.available / 1024 / 1024 / 1024,
-                    'memory_used_gb': memory.used / 1024 / 1024 / 1024,
-                    'memory_percent': memory.percent,
-                    'disk_total_gb': disk.total / 1024 / 1024 / 1024,
-                    'disk_used_gb': disk.used / 1024 / 1024 / 1024,
-                    'disk_free_gb': disk.free / 1024 / 1024 / 1024,
-                    'disk_percent': disk.percent,
-                },
-                'process': {
+            # Process metrics
+            try:
+                process = self.psutil.Process()
+                process_memory = process.memory_info()
+                
+                metrics['process'] = {
                     'pid': process.pid,
                     'memory_rss_mb': process_memory.rss / 1024 / 1024,
                     'memory_vms_mb': process_memory.vms / 1024 / 1024,
-                    'memory_percent': process.memory_percent(),
                     'cpu_percent': process.cpu_percent(),
                     'num_threads': process.num_threads(),
-                    'status': process.status(),
-                },
-                'environment': {
-                    'render_hostname': os.getenv('RENDER_EXTERNAL_HOSTNAME'),
-                    'render_service': os.getenv('RENDER_SERVICE_NAME'),
-                    'render_service_id': os.getenv('RENDER_SERVICE_ID'),
-                    'port': os.getenv('PORT', '10000'),
-                    'python_version': sys.version.split()[0],
-                },
-                'network': network_stats,
-            }
-            
-            return metrics
+                    'create_time': process.create_time(),
+                    'status': process.status()
+                }
+            except Exception as e:
+                metrics['process'] = {'error': str(e)}
             
         except Exception as e:
-            return {'error': str(e), 'timestamp': datetime.utcnow().isoformat()}
+            metrics['error'] = str(e)
+            logger.error(f"Error collecting system metrics: {e}")
+        
+        return metrics
     
-    def check_alerts(self, metrics):
-        """Check for alert conditions."""
-        alerts = []
+    def get_application_metrics(self) -> Dict[str, Any]:
+        """
+        Get application-specific metrics.
         
-        if 'system' in metrics:
-            system = metrics['system']
-            
-            # Memory alerts
-            if system['memory_percent'] > 90:
-                alerts.append(f"🚨 CRITICAL: System memory usage {system['memory_percent']:.1f}%")
-            elif system['memory_percent'] > 80:
-                alerts.append(f"⚠️ WARNING: System memory usage {system['memory_percent']:.1f}%")
-            
-            # CPU alerts
-            if system['cpu_percent'] > 95:
-                alerts.append(f"🚨 CRITICAL: CPU usage {system['cpu_percent']:.1f}%")
-            elif system['cpu_percent'] > 80:
-                alerts.append(f"⚠️ WARNING: CPU usage {system['cpu_percent']:.1f}%")
-            
-            # Disk alerts
-            if system['disk_percent'] > 90:
-                alerts.append(f"🚨 CRITICAL: Disk usage {system['disk_percent']:.1f}%")
-            elif system['disk_percent'] > 80:
-                alerts.append(f"⚠️ WARNING: Disk usage {system['disk_percent']:.1f}%")
-        
-        if 'process' in metrics:
-            process = metrics['process']
-            
-            # Process memory alerts (for 512MB limit on free tier)
-            if process['memory_rss_mb'] > 480:
-                alerts.append(f"🚨 CRITICAL: Process memory {process['memory_rss_mb']:.1f}MB (close to 512MB limit)")
-            elif process['memory_rss_mb'] > 400:
-                alerts.append(f"⚠️ WARNING: Process memory {process['memory_rss_mb']:.1f}MB")
-        
-        return alerts
-    
-    def run(self):
-        """Main monitoring loop."""
-        self.log_message("🔍 Resource Monitor Started")
-        self.log_message(f"Monitoring interval: {self.interval} seconds")
-        self.log_message(f"PID: {os.getpid()}")
-        
-        if os.getenv('RENDER_EXTERNAL_HOSTNAME'):
-            self.log_message(f"Running on Render: {os.getenv('RENDER_EXTERNAL_HOSTNAME')}")
+        Returns:
+            Dictionary with application metrics
+        """
+        metrics = {
+            'timestamp': datetime.utcnow().isoformat(),
+        }
         
         try:
-            while self.running:
-                # Get metrics
-                metrics = self.get_system_metrics()
+            # Try to get database connection info
+            from app.database.connection import get_db
+            
+            try:
+                db = next(get_db())
+                metrics['database'] = {
+                    'connection_status': 'connected',
+                    'connection_time': datetime.utcnow().isoformat()
+                }
                 
-                # Check for alerts
-                alerts = self.check_alerts(metrics)
+                # Get basic table counts
+                from app.database.models import NewsEvent, BotUser, Currency, ImpactLevel
                 
-                # Log alerts
-                for alert in alerts:
-                    self.log_message(alert)
+                metrics['database']['table_counts'] = {
+                    'news_events': db.query(NewsEvent).count(),
+                    'bot_users': db.query(BotUser).count(),
+                    'currencies': db.query(Currency).count(),
+                    'impact_levels': db.query(ImpactLevel).count()
+                }
                 
-                # Log summary every 10 intervals (or if there are alerts)
-                if (time.time() - self.start_time) % (self.interval * 10) < self.interval or alerts:
-                    if 'system' in metrics and 'process' in metrics:
-                        summary = (
-                            f"📊 METRICS: "
-                            f"CPU: {metrics['system']['cpu_percent']:.1f}%, "
-                            f"Mem: {metrics['system']['memory_percent']:.1f}% "
-                            f"({metrics['system']['memory_available_gb']:.1f}GB free), "
-                            f"Process: {metrics['process']['memory_rss_mb']:.1f}MB, "
-                            f"Uptime: {metrics['uptime_seconds']/60:.1f}min"
-                        )
-                        self.log_message(summary)
-                
-                # Log full metrics to file if specified
-                if self.log_file and 'error' not in metrics:
-                    try:
-                        metrics_file = self.log_file.replace('.log', '_metrics.jsonl')
-                        with open(metrics_file, 'a') as f:
-                            f.write(json.dumps(metrics) + '\n')
-                    except Exception as e:
-                        self.log_message(f"Failed to write metrics: {e}")
-                
-                time.sleep(self.interval)
+            except Exception as e:
+                metrics['database'] = {
+                    'connection_status': 'error',
+                    'error': str(e)
+                }
+            
+            # Check log files
+            logs_dir = Path('logs')
+            if logs_dir.exists():
+                log_files = list(logs_dir.glob('*.log'))
+                metrics['logs'] = {
+                    'log_files_count': len(log_files),
+                    'total_size_mb': sum(f.stat().st_size for f in log_files) / 1024 / 1024
+                }
+            
+        except Exception as e:
+            metrics['error'] = str(e)
+            logger.error(f"Error collecting application metrics: {e}")
+        
+        return metrics
+    
+    def collect_metrics(self) -> Dict[str, Any]:
+        """
+        Collect all metrics.
+        
+        Returns:
+            Dictionary with all metrics
+        """
+        metrics = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'system': self.get_system_metrics(),
+            'application': self.get_application_metrics()
+        }
+        
+        # Store in history
+        self.metrics_history.append(metrics)
+        
+        # Keep only last 100 entries
+        if len(self.metrics_history) > 100:
+            self.metrics_history = self.metrics_history[-100:]
+        
+        return metrics
+    
+    def save_metrics(self, metrics: Dict[str, Any]) -> None:
+        """
+        Save metrics to file.
+        
+        Args:
+            metrics: Metrics dictionary to save
+        """
+        if not self.output_file:
+            return
+        
+        try:
+            output_path = Path(self.output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Append to JSONL file
+            with open(output_path, 'a') as f:
+                f.write(json.dumps(metrics) + '\n')
                 
         except Exception as e:
-            self.log_message(f"❌ Monitor error: {e}")
-        
-        self.log_message("🔍 Resource Monitor Stopped")
-
-def main():
-    """Main entry point."""
-    import argparse
+            logger.error(f"Error saving metrics to {self.output_file}: {e}")
     
-    parser = argparse.ArgumentParser(description='Resource Monitor for Render.com')
-    parser.add_argument('--interval', type=int, default=10, help='Monitoring interval in seconds')
-    parser.add_argument('--log-file', type=str, help='Log file path')
-    parser.add_argument('--duration', type=int, help='Run for specified duration in seconds')
+    def print_metrics(self, metrics: Dict[str, Any], detailed: bool = False) -> None:
+        """
+        Print metrics to console.
+        
+        Args:
+            metrics: Metrics dictionary to print
+            detailed: Whether to print detailed metrics
+        """
+        timestamp = metrics['timestamp']
+        print(f"\n=== Resource Monitor - {timestamp} ===")
+        
+        # System metrics
+        system = metrics.get('system', {})
+        if 'error' in system:
+            print(f"System: ERROR - {system['error']}")
+        else:
+            if 'cpu' in system:
+                cpu = system['cpu']
+                print(f"CPU: {cpu.get('percent', 0):.1f}% ({cpu.get('count', 0)} cores)")
+            
+            if 'memory' in system:
+                memory = system['memory']
+                print(f"Memory: {memory.get('percent', 0):.1f}% ({memory.get('used_gb', 0):.1f}GB / {memory.get('total_gb', 0):.1f}GB)")
+            
+            if 'disk' in system:
+                disk = system['disk']
+                print(f"Disk: {disk.get('percent', 0):.1f}% ({disk.get('used_gb', 0):.1f}GB / {disk.get('total_gb', 0):.1f}GB)")
+            
+            if 'process' in system and isinstance(system['process'], dict):
+                process = system['process']
+                if 'error' not in process:
+                    print(f"Process: {process.get('memory_rss_mb', 0):.1f}MB RAM, {process.get('cpu_percent', 0):.1f}% CPU")
+        
+        # Application metrics
+        app = metrics.get('application', {})
+        if 'database' in app:
+            db = app['database']
+            status = db.get('connection_status', 'unknown')
+            print(f"Database: {status}")
+            
+            if 'table_counts' in db and detailed:
+                counts = db['table_counts']
+                print(f"  - Events: {counts.get('news_events', 0)}")
+                print(f"  - Users: {counts.get('bot_users', 0)}")
+                print(f"  - Currencies: {counts.get('currencies', 0)}")
+        
+        if 'logs' in app and detailed:
+            logs = app['logs']
+            print(f"Logs: {logs.get('log_files_count', 0)} files, {logs.get('total_size_mb', 0):.1f}MB")
+    
+    def run_continuous_monitoring(
+        self,
+        interval: int = 60,
+        duration: Optional[int] = None,
+        detailed: bool = False
+    ) -> None:
+        """
+        Run continuous monitoring.
+        
+        Args:
+            interval: Monitoring interval in seconds
+            duration: Total duration in seconds (None for infinite)
+            detailed: Whether to print detailed metrics
+        """
+        logger.info(f"Starting continuous monitoring (interval: {interval}s)")
+        
+        start_time = time.time()
+        iteration = 0
+        
+        try:
+            while True:
+                iteration += 1
+                
+                # Collect metrics
+                metrics = self.collect_metrics()
+                
+                # Print metrics
+                self.print_metrics(metrics, detailed=detailed)
+                
+                # Save metrics
+                self.save_metrics(metrics)
+                
+                # Check duration
+                if duration and (time.time() - start_time) >= duration:
+                    logger.info(f"Monitoring completed after {duration} seconds")
+                    break
+                
+                # Wait for next iteration
+                time.sleep(interval)
+                
+        except KeyboardInterrupt:
+            logger.info("Monitoring stopped by user")
+        except Exception as e:
+            logger.error(f"Error in continuous monitoring: {e}")
+    
+    def get_summary_report(self) -> Dict[str, Any]:
+        """
+        Get summary report of collected metrics.
+        
+        Returns:
+            Summary report dictionary
+        """
+        if not self.metrics_history:
+            return {'error': 'No metrics collected'}
+        
+        # Calculate averages and trends
+        cpu_values = []
+        memory_values = []
+        disk_values = []
+        
+        for metrics in self.metrics_history:
+            system = metrics.get('system', {})
+            
+            if 'cpu' in system and 'percent' in system['cpu']:
+                cpu_values.append(system['cpu']['percent'])
+            
+            if 'memory' in system and 'percent' in system['memory']:
+                memory_values.append(system['memory']['percent'])
+            
+            if 'disk' in system and 'percent' in system['disk']:
+                disk_values.append(system['disk']['percent'])
+        
+        summary = {
+            'monitoring_duration': time.time() - self.start_time,
+            'total_samples': len(self.metrics_history),
+            'averages': {}
+        }
+        
+        if cpu_values:
+            summary['averages']['cpu_percent'] = sum(cpu_values) / len(cpu_values)
+            summary['averages']['cpu_max'] = max(cpu_values)
+            summary['averages']['cpu_min'] = min(cpu_values)
+        
+        if memory_values:
+            summary['averages']['memory_percent'] = sum(memory_values) / len(memory_values)
+            summary['averages']['memory_max'] = max(memory_values)
+            summary['averages']['memory_min'] = min(memory_values)
+        
+        if disk_values:
+            summary['averages']['disk_percent'] = sum(disk_values) / len(disk_values)
+            summary['averages']['disk_max'] = max(disk_values)
+            summary['averages']['disk_min'] = min(disk_values)
+        
+        return summary
+
+
+def main() -> int:
+    """
+    Main function.
+    
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
+    parser = argparse.ArgumentParser(
+        description="Monitor system and application resources",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --once
+  %(prog)s --interval 30 --duration 3600
+  %(prog)s --interval 60 --output metrics.jsonl --detailed
+        """
+    )
+    
+    parser.add_argument(
+        '--once',
+        action='store_true',
+        help='Run monitoring once and exit'
+    )
+    
+    parser.add_argument(
+        '--interval',
+        type=int,
+        default=60,
+        help='Monitoring interval in seconds (default: 60)'
+    )
+    
+    parser.add_argument(
+        '--duration',
+        type=int,
+        help='Total monitoring duration in seconds (default: infinite)'
+    )
+    
+    parser.add_argument(
+        '--output',
+        type=str,
+        help='Output file for metrics (JSONL format)'
+    )
+    
+    parser.add_argument(
+        '--detailed',
+        action='store_true',
+        help='Show detailed metrics'
+    )
+    
+    parser.add_argument(
+        '--summary',
+        action='store_true',
+        help='Show summary report at the end'
+    )
     
     args = parser.parse_args()
     
-    # Create log directory if needed
-    if args.log_file:
-        log_dir = os.path.dirname(args.log_file)
-        if log_dir:
-            os.makedirs(log_dir, exist_ok=True)
-    
-    monitor = ResourceMonitor(interval=args.interval, log_file=args.log_file)
-    
-    if args.duration:
-        # Run for specified duration
-        import threading
-        def stop_monitor():
-            time.sleep(args.duration)
-            monitor.running = False
-        
-        timer = threading.Thread(target=stop_monitor, daemon=True)
-        timer.start()
-    
     try:
-        monitor.run()
+        # Initialize monitor
+        monitor = ResourceMonitor(output_file=args.output)
+        
+        if args.once:
+            # Single monitoring run
+            metrics = monitor.collect_metrics()
+            monitor.print_metrics(metrics, detailed=args.detailed)
+            monitor.save_metrics(metrics)
+        else:
+            # Continuous monitoring
+            monitor.run_continuous_monitoring(
+                interval=args.interval,
+                duration=args.duration,
+                detailed=args.detailed
+            )
+            
+            # Show summary if requested
+            if args.summary:
+                summary = monitor.get_summary_report()
+                print("\n=== MONITORING SUMMARY ===")
+                print(json.dumps(summary, indent=2))
+        
+        return 0
+        
     except KeyboardInterrupt:
-        print("\nMonitor interrupted by user")
+        logger.info("Monitoring cancelled by user")
+        return 0
+    except Exception as e:
+        logger.error(f"Monitoring failed: {e}")
+        return 1
 
-if __name__ == "__main__":
-    main()
+
+if __name__ == '__main__':
+    sys.exit(main())

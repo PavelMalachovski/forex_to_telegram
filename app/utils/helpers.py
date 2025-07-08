@@ -3,9 +3,6 @@
 Helper utility functions.
 """
 
-from typing import List, Dict, Tuple
-from datetime import datetime
-from app.database.models import NewsEvent
 
 # Import text utilities from the new module
 from .text_utils import (

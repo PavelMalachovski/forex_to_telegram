@@ -10,7 +10,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 from api_server import app
-from app.config import config
 from app.utils.logging_config import setup_logging
 from app.database.connection import init_database
 

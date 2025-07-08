@@ -71,7 +71,7 @@ def quick_status_check():
                 
                 conn.close()
                 
-                print(f"✅ Connection: Working")
+                print("✅ Connection: Working")
                 print(f"✅ Total Events: {total_events}")
                 print(f"{'✅' if events_today > 0 else '⚠️'} Events Today: {events_today}")
                 print(f"{'✅' if events_tomorrow > 0 else '⚠️'} Events Tomorrow: {events_tomorrow}")

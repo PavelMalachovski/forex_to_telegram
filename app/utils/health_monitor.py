@@ -1,429 +1,421 @@
 
-"""
-Comprehensive health monitoring system with checks and metrics.
-"""
+"""Health monitoring utilities for the application."""
 
-import logging
-import psutil
 import time
 import threading
-import json
-import requests
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Callable
-from pathlib import Path
-from dataclasses import dataclass, asdict
-from app.config import config
-from app.database.connection import SessionLocal
+from typing import Dict, Any, Optional, Callable, List
+from dataclasses import dataclass, field
+from loguru import logger
 
-logger = logging.getLogger("health")
+
+@dataclass
+class HealthMetric:
+    """Health metric data class."""
+    name: str
+    value: float
+    timestamp: datetime
+    status: str = "OK"  # OK, WARNING, CRITICAL
+    threshold_warning: Optional[float] = None
+    threshold_critical: Optional[float] = None
+    unit: str = ""
+    description: str = ""
+
 
 @dataclass
 class HealthCheck:
-    """Represents a single health check result."""
+    """Health check configuration."""
     name: str
-    status: str  # "healthy", "unhealthy", "warning"
-    message: str
-    timestamp: str
-    duration_ms: float
-    details: Dict[str, Any] = None
+    check_func: Callable[[], HealthMetric]
+    interval: float = 60.0  # seconds
+    enabled: bool = True
+    last_run: Optional[datetime] = None
+    last_result: Optional[HealthMetric] = None
 
-@dataclass
-class SystemMetrics:
-    """System resource metrics."""
-    cpu_percent: float
-    memory_percent: float
-    memory_available_mb: float
-    disk_percent: float
-    disk_free_gb: float
-    load_average: List[float]
-    uptime_seconds: float
 
 class HealthMonitor:
-    """
-    Comprehensive health monitoring system.
-    Performs various health checks and tracks system metrics.
-    """
+    """Health monitoring system."""
     
     def __init__(self):
-        self.checks = {}
-        self.metrics_history = []
-        self.max_history_size = 100
-        self.last_check_time = None
-        self.check_interval = 30  # seconds
-        self.thresholds = {
-            'cpu_warning': 70.0,
-            'cpu_critical': 85.0,
-            'memory_warning': 80.0,
-            'memory_critical': 90.0,
-            'disk_warning': 80.0,
-            'disk_critical': 90.0,
-            'response_time_warning': 1000,  # ms
-            'response_time_critical': 5000,  # ms
-        }
-        self._lock = threading.Lock()
-        self.start_time = time.time()
+        self.checks: Dict[str, HealthCheck] = {}
+        self.metrics_history: Dict[str, List[HealthMetric]] = {}
+        self.running = False
+        self.monitor_thread: Optional[threading.Thread] = None
+        self.lock = threading.Lock()
+        self.max_history_size = 1000
         
-        logger.info("HealthMonitor initialized")
-    
-    def register_check(self, name: str, check_func: Callable[[], tuple], 
-                      description: str = ""):
+    def register_check(
+        self,
+        name: str,
+        check_func: Callable[[], HealthMetric],
+        interval: float = 60.0,
+        enabled: bool = True
+    ) -> None:
         """
-        Register a custom health check function.
+        Register a health check.
         
         Args:
-            name: Unique name for the check
-            check_func: Function that returns (is_healthy: bool, message: str, details: dict)
-            description: Human-readable description of the check
+            name: Name of the health check
+            check_func: Function that returns a HealthMetric
+            interval: Check interval in seconds
+            enabled: Whether the check is enabled
         """
-        self.checks[name] = {
-            'func': check_func,
-            'description': description,
-            'last_result': None
-        }
+        with self.lock:
+            self.checks[name] = HealthCheck(
+                name=name,
+                check_func=check_func,
+                interval=interval,
+                enabled=enabled
+            )
+            
+            if name not in self.metrics_history:
+                self.metrics_history[name] = []
+        
         logger.info(f"Registered health check: {name}")
     
-    def get_system_metrics(self) -> SystemMetrics:
-        """Get current system metrics."""
-        try:
-            # CPU metrics
-            cpu_percent = psutil.cpu_percent(interval=1)
-            
-            # Memory metrics
-            memory = psutil.virtual_memory()
-            memory_percent = memory.percent
-            memory_available_mb = memory.available / (1024 * 1024)
-            
-            # Disk metrics
-            disk = psutil.disk_usage('/')
-            disk_percent = (disk.used / disk.total) * 100
-            disk_free_gb = disk.free / (1024 * 1024 * 1024)
-            
-            # Load average (Unix-like systems)
+    def start_monitoring(self) -> None:
+        """Start the health monitoring thread."""
+        if self.running:
+            logger.warning("Health monitoring is already running")
+            return
+        
+        self.running = True
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+        
+        logger.info("Health monitoring started")
+    
+    def stop_monitoring(self) -> None:
+        """Stop the health monitoring thread."""
+        self.running = False
+        
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join(timeout=5.0)
+        
+        logger.info("Health monitoring stopped")
+    
+    def _monitor_loop(self) -> None:
+        """Main monitoring loop."""
+        while self.running:
             try:
-                load_average = list(psutil.getloadavg())
-            except AttributeError:
-                load_average = [0.0, 0.0, 0.0]  # Windows doesn't have load average
-            
-            # Uptime
-            uptime_seconds = time.time() - self.start_time
-            
-            return SystemMetrics(
-                cpu_percent=cpu_percent,
-                memory_percent=memory_percent,
-                memory_available_mb=memory_available_mb,
-                disk_percent=disk_percent,
-                disk_free_gb=disk_free_gb,
-                load_average=load_average,
-                uptime_seconds=uptime_seconds
-            )
-        except Exception as e:
-            logger.error(f"Error getting system metrics: {e}")
-            raise
-    
-    def check_database_health(self) -> tuple:
-        """Check database connectivity and performance."""
-        try:
-            start_time = time.time()
-            db = SessionLocal()
-            
-            try:
-                # Simple connectivity test
-                result = db.execute("SELECT 1").scalar()
-                if result != 1:
-                    return False, "Database query returned unexpected result", {}
+                current_time = datetime.utcnow()
                 
-                # Check response time
-                response_time = (time.time() - start_time) * 1000
+                with self.lock:
+                    for check in self.checks.values():
+                        if not check.enabled:
+                            continue
+                        
+                        # Check if it's time to run this check
+                        if (check.last_run is None or 
+                            (current_time - check.last_run).total_seconds() >= check.interval):
+                            
+                            try:
+                                metric = check.check_func()
+                                check.last_run = current_time
+                                check.last_result = metric
+                                
+                                # Store in history
+                                self._store_metric(metric)
+                                
+                                # Log if status is not OK
+                                if metric.status != "OK":
+                                    logger.warning(f"Health check {metric.name}: {metric.status} - {metric.value}")
+                                
+                            except Exception as e:
+                                logger.error(f"Error running health check {check.name}: {e}")
+                                
+                                # Create error metric
+                                error_metric = HealthMetric(
+                                    name=check.name,
+                                    value=0.0,
+                                    timestamp=current_time,
+                                    status="CRITICAL",
+                                    description=f"Check failed: {e}"
+                                )
+                                
+                                check.last_result = error_metric
+                                self._store_metric(error_metric)
                 
-                details = {
-                    'response_time_ms': response_time,
-                    'database_url': config.DATABASE_URL.split('@')[0] + '@***'  # Hide credentials
-                }
-                
-                if response_time > self.thresholds['response_time_critical']:
-                    return False, f"Database response time too high: {response_time:.2f}ms", details
-                elif response_time > self.thresholds['response_time_warning']:
-                    return True, f"Database response time elevated: {response_time:.2f}ms", details
-                else:
-                    return True, f"Database healthy (response: {response_time:.2f}ms)", details
-                    
-            finally:
-                db.close()
-                
-        except Exception as e:
-            return False, f"Database connection failed: {str(e)}", {'error': str(e)}
-    
-    def check_external_services(self) -> tuple:
-        """Check external service dependencies."""
-        services_to_check = [
-            ('ForexFactory', 'https://www.forexfactory.com'),
-            ('Google', 'https://www.google.com'),  # Basic internet connectivity
-        ]
-        
-        results = {}
-        overall_healthy = True
-        messages = []
-        
-        for service_name, url in services_to_check:
-            try:
-                start_time = time.time()
-                response = requests.get(url, timeout=10, headers={
-                    'User-Agent': 'Mozilla/5.0 (compatible; HealthCheck/1.0)'
-                })
-                response_time = (time.time() - start_time) * 1000
-                
-                if response.status_code == 200:
-                    results[service_name] = {
-                        'status': 'healthy',
-                        'response_time_ms': response_time,
-                        'status_code': response.status_code
-                    }
-                    messages.append(f"{service_name}: OK ({response_time:.0f}ms)")
-                else:
-                    results[service_name] = {
-                        'status': 'unhealthy',
-                        'response_time_ms': response_time,
-                        'status_code': response.status_code
-                    }
-                    messages.append(f"{service_name}: HTTP {response.status_code}")
-                    overall_healthy = False
-                    
-            except Exception as e:
-                results[service_name] = {
-                    'status': 'unhealthy',
-                    'error': str(e)
-                }
-                messages.append(f"{service_name}: {str(e)}")
-                overall_healthy = False
-        
-        message = "; ".join(messages)
-        return overall_healthy, message, results
-    
-    def check_system_resources(self) -> tuple:
-        """Check system resource usage."""
-        try:
-            metrics = self.get_system_metrics()
-            issues = []
-            warnings = []
-            
-            # Check CPU
-            if metrics.cpu_percent > self.thresholds['cpu_critical']:
-                issues.append(f"CPU usage critical: {metrics.cpu_percent:.1f}%")
-            elif metrics.cpu_percent > self.thresholds['cpu_warning']:
-                warnings.append(f"CPU usage high: {metrics.cpu_percent:.1f}%")
-            
-            # Check Memory
-            if metrics.memory_percent > self.thresholds['memory_critical']:
-                issues.append(f"Memory usage critical: {metrics.memory_percent:.1f}%")
-            elif metrics.memory_percent > self.thresholds['memory_warning']:
-                warnings.append(f"Memory usage high: {metrics.memory_percent:.1f}%")
-            
-            # Check Disk
-            if metrics.disk_percent > self.thresholds['disk_critical']:
-                issues.append(f"Disk usage critical: {metrics.disk_percent:.1f}%")
-            elif metrics.disk_percent > self.thresholds['disk_warning']:
-                warnings.append(f"Disk usage high: {metrics.disk_percent:.1f}%")
-            
-            # Determine overall status
-            if issues:
-                return False, f"Critical issues: {'; '.join(issues)}", asdict(metrics)
-            elif warnings:
-                return True, f"Warnings: {'; '.join(warnings)}", asdict(metrics)
-            else:
-                return True, "System resources normal", asdict(metrics)
-                
-        except Exception as e:
-            return False, f"Error checking system resources: {str(e)}", {}
-    
-    def check_log_health(self) -> tuple:
-        """Check logging system health."""
-        try:
-            from app.utils.enhanced_logging import get_log_health_stats
-            
-            stats = get_log_health_stats()
-            if 'error' in stats:
-                return False, "Log health monitoring not available", stats
-            
-            error_count = stats.get('error_count', 0)
-            warning_count = stats.get('warning_count', 0)
-            last_error_time = stats.get('last_error_time')
-            
-            # Check for recent errors
-            if last_error_time:
-                last_error = datetime.fromisoformat(last_error_time)
-                time_since_error = datetime.now() - last_error
-                
-                if time_since_error < timedelta(minutes=5):
-                    return False, f"Recent errors detected: {error_count} errors, {warning_count} warnings", stats
-                elif time_since_error < timedelta(minutes=15):
-                    return True, f"Some recent issues: {error_count} errors, {warning_count} warnings", stats
-            
-            return True, f"Logging healthy: {error_count} errors, {warning_count} warnings", stats
-            
-        except Exception as e:
-            return False, f"Error checking log health: {str(e)}", {}
-    
-    def run_all_checks(self) -> Dict[str, HealthCheck]:
-        """Run all registered health checks."""
-        results = {}
-        
-        # Built-in checks
-        builtin_checks = {
-            'database': self.check_database_health,
-            'system_resources': self.check_system_resources,
-            'external_services': self.check_external_services,
-            'log_health': self.check_log_health,
-        }
-        
-        # Combine with custom checks
-        all_checks = {**builtin_checks, **{name: info['func'] for name, info in self.checks.items()}}
-        
-        for check_name, check_func in all_checks.items():
-            try:
-                start_time = time.time()
-                is_healthy, message, details = check_func()
-                duration_ms = (time.time() - start_time) * 1000
-                
-                status = "healthy" if is_healthy else "unhealthy"
-                
-                result = HealthCheck(
-                    name=check_name,
-                    status=status,
-                    message=message,
-                    timestamp=datetime.utcnow().isoformat(),
-                    duration_ms=duration_ms,
-                    details=details or {}
-                )
-                
-                results[check_name] = result
-                
-                # Update last result for custom checks
-                if check_name in self.checks:
-                    self.checks[check_name]['last_result'] = result
-                
-                logger.debug(f"Health check '{check_name}': {status} ({duration_ms:.2f}ms)")
+                time.sleep(1.0)  # Check every second, but respect individual intervals
                 
             except Exception as e:
-                logger.error(f"Health check '{check_name}' failed: {e}")
-                results[check_name] = HealthCheck(
-                    name=check_name,
-                    status="unhealthy",
-                    message=f"Check failed: {str(e)}",
-                    timestamp=datetime.utcnow().isoformat(),
-                    duration_ms=0,
-                    details={'error': str(e)}
-                )
-        
-        with self._lock:
-            self.last_check_time = datetime.utcnow()
-        
-        return results
+                logger.error(f"Error in health monitoring loop: {e}")
+                time.sleep(5.0)  # Wait before retrying
     
-    def get_health_summary(self) -> Dict[str, Any]:
-        """Get a comprehensive health summary."""
-        check_results = self.run_all_checks()
-        metrics = self.get_system_metrics()
+    def _store_metric(self, metric: HealthMetric) -> None:
+        """Store metric in history."""
+        if metric.name not in self.metrics_history:
+            self.metrics_history[metric.name] = []
         
-        # Calculate overall health
-        healthy_checks = sum(1 for result in check_results.values() if result.status == "healthy")
-        total_checks = len(check_results)
-        overall_healthy = healthy_checks == total_checks
+        history = self.metrics_history[metric.name]
+        history.append(metric)
         
-        # Store metrics in history
-        with self._lock:
-            self.metrics_history.append({
+        # Trim history if too large
+        if len(history) > self.max_history_size:
+            history[:] = history[-self.max_history_size:]
+    
+    def get_current_status(self) -> Dict[str, Any]:
+        """
+        Get current health status.
+        
+        Returns:
+            Dictionary with current health status
+        """
+        with self.lock:
+            status = {
+                'overall_status': 'OK',
                 'timestamp': datetime.utcnow().isoformat(),
-                'metrics': asdict(metrics)
-            })
-            
-            # Limit history size
-            if len(self.metrics_history) > self.max_history_size:
-                self.metrics_history = self.metrics_history[-self.max_history_size:]
-        
-        return {
-            'overall_status': 'healthy' if overall_healthy else 'unhealthy',
-            'timestamp': datetime.utcnow().isoformat(),
-            'uptime_seconds': metrics.uptime_seconds,
-            'checks': {name: asdict(result) for name, result in check_results.items()},
-            'metrics': asdict(metrics),
-            'summary': {
-                'total_checks': total_checks,
-                'healthy_checks': healthy_checks,
-                'unhealthy_checks': total_checks - healthy_checks
-            }
-        }
-    
-    def get_metrics_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get historical metrics data."""
-        with self._lock:
-            return self.metrics_history[-limit:]
-    
-    def save_health_report(self, filepath: Optional[Path] = None):
-        """Save a detailed health report to file."""
-        if filepath is None:
-            filepath = Path("logs/health_report.json")
-        
-        filepath.parent.mkdir(exist_ok=True)
-        
-        report = {
-            'report_time': datetime.utcnow().isoformat(),
-            'health_summary': self.get_health_summary(),
-            'metrics_history': self.get_metrics_history(),
-            'thresholds': self.thresholds,
-            'registered_checks': {
-                name: {
-                    'description': info['description'],
-                    'last_result': asdict(info['last_result']) if info['last_result'] else None
+                'checks': {},
+                'summary': {
+                    'total_checks': len(self.checks),
+                    'enabled_checks': sum(1 for c in self.checks.values() if c.enabled),
+                    'ok_checks': 0,
+                    'warning_checks': 0,
+                    'critical_checks': 0
                 }
-                for name, info in self.checks.items()
             }
-        }
+            
+            for name, check in self.checks.items():
+                if not check.enabled:
+                    continue
+                
+                check_status = {
+                    'enabled': check.enabled,
+                    'last_run': check.last_run.isoformat() if check.last_run else None,
+                    'interval': check.interval,
+                    'status': 'UNKNOWN'
+                }
+                
+                if check.last_result:
+                    result = check.last_result
+                    check_status.update({
+                        'status': result.status,
+                        'value': result.value,
+                        'unit': result.unit,
+                        'description': result.description,
+                        'timestamp': result.timestamp.isoformat()
+                    })
+                    
+                    # Update summary counts
+                    if result.status == 'OK':
+                        status['summary']['ok_checks'] += 1
+                    elif result.status == 'WARNING':
+                        status['summary']['warning_checks'] += 1
+                        if status['overall_status'] == 'OK':
+                            status['overall_status'] = 'WARNING'
+                    elif result.status == 'CRITICAL':
+                        status['summary']['critical_checks'] += 1
+                        status['overall_status'] = 'CRITICAL'
+                
+                status['checks'][name] = check_status
+            
+            return status
+    
+    def get_metrics_history(
+        self,
+        check_name: str,
+        since: Optional[datetime] = None,
+        limit: Optional[int] = None
+    ) -> List[HealthMetric]:
+        """
+        Get metrics history for a specific check.
         
-        try:
-            with open(filepath, 'w') as f:
-                json.dump(report, f, indent=2, default=str)
-            logger.info(f"Health report saved to {filepath}")
-        except Exception as e:
-            logger.error(f"Failed to save health report: {e}")
+        Args:
+            check_name: Name of the health check
+            since: Only return metrics after this time
+            limit: Maximum number of metrics to return
+            
+        Returns:
+            List of HealthMetric objects
+        """
+        with self.lock:
+            if check_name not in self.metrics_history:
+                return []
+            
+            metrics = self.metrics_history[check_name]
+            
+            # Filter by time if specified
+            if since:
+                metrics = [m for m in metrics if m.timestamp >= since]
+            
+            # Apply limit if specified
+            if limit:
+                metrics = metrics[-limit:]
+            
+            return metrics.copy()
+    
+    def run_check_now(self, check_name: str) -> Optional[HealthMetric]:
+        """
+        Run a specific health check immediately.
+        
+        Args:
+            check_name: Name of the health check to run
+            
+        Returns:
+            HealthMetric result or None if check not found
+        """
+        with self.lock:
+            if check_name not in self.checks:
+                logger.error(f"Health check not found: {check_name}")
+                return None
+            
+            check = self.checks[check_name]
+            
+            try:
+                metric = check.check_func()
+                check.last_run = datetime.utcnow()
+                check.last_result = metric
+                
+                self._store_metric(metric)
+                
+                logger.info(f"Manual health check {check_name}: {metric.status}")
+                return metric
+                
+            except Exception as e:
+                logger.error(f"Error running health check {check_name}: {e}")
+                return None
+
 
 # Global health monitor instance
 _health_monitor: Optional[HealthMonitor] = None
 
+
 def get_health_monitor() -> HealthMonitor:
-    """Get or create the global health monitor."""
+    """Get the global health monitor instance."""
     global _health_monitor
+    
     if _health_monitor is None:
         _health_monitor = HealthMonitor()
+    
     return _health_monitor
 
-def register_health_check(name: str, check_func: Callable[[], tuple], description: str = ""):
-    """Register a custom health check with the global monitor."""
-    monitor = get_health_monitor()
-    monitor.register_check(name, check_func, description)
 
-def get_health_status() -> Dict[str, Any]:
-    """Get current health status."""
-    monitor = get_health_monitor()
-    return monitor.get_health_summary()
+# Built-in health checks
+def memory_usage_check() -> HealthMetric:
+    """Check memory usage."""
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        
+        status = "OK"
+        if memory_mb > 800:
+            status = "CRITICAL"
+        elif memory_mb > 500:
+            status = "WARNING"
+        
+        return HealthMetric(
+            name="memory_usage",
+            value=memory_mb,
+            timestamp=datetime.utcnow(),
+            status=status,
+            threshold_warning=500.0,
+            threshold_critical=800.0,
+            unit="MB",
+            description=f"Process memory usage: {memory_mb:.1f} MB"
+        )
+        
+    except ImportError:
+        return HealthMetric(
+            name="memory_usage",
+            value=0.0,
+            timestamp=datetime.utcnow(),
+            status="WARNING",
+            description="psutil not available"
+        )
+    except Exception as e:
+        return HealthMetric(
+            name="memory_usage",
+            value=0.0,
+            timestamp=datetime.utcnow(),
+            status="CRITICAL",
+            description=f"Error checking memory: {e}"
+        )
 
-if __name__ == "__main__":
-    # Test the health monitor
-    logging.basicConfig(level=logging.DEBUG)
+
+def disk_usage_check() -> HealthMetric:
+    """Check disk usage."""
+    try:
+        import psutil
+        disk_usage = psutil.disk_usage('/')
+        free_gb = disk_usage.free / 1024 / 1024 / 1024
+        
+        status = "OK"
+        if free_gb < 0.5:
+            status = "CRITICAL"
+        elif free_gb < 1.0:
+            status = "WARNING"
+        
+        return HealthMetric(
+            name="disk_usage",
+            value=free_gb,
+            timestamp=datetime.utcnow(),
+            status=status,
+            threshold_warning=1.0,
+            threshold_critical=0.5,
+            unit="GB",
+            description=f"Free disk space: {free_gb:.1f} GB"
+        )
+        
+    except ImportError:
+        return HealthMetric(
+            name="disk_usage",
+            value=0.0,
+            timestamp=datetime.utcnow(),
+            status="WARNING",
+            description="psutil not available"
+        )
+    except Exception as e:
+        return HealthMetric(
+            name="disk_usage",
+            value=0.0,
+            timestamp=datetime.utcnow(),
+            status="CRITICAL",
+            description=f"Error checking disk: {e}"
+        )
+
+
+def uptime_check() -> HealthMetric:
+    """Check application uptime."""
+    try:
+        import psutil
+        process = psutil.Process()
+        uptime_seconds = time.time() - process.create_time()
+        uptime_hours = uptime_seconds / 3600
+        
+        return HealthMetric(
+            name="uptime",
+            value=uptime_hours,
+            timestamp=datetime.utcnow(),
+            status="OK",
+            unit="hours",
+            description=f"Application uptime: {uptime_hours:.1f} hours"
+        )
+        
+    except ImportError:
+        return HealthMetric(
+            name="uptime",
+            value=0.0,
+            timestamp=datetime.utcnow(),
+            status="WARNING",
+            description="psutil not available"
+        )
+    except Exception as e:
+        return HealthMetric(
+            name="uptime",
+            value=0.0,
+            timestamp=datetime.utcnow(),
+            status="CRITICAL",
+            description=f"Error checking uptime: {e}"
+        )
+
+
+def register_default_health_checks() -> None:
+    """Register default health checks."""
+    monitor = get_health_monitor()
     
-    monitor = HealthMonitor()
+    monitor.register_check("memory_usage", memory_usage_check, interval=30.0)
+    monitor.register_check("disk_usage", disk_usage_check, interval=60.0)
+    monitor.register_check("uptime", uptime_check, interval=300.0)
     
-    # Register a custom check
-    def custom_check():
-        return True, "Custom check passed", {'test': 'data'}
-    
-    monitor.register_check("custom_test", custom_check, "Test custom check")
-    
-    # Run health checks
-    print("Running health checks...")
-    summary = monitor.get_health_summary()
-    print(json.dumps(summary, indent=2, default=str))
-    
-    # Save report
-    monitor.save_health_report()
-    print("Health report saved")
+    logger.info("Default health checks registered")

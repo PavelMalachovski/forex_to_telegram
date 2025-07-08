@@ -4,12 +4,10 @@
 """
 
 import sys
-import os
 sys.path.append('/home/ubuntu/forex_bot_postgresql')
 
 from datetime import datetime, date, time, timedelta
 from app.utils.timezone_utils import get_current_time, get_local_timezone
-from app.database.models import NewsEvent
 
 def test_timezone_aware_datetime_creation():
     """Тест создания timezone-aware datetime из date и time."""
@@ -84,7 +82,7 @@ if __name__ == "__main__":
     test1_passed = test_timezone_aware_datetime_creation()
     test2_passed = test_tomorrow_command_logic()
     
-    print(f"\n📊 Результаты тестов:")
+    print("\n📊 Результаты тестов:")
     print(f"   Тест timezone-aware datetime: {'✅ ПРОШЕЛ' if test1_passed else '❌ ПРОВАЛЕН'}")
     print(f"   Тест логики tomorrow_command: {'✅ ПРОШЕЛ' if test2_passed else '❌ ПРОВАЛЕН'}")
     

@@ -4,7 +4,6 @@
 Script to backfill forex news data starting from January 1, 2025.
 """
 
-import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -12,7 +11,6 @@ from pathlib import Path
 # Add parent directory to path to import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.config import config
 from app.utils.logging_config import setup_logging
 from app.database.connection import init_database, get_db
 from app.scrapers import ForexFactoryScraper

@@ -8,18 +8,16 @@ import os
 import sys
 import sqlite3
 import logging
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Any
+from datetime import timedelta, date
+from typing import Dict, Any
 
 # Add app directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 from app.config import config
-from app.database.connection import SessionLocal, init_database
+from app.database.connection import SessionLocal
 from app.database.models import NewsEvent, BotUser, UserNotificationSettings, ScrapingLog
 from app.scrapers.forex_factory_scraper import ForexFactoryScraper
-from app.services.news_service import NewsService
-from app.services.notification_scheduler import NotificationScheduler
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -271,7 +269,7 @@ class ForexBotDiagnostics:
             users_with_notifications = db.query(BotUser).join(
                 UserNotificationSettings
             ).filter(
-                UserNotificationSettings.notifications_enabled == True
+                UserNotificationSettings.notifications_enabled
             ).count()
             
             notification_results['users_with_notifications'] = users_with_notifications
@@ -382,7 +380,7 @@ def main():
         with open('diagnosis_results.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
         
-        print(f"\n📄 Detailed results saved to: diagnosis_results.json")
+        print("\n📄 Detailed results saved to: diagnosis_results.json")
         
         # Exit with appropriate code
         if results['summary']['status'] == 'healthy':

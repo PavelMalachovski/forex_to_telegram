@@ -1,554 +1,370 @@
 
-
 #!/usr/bin/env python3
-"""
-Скрипт для массовой загрузки данных за указанный период.
-
-Этот скрипт:
-- Загружает данные с ForexFactory за указанный период
-- Перезаписывает существующие данные за те же даты
-- Показывает прогресс и детальную статистику
-- Обрабатывает ошибки с повторными попытками
-- Ведет подробное логирование
-"""
+"""Bulk load data script for the Forex Bot application."""
 
 import argparse
-import logging
 import sys
 from datetime import datetime, date, timedelta
-from typing import List, Dict, Optional, Tuple
-import time
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+from loguru import logger
+from tqdm import tqdm
 
-# Опциональный импорт tqdm для прогресс-бара
-try:
-    from tqdm import tqdm
-    TQDM_AVAILABLE = True
-except ImportError:
-    TQDM_AVAILABLE = False
-    # Создаем заглушку для tqdm
-    class tqdm:
-        def __init__(self, total=None, desc="", **kwargs):
-            self.total = total
-            self.desc = desc
-            self.current = 0
-            print(f"{desc}: 0/{total}")
-        
-        def __enter__(self):
-            return self
-        
-        def __exit__(self, *args):
-            print(f"{self.desc}: {self.current}/{self.total} - Завершено")
-        
-        def update(self, n=1):
-            self.current += n
-            if self.total and self.current % max(1, self.total // 10) == 0:
-                print(f"{self.desc}: {self.current}/{self.total}")
-        
-        def set_description(self, desc):
-            self.desc = desc
-        
-        def set_postfix(self, postfix_dict):
-            pass  # Игнорируем постфикс в fallback режиме
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Опциональный импорт tenacity для retry функциональности
-try:
-    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-    TENACITY_AVAILABLE = True
-except ImportError:
-    TENACITY_AVAILABLE = False
-    # Создаем заглушки для tenacity декораторов
-    def retry(*args, **kwargs):
-        """Fallback decorator when tenacity is not available."""
-        def decorator(func):
-            def wrapper(*args, **kwargs):
-                # Простая реализация retry без tenacity
-                max_attempts = 3
-                for attempt in range(max_attempts):
-                    try:
-                        return func(*args, **kwargs)
-                    except Exception as e:
-                        if attempt == max_attempts - 1:
-                            raise e
-                        logger.warning(f"Попытка {attempt + 1} неудачна: {e}. Повторяем...")
-                        time.sleep(2 ** attempt)  # Экспоненциальная задержка
-                return func(*args, **kwargs)
-            return wrapper
-        return decorator
-    
-    # Заглушки для других функций tenacity
-    def stop_after_attempt(attempts):
-        return None
-    
-    def wait_exponential(multiplier=1, min=1, max=10):
-        return None
-    
-    def retry_if_exception_type(exception_type):
-        return None
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import and_
-
-from app.database.connection import SessionLocal
-from app.database.models import NewsEvent, Currency, ImpactLevel, ScrapingLog
+from app.database.connection import get_db
+from app.services.news_service import NewsService
 from app.scrapers.forex_factory_scraper import ForexFactoryScraper
-from app.config import config
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(f'bulk_load_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
-    ]
-)
-logger = logging.getLogger(__name__)
 
-# Информация о доступности библиотек
-if not TQDM_AVAILABLE:
-    logger.info("tqdm не установлен - используется упрощенный индикатор прогресса")
-if not TENACITY_AVAILABLE:
-    logger.info("tenacity не установлен - используется упрощенная реализация retry")
-
-class BulkDataLoader:
-    """Класс для массовой загрузки данных."""
+def setup_logging(log_file: Optional[str] = None) -> None:
+    """
+    Setup logging configuration.
     
-    def __init__(self):
-        self.scraper = ForexFactoryScraper()
-        self.stats = {
-            'total_days': 0,
-            'successful_days': 0,
-            'failed_days': 0,
-            'total_events_scraped': 0,
-            'total_events_inserted': 0,
-            'total_events_updated': 0,
-            'total_events_skipped': 0,
-            'total_errors': 0,
-            'start_time': None,
-            'end_time': None
-        }
-        self.failed_dates = []
-        
-    def get_currency_map(self, db) -> Dict[str, int]:
-        """Получить маппинг кода валюты на ID."""
-        currencies = db.query(Currency).all()
-        return {c.code: c.id for c in currencies}
+    Args:
+        log_file: Optional log file path
+    """
+    logger.remove()  # Remove default handler
     
-    def get_impact_level_map(self, db) -> Dict[str, int]:
-        """Получить маппинг кода уровня воздействия на ID."""
-        impact_levels = db.query(ImpactLevel).all()
-        return {il.code: il.id for il in impact_levels}
-    
-    def validate_date_range(self, start_date: date, end_date: date) -> bool:
-        """Валидация диапазона дат."""
-        if start_date > end_date:
-            logger.error("Дата начала не может быть больше даты окончания")
-            return False
-        
-        if end_date > date.today():
-            logger.warning("Дата окончания в будущем, будет ограничена сегодняшним днем")
-            return True
-        
-        days_diff = (end_date - start_date).days + 1
-        if days_diff > 365:
-            logger.warning(f"Большой диапазон дат: {days_diff} дней. Это может занять много времени.")
-            response = input("Продолжить? (y/N): ")
-            return response.lower() == 'y'
-        
-        return True
-    
-    def clear_existing_data(self, db, target_date: date) -> int:
-        """Удалить существующие данные за указанную дату."""
-        try:
-            deleted_count = db.query(NewsEvent).filter(
-                NewsEvent.event_date == target_date
-            ).delete()
-            
-            if deleted_count > 0:
-                logger.debug(f"Удалено {deleted_count} существующих записей за {target_date}")
-            
-            return deleted_count
-            
-        except Exception as e:
-            logger.error(f"Ошибка при удалении данных за {target_date}: {e}")
-            raise
-    
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((Exception,))
+    # Console handler
+    logger.add(
+        sys.stdout,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="INFO"
     )
-    def scrape_date_with_retry(self, target_date: date) -> List[Dict]:
-        """Скрапинг данных за дату с повторными попытками."""
-        logger.debug(f"Попытка скрапинга данных за {target_date}")
-        return self.scraper.scrape_single_date(target_date)
     
-    def process_single_date(self, db, target_date: date, currency_map: Dict[str, int], 
-                          impact_map: Dict[str, int], overwrite: bool = True) -> Tuple[int, int, int]:
-        """
-        Обработать данные за одну дату.
-        
-        Returns:
-            Tuple[inserted, updated, skipped]
-        """
-        inserted = updated = skipped = 0
-        
-        try:
-            # Удалить существующие данные если нужно
-            if overwrite:
-                self.clear_existing_data(db, target_date)
-            
-            # Скрапинг данных
-            events = self.scrape_date_with_retry(target_date)
-            self.stats['total_events_scraped'] += len(events)
-            
-            if not events:
-                logger.debug(f"Нет событий за {target_date}")
-                return inserted, updated, skipped
-            
-            # Обработка каждого события
-            for event_data in events:
-                try:
-                    result = self.process_single_event(
-                        db, event_data, currency_map, impact_map, overwrite
-                    )
-                    
-                    if result == 'inserted':
-                        inserted += 1
-                    elif result == 'updated':
-                        updated += 1
-                    else:
-                        skipped += 1
-                        
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке события {event_data.get('event_name', 'Unknown')}: {e}")
-                    skipped += 1
-                    self.stats['total_errors'] += 1
-            
-            db.commit()
-            logger.debug(f"Обработка {target_date} завершена: +{inserted}, ~{updated}, -{skipped}")
-            
-        except Exception as e:
-            logger.error(f"Ошибка при обработке даты {target_date}: {e}")
-            db.rollback()
-            raise
-        
-        return inserted, updated, skipped
-    
-    def process_single_event(self, db, event_data: Dict, currency_map: Dict[str, int], 
-                           impact_map: Dict[str, int], overwrite: bool) -> str:
-        """
-        Обработать одно событие.
-        
-        Returns:
-            'inserted', 'updated', или 'skipped'
-        """
-        # Валидация данных
-        currency_code = event_data.get('currency', '').upper()
-        if currency_code not in currency_map:
-            logger.debug(f"Неизвестная валюта: {currency_code}")
-            return 'skipped'
-        
-        impact_code = event_data.get('impact_level', 'LOW')
-        if impact_code not in impact_map:
-            logger.debug(f"Неизвестный уровень воздействия: {impact_code}, использую LOW")
-            impact_code = 'LOW'
-        
-        # Парсинг даты и времени
-        try:
-            event_date = datetime.strptime(event_data['date'], '%Y-%m-%d').date()
-            event_time = datetime.strptime(event_data['time'], '%H:%M').time()
-        except (ValueError, KeyError) as e:
-            logger.debug(f"Ошибка парсинга даты/времени: {e}")
-            return 'skipped'
-        
-        # Проверка существования записи
-        existing_event = db.query(NewsEvent).filter(
-            and_(
-                NewsEvent.event_date == event_date,
-                NewsEvent.event_time == event_time,
-                NewsEvent.currency_id == currency_map[currency_code],
-                NewsEvent.event_name == event_data.get('event_name', '')
-            )
-        ).first()
-        
-        if existing_event and not overwrite:
-            return 'skipped'
-        
-        # Создание или обновление записи
-        if existing_event:
-            # Обновление существующей записи
-            existing_event.forecast = event_data.get('forecast', 'N/A')
-            existing_event.previous_value = event_data.get('previous_value', 'N/A')
-            existing_event.actual_value = event_data.get('actual_value', 'N/A')
-            existing_event.analysis = event_data.get('analysis', '')
-            existing_event.source_url = event_data.get('source_url', '')
-            existing_event.impact_level_id = impact_map[impact_code]
-            existing_event.updated_at = datetime.utcnow()
-            
-            return 'updated'
-        else:
-            # Создание новой записи
-            new_event = NewsEvent(
-                event_date=event_date,
-                event_time=event_time,
-                currency_id=currency_map[currency_code],
-                impact_level_id=impact_map[impact_code],
-                event_name=event_data.get('event_name', ''),
-                forecast=event_data.get('forecast', 'N/A'),
-                previous_value=event_data.get('previous_value', 'N/A'),
-                actual_value=event_data.get('actual_value', 'N/A'),
-                analysis=event_data.get('analysis', ''),
-                source_url=event_data.get('source_url', '')
-            )
-            
-            db.add(new_event)
-            return 'inserted'
-    
-    def create_scraping_log(self, db, start_date: date, end_date: date, 
-                          status: str, error_message: Optional[str] = None):
-        """Создать запись в логе скрапинга."""
-        try:
-            duration = None
-            if self.stats['start_time'] and self.stats['end_time']:
-                duration = int((self.stats['end_time'] - self.stats['start_time']).total_seconds())
-            
-            log_entry = ScrapingLog(
-                start_date=start_date,
-                end_date=end_date,
-                events_scraped=self.stats['total_events_scraped'],
-                events_updated=self.stats['total_events_inserted'] + self.stats['total_events_updated'],
-                errors_count=self.stats['total_errors'],
-                duration_seconds=duration,
-                status=status,
-                error_message=error_message
-            )
-            
-            db.add(log_entry)
-            db.commit()
-            
-        except Exception as e:
-            logger.error(f"Ошибка при создании лога скрапинга: {e}")
-    
-    def load_data_range(self, start_date: date, end_date: date, overwrite: bool = True) -> bool:
-        """
-        Загрузить данные за диапазон дат.
-        
-        Returns:
-            True если загрузка прошла успешно
-        """
-        # Ограничить дату окончания сегодняшним днем
-        if end_date > date.today():
-            end_date = date.today()
-            logger.info(f"Дата окончания ограничена сегодняшним днем: {end_date}")
-        
-        # Валидация
-        if not self.validate_date_range(start_date, end_date):
-            return False
-        
-        self.stats['start_time'] = datetime.now()
-        self.stats['total_days'] = (end_date - start_date).days + 1
-        
-        logger.info(f"Начинаю загрузку данных с {start_date} по {end_date}")
-        logger.info(f"Всего дней для обработки: {self.stats['total_days']}")
-        logger.info(f"Режим перезаписи: {'Включен' if overwrite else 'Отключен'}")
-        
-        db = SessionLocal()
-        try:
-            # Получить маппинги
-            currency_map = self.get_currency_map(db)
-            impact_map = self.get_impact_level_map(db)
-            
-            if not currency_map:
-                logger.error("Не найдены валюты в базе данных. Запустите init_data.py")
-                return False
-            
-            if not impact_map:
-                logger.error("Не найдены уровни воздействия в базе данных. Запустите init_data.py")
-                return False
-            
-            # Обработка каждой даты
-            current_date = start_date
-            with tqdm(total=self.stats['total_days'], desc="Загрузка данных") as pbar:
-                while current_date <= end_date:
-                    try:
-                        pbar.set_description(f"Обработка {current_date}")
-                        
-                        inserted, updated, skipped = self.process_single_date(
-                            db, current_date, currency_map, impact_map, overwrite
-                        )
-                        
-                        self.stats['total_events_inserted'] += inserted
-                        self.stats['total_events_updated'] += updated
-                        self.stats['total_events_skipped'] += skipped
-                        self.stats['successful_days'] += 1
-                        
-                        pbar.set_postfix({
-                            'Добавлено': inserted,
-                            'Обновлено': updated,
-                            'Пропущено': skipped
-                        })
-                        
-                    except Exception as e:
-                        logger.error(f"Ошибка при обработке {current_date}: {e}")
-                        self.failed_dates.append(current_date)
-                        self.stats['failed_days'] += 1
-                        self.stats['total_errors'] += 1
-                        
-                        pbar.set_postfix({'Ошибка': str(e)[:50]})
-                    
-                    current_date += timedelta(days=1)
-                    pbar.update(1)
-                    
-                    # Небольшая пауза между запросами
-                    time.sleep(0.5)
-            
-            self.stats['end_time'] = datetime.now()
-            
-            # Создать лог скрапинга
-            status = 'success' if self.stats['failed_days'] == 0 else (
-                'partial' if self.stats['successful_days'] > 0 else 'failed'
-            )
-            
-            error_message = None
-            if self.failed_dates:
-                error_message = f"Ошибки при обработке дат: {', '.join(str(d) for d in self.failed_dates[:10])}"
-                if len(self.failed_dates) > 10:
-                    error_message += f" и еще {len(self.failed_dates) - 10} дат"
-            
-            self.create_scraping_log(db, start_date, end_date, status, error_message)
-            
-            return status in ['success', 'partial']
-            
-        except Exception as e:
-            logger.error(f"Критическая ошибка при загрузке данных: {e}")
-            self.stats['end_time'] = datetime.now()
-            
-            # Создать лог с ошибкой
-            self.create_scraping_log(db, start_date, end_date, 'failed', str(e))
-            return False
-            
-        finally:
-            db.close()
-    
-    def print_final_stats(self):
-        """Вывести финальную статистику."""
-        duration = None
-        if self.stats['start_time'] and self.stats['end_time']:
-            duration = self.stats['end_time'] - self.stats['start_time']
-        
-        logger.info("\n" + "="*60)
-        logger.info("ФИНАЛЬНАЯ СТАТИСТИКА ЗАГРУЗКИ")
-        logger.info("="*60)
-        logger.info(f"Период выполнения: {self.stats['start_time']} - {self.stats['end_time']}")
-        if duration:
-            logger.info(f"Время выполнения: {duration}")
-        logger.info(f"Всего дней: {self.stats['total_days']}")
-        logger.info(f"Успешно обработано дней: {self.stats['successful_days']}")
-        logger.info(f"Дней с ошибками: {self.stats['failed_days']}")
-        logger.info(f"Всего событий получено: {self.stats['total_events_scraped']}")
-        logger.info(f"Событий добавлено: {self.stats['total_events_inserted']}")
-        logger.info(f"Событий обновлено: {self.stats['total_events_updated']}")
-        logger.info(f"Событий пропущено: {self.stats['total_events_skipped']}")
-        logger.info(f"Всего ошибок: {self.stats['total_errors']}")
-        
-        if self.failed_dates:
-            logger.info(f"\nДаты с ошибками ({len(self.failed_dates)}):")
-            for failed_date in self.failed_dates[:20]:  # Показать первые 20
-                logger.info(f"  - {failed_date}")
-            if len(self.failed_dates) > 20:
-                logger.info(f"  ... и еще {len(self.failed_dates) - 20} дат")
-        
-        success_rate = (self.stats['successful_days'] / self.stats['total_days'] * 100) if self.stats['total_days'] > 0 else 0
-        logger.info(f"\nУспешность: {success_rate:.1f}%")
-        logger.info("="*60)
+    # File handler if specified
+    if log_file:
+        logger.add(
+            log_file,
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+            level="DEBUG",
+            rotation="10 MB",
+            retention="7 days"
+        )
 
-def parse_date(date_str: str) -> date:
-    """Парсинг даты из строки."""
+
+def validate_date(date_string: str) -> date:
+    """
+    Validate and parse date string.
+    
+    Args:
+        date_string: Date string in YYYY-MM-DD format
+        
+    Returns:
+        Parsed date object
+        
+    Raises:
+        ValueError: If date format is invalid
+    """
     try:
-        return datetime.strptime(date_str, '%Y-%m-%d').date()
+        return datetime.strptime(date_string, '%Y-%m-%d').date()
     except ValueError:
-        raise argparse.ArgumentTypeError(f"Неверный формат даты: {date_str}. Используйте YYYY-MM-DD")
+        raise ValueError(f"Invalid date format: {date_string}. Expected YYYY-MM-DD")
 
-def main():
-    """Главная функция."""
+
+def validate_currencies(currencies: List[str]) -> List[str]:
+    """
+    Validate currency codes.
+    
+    Args:
+        currencies: List of currency codes
+        
+    Returns:
+        List of validated currency codes
+        
+    Raises:
+        ValueError: If any currency code is invalid
+    """
+    valid_currencies = {
+        'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD',
+        'CNY', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'TRY',
+        'ZAR', 'MXN', 'BRL', 'RUB', 'INR', 'KRW', 'SGD', 'HKD'
+    }
+    
+    validated = []
+    for currency in currencies:
+        currency_upper = currency.upper()
+        if currency_upper not in valid_currencies:
+            logger.warning(f"Unknown currency code: {currency_upper}")
+        validated.append(currency_upper)
+    
+    return validated
+
+
+def scrape_and_load_data(
+    start_date: date,
+    end_date: date,
+    currencies: Optional[List[str]] = None,
+    dry_run: bool = False,
+    batch_size: int = 100
+) -> Dict[str, Any]:
+    """
+    Scrape and load data from Forex Factory.
+    
+    Args:
+        start_date: Start date for scraping
+        end_date: End date for scraping
+        currencies: List of currency codes to filter
+        dry_run: If True, don't save to database
+        batch_size: Number of events to process in each batch
+        
+    Returns:
+        Dictionary with operation results
+    """
+    results = {
+        'scraped_events': 0,
+        'saved_events': 0,
+        'errors': 0,
+        'start_time': datetime.utcnow(),
+        'end_time': None,
+        'duration': None
+    }
+    
+    try:
+        # Initialize scraper
+        logger.info("Initializing Forex Factory scraper...")
+        scraper = ForexFactoryScraper()
+        
+        # Test connection
+        if not scraper.test_connection():
+            raise Exception("Failed to connect to Forex Factory")
+        
+        # Scrape events
+        logger.info(f"Scraping events from {start_date} to {end_date}")
+        if currencies:
+            logger.info(f"Filtering for currencies: {', '.join(currencies)}")
+        
+        events = scraper.scrape_events(
+            start_date=start_date,
+            end_date=end_date,
+            currencies=currencies
+        )
+        
+        results['scraped_events'] = len(events)
+        logger.info(f"Scraped {len(events)} events")
+        
+        if dry_run:
+            logger.info("Dry run mode - not saving to database")
+            return results
+        
+        # Save to database
+        if events:
+            logger.info("Saving events to database...")
+            
+            db = next(get_db())
+            news_service = NewsService(db)
+            
+            # Process in batches with progress bar
+            saved_count = 0
+            error_count = 0
+            
+            with tqdm(total=len(events), desc="Saving events") as pbar:
+                for i in range(0, len(events), batch_size):
+                    batch = events[i:i + batch_size]
+                    
+                    for event_data in batch:
+                        try:
+                            # Convert date string to date object
+                            event_date = datetime.strptime(event_data['date'], '%Y-%m-%d').date()
+                            
+                            # Convert time string to time object
+                            event_time = None
+                            if event_data.get('time'):
+                                try:
+                                    event_time = datetime.strptime(event_data['time'], '%H:%M').time()
+                                except ValueError:
+                                    logger.warning(f"Invalid time format: {event_data['time']}")
+                            
+                            # Create or update event
+                            news_service.create_or_update_event(
+                                event_date=event_date,
+                                event_time=event_time,
+                                currency_code=event_data.get('currency'),
+                                event_name=event_data['event_name'],
+                                impact_code=event_data.get('impact'),
+                                forecast=event_data.get('forecast'),
+                                previous=event_data.get('previous'),
+                                actual=event_data.get('actual'),
+                                source=event_data.get('source', 'forex_factory'),
+                                source_url=event_data.get('source_url')
+                            )
+                            
+                            saved_count += 1
+                            
+                        except Exception as e:
+                            logger.error(f"Error saving event {event_data.get('event_name', 'Unknown')}: {e}")
+                            error_count += 1
+                        
+                        pbar.update(1)
+            
+            results['saved_events'] = saved_count
+            results['errors'] = error_count
+            
+            logger.info(f"Saved {saved_count} events, {error_count} errors")
+        
+        # Close scraper
+        scraper.close()
+        
+    except Exception as e:
+        logger.error(f"Error in scrape and load operation: {e}")
+        results['errors'] += 1
+        raise
+    
+    finally:
+        results['end_time'] = datetime.utcnow()
+        results['duration'] = (results['end_time'] - results['start_time']).total_seconds()
+    
+    return results
+
+
+def main() -> int:
+    """
+    Main function.
+    
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
     parser = argparse.ArgumentParser(
-        description="Массовая загрузка данных с ForexFactory за указанный период",
+        description="Bulk load economic calendar data from Forex Factory",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Примеры использования:
-  python bulk_load_data.py --from 2024-06-01 --to 2024-06-30    # Загрузить данные за июнь 2024
-  python bulk_load_data.py --from 2024-01-01 --to today         # Загрузить данные с начала года
-  python bulk_load_data.py --from 2024-06-01 --to 2024-06-30 --no-overwrite  # Не перезаписывать существующие
-
-Примечание: Для лучшего отображения прогресса установите tqdm: pip install tqdm
+Examples:
+  %(prog)s --start-date 2025-01-01 --end-date 2025-01-31
+  %(prog)s --start-date 2025-01-01 --end-date 2025-01-31 --currencies USD EUR GBP
+  %(prog)s --start-date 2025-01-01 --end-date 2025-01-31 --dry-run
+  %(prog)s --days-ahead 7 --currencies USD EUR
         """
     )
     
-    parser.add_argument(
-        '--from',
-        dest='start_date',
-        type=parse_date,
-        required=True,
-        help='Дата начала в формате YYYY-MM-DD'
+    # Date options
+    date_group = parser.add_mutually_exclusive_group(required=True)
+    date_group.add_argument(
+        '--start-date',
+        type=str,
+        help='Start date in YYYY-MM-DD format'
+    )
+    date_group.add_argument(
+        '--days-ahead',
+        type=int,
+        help='Number of days ahead from today to load'
     )
     
     parser.add_argument(
-        '--to',
-        dest='end_date',
-        type=lambda x: date.today() if x.lower() == 'today' else parse_date(x),
-        required=True,
-        help='Дата окончания в формате YYYY-MM-DD или "today"'
+        '--end-date',
+        type=str,
+        help='End date in YYYY-MM-DD format (required with --start-date)'
     )
     
     parser.add_argument(
-        '--no-overwrite',
+        '--currencies',
+        nargs='+',
+        help='Currency codes to filter (e.g., USD EUR GBP)'
+    )
+    
+    parser.add_argument(
+        '--dry-run',
         action='store_true',
-        help='Не перезаписывать существующие данные'
+        help='Scrape data but do not save to database'
+    )
+    
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=100,
+        help='Number of events to process in each batch (default: 100)'
+    )
+    
+    parser.add_argument(
+        '--log-file',
+        type=str,
+        help='Log file path (optional)'
     )
     
     parser.add_argument(
         '--verbose',
         action='store_true',
-        help='Подробное логирование'
+        help='Enable verbose logging'
     )
     
     args = parser.parse_args()
     
+    # Setup logging
+    if not args.log_file:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.log_file = f"logs/bulk_load_{timestamp}.log"
+    
+    setup_logging(args.log_file)
+    
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    
-    logger.info("=== СКРИПТ МАССОВОЙ ЗАГРУЗКИ ДАННЫХ ===")
-    logger.info(f"База данных: {config.DATABASE_URL}")
-    logger.info(f"Период: {args.start_date} - {args.end_date}")
-    logger.info(f"Перезапись: {'Отключена' if args.no_overwrite else 'Включена'}")
-    
-    # Создать загрузчик и запустить
-    loader = BulkDataLoader()
+        logger.remove()
+        logger.add(sys.stdout, level="DEBUG")
+        if args.log_file:
+            logger.add(args.log_file, level="DEBUG")
     
     try:
-        success = loader.load_data_range(
-            start_date=args.start_date,
-            end_date=args.end_date,
-            overwrite=not args.no_overwrite
+        # Determine date range
+        if args.start_date:
+            if not args.end_date:
+                parser.error("--end-date is required when using --start-date")
+            
+            start_date = validate_date(args.start_date)
+            end_date = validate_date(args.end_date)
+            
+            if start_date > end_date:
+                parser.error("Start date must be before or equal to end date")
+        
+        else:  # args.days_ahead
+            start_date = date.today()
+            end_date = start_date + timedelta(days=args.days_ahead)
+        
+        # Validate currencies
+        currencies = None
+        if args.currencies:
+            currencies = validate_currencies(args.currencies)
+        
+        # Validate batch size
+        if args.batch_size <= 0:
+            parser.error("Batch size must be positive")
+        
+        logger.info("Starting bulk load operation")
+        logger.info(f"Date range: {start_date} to {end_date}")
+        logger.info(f"Currencies: {currencies or 'All'}")
+        logger.info(f"Dry run: {args.dry_run}")
+        logger.info(f"Batch size: {args.batch_size}")
+        
+        # Run the operation
+        results = scrape_and_load_data(
+            start_date=start_date,
+            end_date=end_date,
+            currencies=currencies,
+            dry_run=args.dry_run,
+            batch_size=args.batch_size
         )
         
-        loader.print_final_stats()
+        # Print results
+        logger.info("=== BULK LOAD RESULTS ===")
+        logger.info(f"Scraped events: {results['scraped_events']}")
+        logger.info(f"Saved events: {results['saved_events']}")
+        logger.info(f"Errors: {results['errors']}")
+        logger.info(f"Duration: {results['duration']:.2f} seconds")
         
-        if success:
-            logger.info("Загрузка данных завершена успешно!")
-            sys.exit(0)
+        if results['errors'] > 0:
+            logger.warning(f"Operation completed with {results['errors']} errors")
+            return 1
         else:
-            logger.error("Загрузка данных завершена с ошибками!")
-            sys.exit(1)
-            
+            logger.success("Operation completed successfully")
+            return 0
+    
     except KeyboardInterrupt:
-        logger.info("Загрузка прервана пользователем")
-        loader.print_final_stats()
-        sys.exit(1)
+        logger.warning("Operation cancelled by user")
+        return 1
+    
     except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
-        loader.print_final_stats()
-        sys.exit(1)
+        logger.error(f"Operation failed: {e}")
+        return 1
 
-if __name__ == "__main__":
-    main()
+
+if __name__ == '__main__':
+    sys.exit(main())

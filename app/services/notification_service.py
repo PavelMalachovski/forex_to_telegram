@@ -3,7 +3,7 @@
 Notification service for sending Telegram notifications.
 """
 
-from typing import List, Dict, Tuple
+from typing import List
 from datetime import datetime, timedelta
 from pytz import timezone
 import telebot

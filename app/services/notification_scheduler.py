@@ -6,7 +6,6 @@ Notification scheduler service for sending alerts before high-impact events.
 import logging
 from datetime import datetime, timedelta
 from typing import List, Set
-from sqlalchemy.orm import Session
 
 # Optional APScheduler import with fallback
 try:
@@ -19,9 +18,8 @@ except ImportError:
     logger.warning("APScheduler not available. Notification scheduling will be disabled.")
 
 from app.database.models import NewsEvent, BotUser, UserNotificationSettings
-from app.services.news_service import NewsService
 from app.utils.timezone_utils import get_current_time, get_local_timezone
-from app.utils.text_utils import format_news_message, escape_markdown_v2
+from app.utils.text_utils import escape_markdown_v2
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +74,7 @@ class NotificationScheduler:
             users_with_notifications = db.query(BotUser).join(
                 UserNotificationSettings
             ).filter(
-                UserNotificationSettings.notifications_enabled == True
+                UserNotificationSettings.notifications_enabled
             ).all()
             
             for event in events:

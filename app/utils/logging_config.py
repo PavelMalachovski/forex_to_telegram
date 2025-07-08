@@ -5,7 +5,6 @@ Logging configuration for the application.
 
 import logging
 import sys
-import os
 from pathlib import Path
 from pythonjsonlogger import jsonlogger
 from app.config import config

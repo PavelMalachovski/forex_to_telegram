@@ -17,10 +17,9 @@ import argparse
 import logging
 import sys
 from datetime import datetime
-from typing import List
 
 from sqlalchemy import text
-from app.database.connection import SessionLocal, engine
+from app.database.connection import SessionLocal
 from app.database.models import (
     NewsEvent, ScrapingLog, Currency, ImpactLevel,
     BotUser, UserCurrencyPreference, UserNotificationSettings
@@ -298,7 +297,7 @@ def main():
             
             # Показать финальное состояние
             logger.info("\n=== Финальное состояние базы данных ===")
-            final_counts = show_current_state(db)
+            show_current_state(db)
             
             # Статистика
             logger.info("\n=== СТАТИСТИКА ОЧИСТКИ ===")
@@ -312,7 +311,7 @@ def main():
             
             if not args.no_reinit:
                 logger.info(f"Пересоздано валют: {len(config.AVAILABLE_CURRENCIES)}")
-                logger.info(f"Пересоздано уровней воздействия: 4")
+                logger.info("Пересоздано уровней воздействия: 4")
             
             logger.info("\nОчистка базы данных завершена успешно!")
         

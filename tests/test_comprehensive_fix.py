@@ -4,12 +4,10 @@
 """
 
 import sys
-import os
 sys.path.append('/home/ubuntu/forex_bot_postgresql')
 
 from datetime import datetime, date, time, timedelta
 from app.utils.timezone_utils import get_current_time, get_local_timezone
-from app.database.models import NewsEvent, Currency, ImpactLevel
 from app.utils.text_utils import format_news_message
 
 def test_text_utils_time_formatting():
@@ -88,7 +86,7 @@ def test_notification_scheduler_logic():
         can_notify_60 = notify_time_60 > current_time
         
         print("✅ Логика планировщика уведомлений работает корректно!")
-        print(f"📊 Результаты сравнения времени:")
+        print("📊 Результаты сравнения времени:")
         print(f"   15 минут: {can_notify_15}")
         print(f"   30 минут: {can_notify_30}")
         print(f"   60 минут: {can_notify_60}")
@@ -147,7 +145,7 @@ if __name__ == "__main__":
     test2_passed = test_notification_scheduler_logic()
     test3_passed = test_time_operations()
     
-    print(f"\n📊 Результаты всех тестов:")
+    print("\n📊 Результаты всех тестов:")
     print(f"   Форматирование времени в text_utils: {'✅ ПРОШЕЛ' if test1_passed else '❌ ПРОВАЛЕН'}")
     print(f"   Логика планировщика уведомлений: {'✅ ПРОШЕЛ' if test2_passed else '❌ ПРОВАЛЕН'}")
     print(f"   Операции с временем: {'✅ ПРОШЕЛ' if test3_passed else '❌ ПРОВАЛЕН'}")

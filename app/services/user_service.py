@@ -227,8 +227,8 @@ class UserService:
         """
         users = self.db.query(BotUser).filter(
             and_(
-                BotUser.is_active == True,
-                BotUser.notifications_enabled == True
+                BotUser.is_active,
+                BotUser.notifications_enabled
             )
         ).all()
         
@@ -278,7 +278,7 @@ class UserService:
         ).filter(
             and_(
                 Currency.code == currency_code,
-                BotUser.is_active == True
+                BotUser.is_active
             )
         ).all()
         

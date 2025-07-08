@@ -7,7 +7,6 @@ import sys
 import os
 import time
 import threading
-from pathlib import Path
 
 # Add app directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
@@ -58,7 +57,7 @@ def main():
     logger.info("Test application started")
     
     # Setup signal handling
-    shutdown_handler = setup_signal_handling(timeout=10)
+    setup_signal_handling(timeout=10)
     register_cleanup_callback(test_cleanup, "test_cleanup")
     
     # Setup health monitoring

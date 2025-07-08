@@ -1,50 +1,346 @@
 
+# Render.com deployment configuration
 services:
+  # Main application service
   - type: web
-    name: forex-bot-scheduler
-    env: docker
-    dockerfilePath: ./Dockerfile
+    name: forex-bot-api
+    env: python
     plan: starter
-    region: frankfurt
-    branch: main
-    healthCheckPath: /ping
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r config/requirements.txt
+      python -m alembic upgrade head
+    startCommand: python production_scheduler.py
     envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: API_KEY
-        sync: false
-      - key: RENDER_EXTERNAL_HOSTNAME
-        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: 10000
       - key: LOG_LEVEL
         value: INFO
-      - key: SCRAPER_SCHEDULE_HOUR
-        value: "3"
-      - key: SCRAPER_SCHEDULE_MINUTE
-        value: "0"
-      - key: TIMEZONE
-        value: Europe/Prague
-      - key: FLASK_PORT
-        value: "5000"
-      - key: FLASK_HOST
-        value: "0.0.0.0"
-      - key: FLASK_DEBUG
-        value: "false"
-      - key: PYTHONPATH
-        value: /app
-      - key: PYTHONUNBUFFERED
-        value: "1"
+      - key: STRUCTURED_LOGGING
+        value: true
+      - key: HEALTH_CHECK_ENABLED
+        value: true
+      - key: METRICS_ENABLED
+        value: true
+      - key: SCRAPING_ENABLED
+        value: true
+      - key: SCRAPING_INTERVAL_HOURS
+        value: 6
+      - key: NOTIFICATIONS_ENABLED
+        value: true
+      - key: NOTIFICATION_ADVANCE_MINUTES
+        value: 30
+      - key: DAILY_SUMMARY_ENABLED
+        value: true
+      - key: DAILY_SUMMARY_TIME
+        value: "08:00"
+      - key: RATE_LIMIT_ENABLED
+        value: true
+      - key: RATE_LIMIT_REQUESTS
+        value: 100
+      - key: RATE_LIMIT_WINDOW
+        value: 3600
+      - key: CACHE_ENABLED
+        value: true
+      - key: CACHE_TTL
+        value: 3600
+      - key: DEFAULT_TIMEZONE
+        value: UTC
+      # Secret environment variables (set in Render dashboard)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: forex-bot-db
+          property: connectionString
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_URL
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_HOSTS
+        value: "*"
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: forex-bot-disk
+      mountPath: /app/data
+      sizeGB: 1
+    scaling:
+      minInstances: 1
+      maxInstances: 3
+      targetMemoryPercent: 80
+      targetCPUPercent: 80
+
+  # Background worker service (optional)
+  - type: worker
+    name: forex-bot-worker
+    env: python
+    plan: starter
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r config/requirements.txt
+    startCommand: python scripts/background_worker.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ENVIRONMENT
+        value: production
+      - key: WORKER_TYPE
+        value: scraper
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_URL
+        fromDatabase:
+          name: forex-bot-db
+          property: connectionString
+      - key: SCRAPING_ENABLED
+        value: true
+      - key: SCRAPING_INTERVAL_HOURS
+        value: 6
+    autoDeploy: true
+    scaling:
+      minInstances: 0
+      maxInstances: 1
+
+  # Cron job service for scheduled tasks
+  - type: cron
+    name: forex-bot-scheduler
+    env: python
+    plan: starter
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r config/requirements.txt
+    schedule: "0 */6 * * *"  # Every 6 hours
+    startCommand: python scripts/scheduled_scraper.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_URL
+        fromDatabase:
+          name: forex-bot-db
+          property: connectionString
+      - key: SCRAPING_ENABLED
+        value: true
+    autoDeploy: true
 
 databases:
-  - name: forex-bot-postgres
-    databaseName: forex_bot
-    user: forex_bot_user
+  # PostgreSQL database
+  - name: forex-bot-db
     plan: starter
-    region: frankfurt
+    databaseName: forex_bot
+    user: forex_user
+    region: oregon
+    postgresMajorVersion: 15
+    ipAllowList: []
+
+# Static site for documentation (optional)
+staticSites:
+  - name: forex-bot-docs
+    buildCommand: |
+      pip install mkdocs mkdocstrings[python]
+      mkdocs build
+    publishPath: ./site
+    pullRequestPreviewsEnabled: true
+    buildFilter:
+      paths:
+        - docs/**
+        - mkdocs.yml
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+# Environment groups for shared configuration
+envVarGroups:
+  - name: forex-bot-common
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DEFAULT_TIMEZONE
+        value: UTC
+      - key: HEALTH_CHECK_ENABLED
+        value: true
+      - key: METRICS_ENABLED
+        value: true
+
+  - name: forex-bot-features
+    envVars:
+      - key: SCRAPING_ENABLED
+        value: true
+      - key: SCRAPING_INTERVAL_HOURS
+        value: 6
+      - key: NOTIFICATIONS_ENABLED
+        value: true
+      - key: NOTIFICATION_ADVANCE_MINUTES
+        value: 30
+      - key: DAILY_SUMMARY_ENABLED
+        value: true
+      - key: DAILY_SUMMARY_TIME
+        value: "08:00"
+
+  - name: forex-bot-security
+    envVars:
+      - key: RATE_LIMIT_ENABLED
+        value: true
+      - key: RATE_LIMIT_REQUESTS
+        value: 100
+      - key: RATE_LIMIT_WINDOW
+        value: 3600
+      - key: ALLOWED_HOSTS
+        value: "*"
+
+  - name: forex-bot-performance
+    envVars:
+      - key: CACHE_ENABLED
+        value: true
+      - key: CACHE_TTL
+        value: 3600
+      - key: STRUCTURED_LOGGING
+        value: true
+
+# Notification settings
+notifications:
+  - type: slack
+    name: forex-bot-alerts
+    channel: "#forex-bot"
+    events:
+      - deploy-started
+      - deploy-succeeded
+      - deploy-failed
+      - service-suspended
+      - service-resumed
+
+# Preview environments
+previewsEnabled: true
+previewsExpireAfterDays: 7
+
+# Build settings
+buildFilter:
+  paths:
+    - app/**
+    - config/**
+    - scripts/**
+    - docker/**
+    - requirements.txt
+    - production_scheduler.py
+    - alembic.ini
+    - alembic/**
+  ignoredPaths:
+    - docs/**
+    - tests/**
+    - logs/**
+    - "*.md"
+    - ".git/**"
+
+# Auto-deploy settings
+autoDeploy: true
+branch: main
+
+# Resource limits
+scaling:
+  minInstances: 1
+  maxInstances: 3
+  targetMemoryPercent: 80
+  targetCPUPercent: 80
+
+# Health checks
+healthCheck:
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+# Disk storage
+disk:
+  name: forex-bot-storage
+  mountPath: /app/data
+  sizeGB: 1
+
+# Custom domains (optional)
+domains:
+  - name: api.forex-bot.example.com
+    type: apex
+  - name: www.forex-bot.example.com
+    type: redirect
+    redirectTo: api.forex-bot.example.com
+
+# SSL/TLS settings
+ssl:
+  certificateType: letsencrypt
+  
+# Backup settings
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: 30  # Keep backups for 30 days
+
+# Monitoring and alerting
+monitoring:
+  enabled: true
+  alerts:
+    - type: cpu
+      threshold: 80
+      duration: 5m
+    - type: memory
+      threshold: 80
+      duration: 5m
+    - type: response_time
+      threshold: 2000ms
+      duration: 5m
+    - type: error_rate
+      threshold: 5%
+      duration: 5m
+
+# Log retention
+logs:
+  retention: 7  # Keep logs for 7 days
+  level: INFO
+
+# Regional settings
+region: oregon
+
+# Pricing plan
+plan: starter
+
+# Team settings
+team: forex-bot-team
+
+# Repository settings
+repo: https://github.com/your-username/forex-bot-postgresql
+branch: main
+rootDir: /
+
+# Build cache
+buildCache: true
+
+# Environment variables validation
+envVarValidation:
+  required:
+    - DATABASE_URL
+    - TELEGRAM_BOT_TOKEN
+    - SECRET_KEY
+  optional:
+    - TELEGRAM_WEBHOOK_URL
+    - TELEGRAM_WEBHOOK_SECRET
+    - ALLOWED_HOSTS

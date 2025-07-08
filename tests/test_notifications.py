@@ -8,16 +8,14 @@ import os
 import sys
 import logging
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 # Add app directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
-from app.config import config
 from app.database.connection import SessionLocal
 from app.database.models import NewsEvent, BotUser, UserNotificationSettings, ImpactLevel
 from app.services.notification_scheduler import NotificationScheduler
-from app.utils.timezone_utils import get_current_time, get_local_timezone
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -87,7 +85,7 @@ class NotificationTester:
             users_with_notifications = db.query(BotUser).join(
                 UserNotificationSettings
             ).filter(
-                UserNotificationSettings.notifications_enabled == True
+                UserNotificationSettings.notifications_enabled
             ).count()
             
             data_results['users_with_notifications'] = users_with_notifications
@@ -365,7 +363,7 @@ def main():
         with open('notification_test_results.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
         
-        print(f"\n📄 Detailed results saved to: notification_test_results.json")
+        print("\n📄 Detailed results saved to: notification_test_results.json")
         
         # Exit with appropriate code
         if results['summary']['status'] == 'fully_functional':

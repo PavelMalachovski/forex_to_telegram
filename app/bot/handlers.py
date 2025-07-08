@@ -6,19 +6,15 @@ Telegram bot handlers for user interactions.
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
 
 import telebot
 from telebot import types
 from telebot.apihelper import ApiTelegramException
-from sqlalchemy.orm import Session
 
-from app.config import config
-from app.database.models import User, NewsEvent, ImpactLevel
 from app.services.news_service import NewsService
 from app.services.user_service import UserService
 from app.utils.text_utils import escape_markdown_v2, format_news_message
-from app.utils.timezone_utils import get_current_time, format_time_for_display, format_datetime_for_display
+from app.utils.timezone_utils import get_current_time
 from app.bot.utils.calendar import create_calendar_markup, process_calendar_callback, get_date_selection_message
 
 logger = logging.getLogger(__name__)
@@ -255,7 +251,7 @@ class BotHandlers:
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
-                        scraping_notice = f"🌐 *Data scraped from ForexFactory*\n\n"
+                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
                         formatted_message = scraping_notice + formatted_message
                     
                     # Send message using notification service for long messages
@@ -297,7 +293,7 @@ class BotHandlers:
                 if not news_service.has_data_for_date(today):
                     # Update loading message to indicate scraping
                     self.bot.edit_message_text(
-                        f"🔄 No data found for today\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                        "🔄 No data found for today\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
                         loading_msg.chat.id,
                         loading_msg.message_id,
                         parse_mode='MarkdownV2'
@@ -322,7 +318,7 @@ class BotHandlers:
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
-                        scraping_notice = f"🌐 *Data scraped from ForexFactory*\n\n"
+                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
                         formatted_message = scraping_notice + formatted_message
                     
                     # Send message using notification service for long messages
@@ -364,7 +360,7 @@ class BotHandlers:
                 if not news_service.has_data_for_date(tomorrow):
                     # Update loading message to indicate scraping
                     self.bot.edit_message_text(
-                        f"🔄 No data found for tomorrow\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                        "🔄 No data found for tomorrow\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
                         loading_msg.chat.id,
                         loading_msg.message_id,
                         parse_mode='MarkdownV2'
@@ -389,7 +385,7 @@ class BotHandlers:
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
-                        scraping_notice = f"🌐 *Data scraped from ForexFactory*\n\n"
+                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
                         formatted_message = scraping_notice + formatted_message
                     
                     # Send message using notification service for long messages
@@ -445,7 +441,7 @@ class BotHandlers:
                 else:
                     self.bot.send_message(
                         message.chat.id,
-                        f"✅ No high\\-impact news found for this week\\.\nPlease check the website for updates\\.",
+                        "✅ No high\\-impact news found for this week\\.\nPlease check the website for updates\\.",
                         parse_mode='MarkdownV2'
                     )
                 
@@ -624,7 +620,7 @@ class BotHandlers:
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
-                        scraping_notice = f"🌐 *Data scraped from ForexFactory*\n\n"
+                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
                         formatted_message = scraping_notice + formatted_message
                     
                     # Send message using notification service for long messages
@@ -796,7 +792,7 @@ class BotHandlers:
         if not self._safe_answer_callback_query(call):
             return
             
-        with self.db_session_factory() as db:
+        with self.db_session_factory():
             try:
                 action, selected_date, navigation_data = process_calendar_callback(call.data)
                 
@@ -922,7 +918,7 @@ class BotHandlers:
                     
                     # Add scraping notification if data was scraped
                     if was_scraped:
-                        scraping_notice = f"🌐 *Данные загружены с ForexFactory*\n\n"
+                        scraping_notice = "🌐 *Данные загружены с ForexFactory*\n\n"
                         formatted_message = scraping_notice + formatted_message
                     
                     # Send message using notification service for long messages

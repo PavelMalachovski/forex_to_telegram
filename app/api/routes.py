@@ -179,8 +179,6 @@ def create_api_routes(app: Flask, bot: telebot.TeleBot, scheduler: TaskScheduler
         try:
             db: Session = next(get_db())
             try:
-                news_service = NewsService(db)
-                
                 # Get basic statistics
                 from app.database.models import NewsEvent, ScrapingLog
                 from sqlalchemy import func

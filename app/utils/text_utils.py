@@ -1,239 +1,340 @@
 
+"""Text utilities for formatting and processing text content."""
+
+from datetime import datetime, date, time
+from typing import Dict, List, Optional, Any, Union
+from loguru import logger
 
 
-"""
-Text utility functions without external dependencies.
-"""
-
-import re
-from typing import List
-from datetime import datetime
-from app.database.models import NewsEvent
-
-
-
-def escape_markdown_v2(text: str) -> str:
+def format_event_time(event_time: Optional[time]) -> str:
     """
-    Escape special characters for MarkdownV2.
+    Format event time for display.
+    
+    Args:
+        event_time: Time object or None
+        
+    Returns:
+        Formatted time string
+    """
+    if not event_time:
+        return "All Day"
+    
+    return event_time.strftime("%H:%M")
+
+
+def format_event_date(event_date: date) -> str:
+    """
+    Format event date for display.
+    
+    Args:
+        event_date: Date object
+        
+    Returns:
+        Formatted date string
+    """
+    return event_date.strftime("%Y-%m-%d")
+
+
+def format_currency_code(currency_code: Optional[str]) -> str:
+    """
+    Format currency code for display.
+    
+    Args:
+        currency_code: Currency code or None
+        
+    Returns:
+        Formatted currency code
+    """
+    if not currency_code:
+        return "N/A"
+    
+    return currency_code.upper()
+
+
+def format_impact_level(impact_code: Optional[str]) -> str:
+    """
+    Format impact level for display.
+    
+    Args:
+        impact_code: Impact level code
+        
+    Returns:
+        Formatted impact level with emoji
+    """
+    if not impact_code:
+        return "❓ Unknown"
+    
+    impact_map = {
+        "LOW": "🟢 Low",
+        "MEDIUM": "🟡 Medium", 
+        "HIGH": "🔴 High"
+    }
+    
+    return impact_map.get(impact_code.upper(), f"❓ {impact_code}")
+
+
+def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
+    """
+    Truncate text to specified length.
+    
+    Args:
+        text: Text to truncate
+        max_length: Maximum length
+        suffix: Suffix to add if truncated
+        
+    Returns:
+        Truncated text
+    """
+    if len(text) <= max_length:
+        return text
+    
+    return text[:max_length - len(suffix)] + suffix
+
+
+def escape_markdown(text: str) -> str:
+    """
+    Escape markdown special characters.
     
     Args:
         text: Text to escape
         
     Returns:
-        Escaped text safe for MarkdownV2
+        Escaped text
     """
-    if not text or text.strip() == "":
-        return "N/A"
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     
-    # ИСПРАВЛЕНИЕ 1 и 5: Исправить экранирование символов '.' и '=' в MarkdownV2
-    # Добавляем точку и знак равенства в список символов для экранирования
-    special_chars = r'([_.*\[\]()~`>#+=|{}.!\\=-])'
-    escaped_text = re.sub(special_chars, r'\\\1', str(text))
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
     
-    return escaped_text
+    return text
 
 
-def get_impact_emoji_and_color(impact_level: str) -> tuple:
+def format_news_event_message(event: Any) -> str:
     """
-    Get emoji and color for impact level.
+    Format a news event for Telegram message.
     
     Args:
-        impact_level: Impact level string
-        
-    Returns:
-        Tuple of (emoji, color_name)
-    """
-    impact_map = {
-        "HIGH": ("🔴", "red"),
-        "MEDIUM": ("🟠", "orange"), 
-        "LOW": ("🟡", "yellow"),
-        "NON_ECONOMIC": ("⚪", "gray")
-    }
-    return impact_map.get(impact_level.upper(), ("⚪", "gray"))
-
-def get_currency_symbol(currency_code: str) -> str:
-    """
-    Get currency symbol from currency code.
-    
-    Args:
-        currency_code: Currency code (e.g., 'USD', 'EUR')
-        
-    Returns:
-        Currency symbol
-    """
-    currency_symbols = {
-        "USD": "$",
-        "EUR": "€", 
-        "GBP": "£",
-        "JPY": "¥",
-        "CHF": "₣",
-        "CAD": "C$",
-        "AUD": "A$",
-        "NZD": "NZ$",
-        "CNY": "¥",
-        "SEK": "kr",
-        "NOK": "kr",
-        "DKK": "kr",
-        "PLN": "zł",
-        "CZK": "Kč",
-        "HUF": "Ft",
-        "RUB": "₽",
-        "TRY": "₺",
-        "ZAR": "R",
-        "BRL": "R$",
-        "MXN": "$",
-        "INR": "₹",
-        "KRW": "₩",
-        "SGD": "S$",
-        "HKD": "HK$"
-    }
-    return currency_symbols.get(currency_code.upper(), currency_code)
-
-def format_news_message(news_events: List[NewsEvent], date_str: str, impact_level: str = "HIGH") -> str:
-    """
-    Format news events into a readable message.
-    
-    Args:
-        news_events: List of NewsEvent objects
-        date_str: Date string for the header
-        impact_level: Impact level for the header
+        event: NewsEvent object
         
     Returns:
         Formatted message string
     """
-    # Format the date for display
     try:
-        formatted_date = datetime.strptime(date_str, '%Y-%m-%d').strftime('%d.%m.%Y')
-        # Escape the formatted date for MarkdownV2 since it contains dots
-        formatted_date = escape_markdown_v2(formatted_date)
-    except ValueError:
-        formatted_date = escape_markdown_v2(date_str)
-    
-    header = f"🗓️ Forex News for {formatted_date} \\(CET\\):\n"
-    if impact_level != "HIGH":
-        header += f"Impact Level: {escape_markdown_v2(impact_level)}\n"
-    header += "\n"
-    
-    if not news_events:
-        return header + f"✅ No news found for {escape_markdown_v2(date_str)} with impact: {escape_markdown_v2(impact_level)}\nPlease check the website for updates."
-    
-    # Group events by currency and time locally to avoid service dependency
-    grouped_events = {}
-    for event in news_events:
-        # Create key from date, time, and currency
-        event_date = event.event_date.strftime('%Y-%m-%d')
-        event_time = event.event_time.strftime('%H:%M') if event.event_time else 'N/A'
-        currency = event.currency.code if event.currency else 'Unknown'
+        # Basic event info
+        date_str = format_event_date(event.event_date)
+        time_str = format_event_time(event.event_time)
+        currency = format_currency_code(event.currency.code if event.currency else None)
+        impact = format_impact_level(event.impact_level.code if event.impact_level else None)
         
-        key = (event_date, event_time, currency)
+        # Build message
+        message_parts = [
+            f"📅 *{date_str}* at *{time_str}*",
+            f"💱 Currency: *{currency}*",
+            f"📊 Impact: {impact}",
+            f"📰 Event: *{escape_markdown(event.event_name)}*"
+        ]
         
-        if key not in grouped_events:
-            grouped_events[key] = []
-        grouped_events[key].append(event)
-    
-    message_parts = [header]
-    
-    # Sort by time
-    sorted_groups = sorted(grouped_events.items(), key=lambda x: (x[0][0], x[0][1]))
-    
-    for (event_date, event_time, currency), events in sorted_groups:
-        # Check if this is a group event (more than one event)
-        is_group_event = len(events) > 1
-        group_prefix = "🔥 **GROUP EVENT\\!** 🔥\n" if is_group_event else ""
+        # Add forecast/previous/actual if available
+        if event.forecast:
+            message_parts.append(f"🔮 Forecast: `{event.forecast}`")
         
-        # Combine event details
-        event_names = [event.event_name for event in events]
-        forecasts = [event.forecast or 'N/A' for event in events]
-        previous_values = [event.previous_value or 'N/A' for event in events]
-        actual_values = [event.actual_value or 'N/A' for event in events]
+        if event.previous:
+            message_parts.append(f"📈 Previous: `{event.previous}`")
         
-        # ИСПРАВЛЕНИЕ 2: Убрать ограничения на длину анализа ChatGPT
-        # Используем полный анализ без сокращения
-        analysis = events[0].analysis or "No analysis available"
+        if event.actual:
+            message_parts.append(f"✅ Actual: `{event.actual}`")
         
-        impact = events[0].impact_level.code if events[0].impact_level else "LOW"
-        impact_emoji, _ = get_impact_emoji_and_color(impact)
-        currency_symbol = get_currency_symbol(currency)
+        return "\n".join(message_parts)
         
-        part = group_prefix
-        part += f"{impact_emoji} **Impact: {escape_markdown_v2(impact.upper())}**\n\n"
-        part += f"⏰ Time: {event_time}\n"
-        # ИСПРАВЛЕНИЕ 3: Добавить символы валют в отображение Currency
-        part += f"💱 Currency: {currency_symbol} {currency}\n"
-        part += f"📰 Events: {escape_markdown_v2(' & '.join(event_names))}\n"
-        part += f"📈 Forecast: {escape_markdown_v2(' & '.join(forecasts))}\n"
-        part += f"📊 Previous: {escape_markdown_v2(' & '.join(previous_values))}\n"
-        part += f"🎯 Actual: {escape_markdown_v2(' & '.join(actual_values))}\n"
-        part += f"🔍 Analysis: {escape_markdown_v2(analysis)}\n\n"
-        part += f"{escape_markdown_v2('-' * 40)}\n\n"
-        
-        message_parts.append(part)
-    
-    return "".join(message_parts)
+    except Exception as e:
+        logger.error(f"Error formatting news event message: {e}")
+        return f"📰 {event.event_name} - {event.event_date}"
 
 
-def format_time_string(time_obj) -> str:
+def format_daily_summary(events: List[Any], target_date: date) -> str:
     """
-    Format time object to string.
+    Format daily summary of events.
     
     Args:
-        time_obj: Time object to format
+        events: List of NewsEvent objects
+        target_date: Date for the summary
         
     Returns:
-        Formatted time string
+        Formatted summary message
     """
-    if hasattr(time_obj, 'strftime'):
-        return time_obj.strftime('%H:%M')
-    return str(time_obj)
+    if not events:
+        return f"📅 *Daily Summary for {format_event_date(target_date)}*\n\nNo economic events scheduled for today."
+    
+    # Group events by impact level
+    grouped_events: Dict[str, List[Any]] = {
+        "HIGH": [],
+        "MEDIUM": [],
+        "LOW": []
+    }
+    
+    for event in events:
+        impact_code = event.impact_level.code if event.impact_level else "LOW"
+        if impact_code in grouped_events:
+            grouped_events[impact_code].append(event)
+        else:
+            grouped_events["LOW"].append(event)
+    
+    # Build summary message
+    message_parts = [
+        f"📅 *Daily Summary for {format_event_date(target_date)}*",
+        f"📊 Total Events: {len(events)}\n"
+    ]
+    
+    # Add events by impact level
+    for impact_level in ["HIGH", "MEDIUM", "LOW"]:
+        level_events = grouped_events[impact_level]
+        if level_events:
+            impact_emoji = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}[impact_level]
+            message_parts.append(f"{impact_emoji} *{impact_level} Impact ({len(level_events)} events):*")
+            
+            for event in level_events:
+                time_str = format_event_time(event.event_time)
+                currency = format_currency_code(event.currency.code if event.currency else None)
+                event_name = truncate_text(event.event_name, 50)
+                
+                message_parts.append(f"  • {time_str} | {currency} | {event_name}")
+            
+            message_parts.append("")  # Empty line
+    
+    return "\n".join(message_parts)
 
 
-def safe_get_text(element, default: str = "N/A") -> str:
+def format_currency_events(events: List[Any], currency_code: str) -> str:
     """
-    Safely get text from an element.
+    Format events for a specific currency.
     
     Args:
-        element: Element to get text from
-        default: Default value if element is None or empty
+        events: List of NewsEvent objects
+        currency_code: Currency code
         
     Returns:
-        Text content or default value
+        Formatted message
     """
-    if element is None:
-        return default
+    if not events:
+        return f"💱 *{currency_code} Events*\n\nNo events found for {currency_code}."
     
-    text = element.text.strip() if hasattr(element, 'text') else str(element).strip()
-    return text if text else default
-
-
-def validate_date_string(date_str: str) -> bool:
-    """
-    Validate date string format.
+    message_parts = [
+        f"💱 *{currency_code} Events ({len(events)} total)*\n"
+    ]
     
-    Args:
-        date_str: Date string to validate
+    for event in events:
+        date_str = format_event_date(event.event_date)
+        time_str = format_event_time(event.event_time)
+        impact = format_impact_level(event.impact_level.code if event.impact_level else None)
+        event_name = truncate_text(event.event_name, 60)
         
-    Returns:
-        True if valid, False otherwise
-    """
-    try:
-        datetime.strptime(date_str, '%Y-%m-%d')
-        return True
-    except ValueError:
-        return False
+        message_parts.append(f"📅 {date_str} {time_str}")
+        message_parts.append(f"📊 {impact}")
+        message_parts.append(f"📰 {event_name}\n")
+    
+    return "\n".join(message_parts)
 
 
-def validate_time_string(time_str: str) -> bool:
+def format_user_stats(stats: Dict[str, Any]) -> str:
     """
-    Validate time string format.
+    Format user statistics.
     
     Args:
-        time_str: Time string to validate
+        stats: Dictionary with user statistics
         
     Returns:
-        True if valid, False otherwise
+        Formatted statistics message
     """
-    try:
-        datetime.strptime(time_str, '%H:%M')
-        return True
-    except ValueError:
-        return False
+    message_parts = [
+        "📊 *User Statistics*\n",
+        f"👥 Total Users: {stats.get('total_users', 0)}",
+        f"✅ Active Users: {stats.get('active_users', 0)}",
+        f"🔔 Users with Notifications: {stats.get('users_with_notifications', 0)}",
+        f"📱 Last 24h Activity: {stats.get('recent_activity', 0)}"
+    ]
+    
+    return "\n".join(message_parts)
+
+
+def format_system_stats(stats: Dict[str, Any]) -> str:
+    """
+    Format system statistics.
+    
+    Args:
+        stats: Dictionary with system statistics
+        
+    Returns:
+        Formatted statistics message
+    """
+    message_parts = [
+        "🖥️ *System Statistics*\n",
+        f"📰 Total Events: {stats.get('total_events', 0)}",
+        f"📅 Today's Events: {stats.get('today_events', 0)}",
+        f"🔄 Last Scraping: {stats.get('last_scraping', 'Never')}",
+        f"✅ System Health: {stats.get('health_status', 'Unknown')}"
+    ]
+    
+    return "\n".join(message_parts)
+
+
+def clean_text(text: str) -> str:
+    """
+    Clean and normalize text.
+    
+    Args:
+        text: Text to clean
+        
+    Returns:
+        Cleaned text
+    """
+    if not text:
+        return ""
+    
+    # Remove extra whitespace
+    text = " ".join(text.split())
+    
+    # Remove special characters that might cause issues
+    text = text.replace('\x00', '')  # Remove null bytes
+    text = text.replace('\r', '')    # Remove carriage returns
+    
+    return text.strip()
+
+
+def format_error_message(error: str, context: str = "") -> str:
+    """
+    Format error message for user display.
+    
+    Args:
+        error: Error message
+        context: Additional context
+        
+    Returns:
+        Formatted error message
+    """
+    message_parts = ["❌ *Error*"]
+    
+    if context:
+        message_parts.append(f"Context: {context}")
+    
+    message_parts.append(f"Details: {clean_text(error)}")
+    
+    return "\n".join(message_parts)
+
+
+def format_success_message(message: str, details: str = "") -> str:
+    """
+    Format success message for user display.
+    
+    Args:
+        message: Success message
+        details: Additional details
+        
+    Returns:
+        Formatted success message
+    """
+    message_parts = [f"✅ {message}"]
+    
+    if details:
+        message_parts.append(f"Details: {details}")
+    
+    return "\n".join(message_parts)

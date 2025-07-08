@@ -13,10 +13,9 @@ from pathlib import Path
 # Add parent directory to path to import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.config import config
 from app.utils.logging_config import setup_logging
 from app.database.connection import init_database, get_db
-from app.database.models import Currency, ImpactLevel, NewsEvent
+from app.database.models import Currency, ImpactLevel
 from app.services import NewsService
 import logging
 
@@ -58,9 +57,8 @@ def migrate_sqlite_data(sqlite_db_path: str):
         db = next(get_db())
         news_service = NewsService(db)
         
-        # Get existing currencies and impact levels from PostgreSQL
+        # Get existing currencies from PostgreSQL
         existing_currencies = {curr.code: curr.id for curr in db.query(Currency).all()}
-        existing_impacts = {impact.code: impact.id for impact in db.query(ImpactLevel).all()}
         
         # Migrate currencies
         logger.info("Migrating currencies...")
