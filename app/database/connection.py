@@ -40,8 +40,9 @@ def create_database_engine():
         )
         
         # Test connection
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
             logger.info("Database connection successful")
             
         return engine

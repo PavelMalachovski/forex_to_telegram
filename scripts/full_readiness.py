@@ -17,7 +17,7 @@ class SystemChecker:
     def __init__(self):
         load_dotenv()
         self.database_url = os.getenv('DATABASE_URL')
-        self.bot_token = os.getenv('BOT_TOKEN')
+        self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         self.webhook_url = os.getenv('WEBHOOK_URL')
         self.render_api_key = os.getenv('RENDER_API_KEY')
         
@@ -52,7 +52,7 @@ class SystemChecker:
         )
         
         self.log_check(
-            "BOT_TOKEN",
+            "TELEGRAM_BOT_TOKEN",
             bool(self.bot_token),
             "Установлен" if self.bot_token else "Не найден",
             critical=True

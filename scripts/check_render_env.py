@@ -19,11 +19,11 @@ def check_local_env():
     load_dotenv()
     
     database_url = os.getenv('DATABASE_URL')
-    bot_token = os.getenv('BOT_TOKEN')
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     webhook_url = os.getenv('WEBHOOK_URL')
     
     print(f"DATABASE_URL: {'✅ Установлена' if database_url else '❌ Не найдена'}")
-    print(f"BOT_TOKEN: {'✅ Установлен' if bot_token else '❌ Не найден'}")
+    print(f"TELEGRAM_BOT_TOKEN: {'✅ Установлен' if bot_token else '❌ Не найден'}")
     print(f"WEBHOOK_URL: {'✅ Установлен' if webhook_url else '❌ Не найден'}")
     
     if database_url:
@@ -121,7 +121,7 @@ def main():
     
     print(f"DATABASE_URL: {'✅' if database_url else '❌'}")
     print(f"Подключение к БД: {'✅' if db_ok else '❌'}")
-    print(f"BOT_TOKEN: {'✅' if bot_token else '❌'}")
+    print(f"TELEGRAM_BOT_TOKEN: {'✅' if bot_token else '❌'}")
     print(f"WEBHOOK_URL: {'✅' if webhook_url else '❌'}")
     print(f"Render API: {'✅' if api_ok else '⚠️  (опционально)'}")
     
@@ -133,7 +133,7 @@ def main():
         sys.exit(1)
     
     if not bot_token:
-        print("\n⚠️  BOT_TOKEN не установлен - бот не сможет работать")
+        print("\n⚠️  TELEGRAM_BOT_TOKEN не установлен - бот не сможет работать")
     
     print("\n✅ Основные настройки в порядке!")
 
