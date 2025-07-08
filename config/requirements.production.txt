@@ -1,9 +1,9 @@
 
+
 # Core dependencies
 flask==2.3.3
 pyTelegramBotAPI==4.14.0
 beautifulsoup4==4.12.2
-playwright==1.47.0
 pytz==2023.3
 gunicorn==21.2.0
 apscheduler==3.10.4
@@ -29,3 +29,4 @@ sentry-sdk==1.38.0
 # Development and testing (removed for production)
 # pytest==7.4.3
 # pytest-asyncio==0.21.1
+

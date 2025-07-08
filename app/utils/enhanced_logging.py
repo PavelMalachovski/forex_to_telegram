@@ -162,7 +162,7 @@ def get_logging_config():
             "requests": {"level": "WARNING"},
             "telebot": {"level": "INFO"},
             "sqlalchemy.engine": {"level": "WARNING"},
-            "playwright": {"level": "WARNING"},
+
             "werkzeug": {"level": "WARNING"}
         }
     }

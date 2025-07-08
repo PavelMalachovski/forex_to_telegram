@@ -64,8 +64,7 @@ def setup_logging() -> logging.Logger:
     logging.getLogger('telebot').setLevel(logging.INFO)
     logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
     
-    # Set playwright to warning level to reduce noise
-    logging.getLogger('playwright').setLevel(logging.WARNING)
+
     
     logger = logging.getLogger(__name__)
     logger.info(f"Logging configured with level: {config.LOG_LEVEL}")
