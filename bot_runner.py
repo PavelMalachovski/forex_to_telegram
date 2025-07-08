@@ -1,4 +1,9 @@
 
+#!/usr/bin/env python3
+"""
+Универсальный запускатель Telegram бота с поддержкой polling и webhook режимов.
+"""
+
 import os
 import sys
 import time
@@ -19,6 +24,7 @@ app_running = True
 flask_app = None
 telegram_bot = None
 logger = None
+bot_mode = None
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully."""
@@ -31,7 +37,18 @@ def signal_handler(signum, frame):
 
 def cleanup_on_exit():
     """Cleanup function called on exit."""
-    global logger
+    global logger, telegram_bot, bot_mode
+    
+    # Cleanup webhook if in webhook mode
+    if bot_mode == 'webhook' and telegram_bot:
+        try:
+            telegram_bot.remove_webhook()
+            if logger:
+                logger.info("✅ Webhook removed on shutdown")
+        except Exception as e:
+            if logger:
+                logger.warning(f"⚠️  Failed to remove webhook on shutdown: {e}")
+    
     if logger:
         logger.info("Application cleanup completed")
     else:
@@ -55,7 +72,7 @@ def setup_enhanced_logging():
     )
     
     # File handler
-    file_handler = logging.FileHandler(log_dir / 'enhanced_app.log')
+    file_handler = logging.FileHandler(log_dir / 'bot.log')
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)
     
@@ -77,7 +94,7 @@ def setup_enhanced_logging():
     return root_logger
 
 def create_flask_app():
-    """Create and configure Flask application."""
+    """Create and configure Flask application for webhook mode."""
     app = Flask(__name__)
     
     # Global variables for status tracking
@@ -85,16 +102,18 @@ def create_flask_app():
         'status': 'running',
         'start_time': time.time(),
         'heartbeat_count': 0,
-        'last_heartbeat': None
+        'last_heartbeat': None,
+        'mode': bot_mode
     }
     
     @app.route('/health')
     def health_check():
-        """Health check endpoint for Render."""
+        """Health check endpoint."""
         return jsonify({
             'status': 'healthy',
             'timestamp': time.time(),
-            'uptime': time.time() - app_status['start_time']
+            'uptime': time.time() - app_status['start_time'],
+            'mode': bot_mode
         }), 200
     
     @app.route('/status')
@@ -106,7 +125,8 @@ def create_flask_app():
             'uptime': time.time() - app_status['start_time'],
             'heartbeat_count': app_status['heartbeat_count'],
             'last_heartbeat': app_status['last_heartbeat'],
-            'project_root': str(project_root)
+            'project_root': str(project_root),
+            'mode': bot_mode
         }), 200
     
     @app.route('/webhook', methods=['POST'])
@@ -132,40 +152,6 @@ def create_flask_app():
             if logger:
                 logger.error(f"Webhook error: {e}")
             return jsonify({'error': 'Webhook processing failed'}), 500
-    
-    @app.route('/trigger-load')
-    def trigger_load():
-        """Endpoint for make.com to trigger data loading."""
-        try:
-            # Here you can add logic to trigger data loading
-            return jsonify({
-                'status': 'success',
-                'message': 'Data loading triggered',
-                'timestamp': time.time()
-            }), 200
-        except Exception as e:
-            return jsonify({
-                'status': 'error',
-                'message': str(e),
-                'timestamp': time.time()
-            }), 500
-    
-    @app.route('/trigger-today')
-    def trigger_today():
-        """Endpoint for make.com to trigger today's processing."""
-        try:
-            # Here you can add logic to trigger today's processing
-            return jsonify({
-                'status': 'success',
-                'message': 'Today processing triggered',
-                'timestamp': time.time()
-            }), 200
-        except Exception as e:
-            return jsonify({
-                'status': 'error',
-                'message': str(e),
-                'timestamp': time.time()
-            }), 500
     
     return app, app_status
 
@@ -217,7 +203,7 @@ def create_telegram_bot():
         return None
 
 def setup_webhook():
-    """Setup webhook for production deployment using WebhookManager."""
+    """Setup webhook for production deployment."""
     global telegram_bot, logger
     
     if not telegram_bot:
@@ -260,38 +246,149 @@ def run_flask_server(app, port, logger):
     except Exception as e:
         logger.error(f"Flask server error: {e}", exc_info=True)
 
+def run_polling_mode():
+    """Run bot in polling mode."""
+    global telegram_bot, logger, app_running
+    
+    if not telegram_bot:
+        if logger:
+            logger.error("❌ Cannot start polling - bot not initialized")
+        return False
+    
+    try:
+        if logger:
+            logger.info("🔄 Starting bot in polling mode...")
+        
+        # Make sure no webhook is set
+        try:
+            telegram_bot.remove_webhook()
+            time.sleep(1)
+            if logger:
+                logger.info("✅ Webhook removed for polling mode")
+        except Exception as e:
+            if logger:
+                logger.warning(f"⚠️  Could not remove webhook: {e}")
+        
+        # Start polling with proper error handling
+        while app_running:
+            try:
+                if logger:
+                    logger.info("🔄 Starting polling...")
+                
+                telegram_bot.polling(
+                    none_stop=False,
+                    interval=1,
+                    timeout=20,
+                    long_polling_timeout=20
+                )
+                
+            except Exception as e:
+                if app_running:  # Only log if we're still supposed to be running
+                    if logger:
+                        logger.error(f"❌ Polling error: {e}")
+                    time.sleep(5)  # Wait before retrying
+                else:
+                    break
+        
+        if logger:
+            logger.info("✅ Polling stopped")
+        return True
+        
+    except Exception as e:
+        if logger:
+            logger.error(f"❌ Critical error in polling mode: {e}")
+        return False
+
+def run_webhook_mode():
+    """Run bot in webhook mode."""
+    global flask_app, telegram_bot, logger, app_running
+    
+    try:
+        # Get port from environment or use default
+        port = int(os.getenv('PORT', 8000))
+        
+        # Create Flask app
+        flask_app, app_status = create_flask_app()
+        
+        # Start Flask server in a separate thread
+        flask_thread = threading.Thread(
+            target=run_flask_server,
+            args=(flask_app, port, logger),
+            daemon=True
+        )
+        flask_thread.start()
+        
+        if logger:
+            logger.info(f"✅ Flask server started on port {port}")
+        
+        # Setup webhook
+        if telegram_bot:
+            # Wait a bit for Flask server to start
+            time.sleep(2)
+            
+            webhook_success = setup_webhook()
+            if webhook_success:
+                if logger:
+                    logger.info("✅ Telegram bot webhook configured successfully")
+            else:
+                if logger:
+                    logger.warning("⚠️  Telegram bot webhook setup failed - bot may not receive updates")
+        else:
+            if logger:
+                logger.warning("⚠️  Telegram bot not started (token missing or error)")
+        
+        # Keep running with heartbeat
+        if logger:
+            logger.info("Application is running in webhook mode. Use SIGTERM or Ctrl+C to stop.")
+        
+        try:
+            while app_running:
+                time.sleep(30)
+                if app_running:
+                    app_status['heartbeat_count'] += 1
+                    app_status['last_heartbeat'] = time.time()
+                    if logger:
+                        logger.info(f"Application heartbeat #{app_status['heartbeat_count']} - webhook mode")
+        except KeyboardInterrupt:
+            if logger:
+                logger.info("Received keyboard interrupt, shutting down...")
+            app_running = False
+        
+        return True
+        
+    except Exception as e:
+        if logger:
+            logger.error(f"❌ Critical error in webhook mode: {e}")
+        return False
+
 def main():
-    """Production scheduler main function with HTTP server and webhook."""
-    global app_running, flask_app, telegram_bot, logger
+    """Main function with mode selection."""
+    global app_running, flask_app, telegram_bot, logger, bot_mode
     
     # Setup signal handlers first
     setup_signal_handlers()
     
     # Setup logging
     logger = setup_enhanced_logging()
-    logger.info("=== Production Scheduler Starting with Webhook Mode ===")
+    
+    # Determine bot mode
+    bot_mode = os.getenv('BOT_MODE', 'polling').lower()
+    
+    if bot_mode not in ['polling', 'webhook']:
+        logger.error(f"❌ Invalid BOT_MODE: {bot_mode}. Must be 'polling' or 'webhook'")
+        return 1
+    
+    logger.info(f"=== Forex Bot Starting in {bot_mode.upper()} mode ===")
     
     try:
-        # Get port from environment or use default
-        port = int(os.getenv('PORT', 8000))
-        logger.info(f"Using port: {port}")
-        
-        # Test that paths work correctly
+        # Test imports and database
         logger.info(f"Project root: {project_root}")
-        logger.info(f"Log directory: {Path(os.getenv('LOG_DIR', project_root / 'logs'))}")
         
-        # Test importing existing modules
         try:
             from app.config import Config
             logger.info("✅ Successfully imported Config")
         except ImportError as e:
             logger.warning(f"⚠️  Could not import Config: {e}")
-        
-        try:
-            from app.services.notification_service import NotificationService
-            logger.info("✅ Successfully imported NotificationService")
-        except ImportError as e:
-            logger.warning(f"⚠️  Could not import NotificationService: {e}")
         
         try:
             from app.database.connection import get_db, init_database
@@ -307,59 +404,25 @@ def main():
         except ImportError as e:
             logger.warning(f"⚠️  Could not import database connection: {e}")
         
-        # Create Flask app
-        flask_app, app_status = create_flask_app()
-        
         # Create Telegram bot
         telegram_bot = create_telegram_bot()
         
-        # Start Flask server in a separate thread
-        flask_thread = threading.Thread(
-            target=run_flask_server,
-            args=(flask_app, port, logger),
-            daemon=True
-        )
-        flask_thread.start()
-        logger.info(f"✅ Flask server started on port {port}")
+        if not telegram_bot:
+            logger.error("❌ Failed to create Telegram bot")
+            return 1
         
-        # Setup webhook for Telegram bot (instead of polling)
-        if telegram_bot:
-            # Wait a bit for Flask server to start
-            time.sleep(2)
-            
-            webhook_success = setup_webhook()
-            if webhook_success:
-                logger.info("✅ Telegram bot webhook configured successfully")
-            else:
-                logger.warning("⚠️  Telegram bot webhook setup failed - bot may not receive updates")
+        # Run in selected mode
+        if bot_mode == 'polling':
+            success = run_polling_mode()
+        else:  # webhook
+            success = run_webhook_mode()
+        
+        if success:
+            logger.info(f"=== Bot shutdown completed successfully ({bot_mode} mode) ===")
+            return 0
         else:
-            logger.warning("⚠️  Telegram bot not started (token missing or error)")
-        
-        logger.info("=== Production scheduler with webhook mode started successfully ===")
-        
-        # Keep running with heartbeat
-        logger.info("Application is running. Use SIGTERM or Ctrl+C to stop.")
-        try:
-            while app_running:
-                time.sleep(30)  # Reduced sleep time for more responsive shutdown
-                if app_running:  # Check again before logging
-                    app_status['heartbeat_count'] += 1
-                    app_status['last_heartbeat'] = time.time()
-                    logger.info(f"Application heartbeat #{app_status['heartbeat_count']} - still running...")
-        except KeyboardInterrupt:
-            logger.info("Received keyboard interrupt, shutting down...")
-            app_running = False
-        
-        # Cleanup webhook on shutdown
-        if telegram_bot:
-            try:
-                telegram_bot.remove_webhook()
-                logger.info("✅ Webhook removed on shutdown")
-            except Exception as e:
-                logger.warning(f"⚠️  Failed to remove webhook on shutdown: {e}")
-        
-        logger.info("Application shutdown completed")
-        return 0
+            logger.error(f"=== Bot failed in {bot_mode} mode ===")
+            return 1
         
     except Exception as e:
         logger.error(f"Critical error in main: {e}", exc_info=True)
