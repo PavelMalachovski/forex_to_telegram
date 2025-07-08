@@ -69,8 +69,10 @@ def get_db() -> Session:
     """
     if not SessionLocal:
         logger.warning("Database session factory not available")
-        return None
+        yield None
+        return
         
+    db = None
     try:
         db = SessionLocal()
         yield db
@@ -78,8 +80,11 @@ def get_db() -> Session:
         logger.error(f"Database session error: {e}")
         yield None
     finally:
-        if 'db' in locals() and db:
-            db.close()
+        if db:
+            try:
+                db.close()
+            except Exception as e:
+                logger.error(f"Error closing database session: {e}")
 
 def get_db_session():
     """

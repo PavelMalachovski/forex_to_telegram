@@ -1,3 +1,4 @@
+
 import os
 import sys
 import time
@@ -6,7 +7,8 @@ import threading
 import signal
 import atexit
 from pathlib import Path
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
+import telebot
 
 # Add the project root to Python path
 project_root = Path(__file__).resolve().parent
@@ -15,6 +17,7 @@ sys.path.insert(0, str(project_root))
 # Global variables for application state
 app_running = True
 flask_app = None
+telegram_bot = None
 logger = None
 
 def signal_handler(signum, frame):
@@ -106,6 +109,30 @@ def create_flask_app():
             'project_root': str(project_root)
         }), 200
     
+    @app.route('/webhook', methods=['POST'])
+    def webhook():
+        """Telegram webhook endpoint."""
+        global telegram_bot, logger
+        
+        if not telegram_bot:
+            if logger:
+                logger.error("Telegram bot not initialized")
+            return jsonify({'error': 'Bot not configured'}), 500
+        
+        try:
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            telegram_bot.process_new_updates([update])
+            
+            if logger:
+                logger.debug("Webhook processed successfully")
+            
+            return jsonify({'status': 'ok'})
+        except Exception as e:
+            if logger:
+                logger.error(f"Webhook error: {e}")
+            return jsonify({'error': 'Webhook processing failed'}), 500
+    
     @app.route('/trigger-load')
     def trigger_load():
         """Endpoint for make.com to trigger data loading."""
@@ -162,12 +189,18 @@ def create_telegram_bot():
         bot = telebot.TeleBot(config.TELEGRAM_BOT_TOKEN)
         
         # Initialize handlers with database session factory
-        BotHandlers(bot, SessionLocal)
-        
-        if logger:
-            logger.info("✅ Telegram bot created and handlers registered")
+        if SessionLocal:
+            BotHandlers(bot, SessionLocal)
+            if logger:
+                logger.info("✅ Telegram bot created and handlers registered")
+            else:
+                print("✅ Telegram bot created and handlers registered")
         else:
-            print("✅ Telegram bot created and handlers registered")
+            if logger:
+                logger.warning("⚠️  Database not available, bot handlers not registered")
+            else:
+                print("⚠️  Database not available, bot handlers not registered")
+        
         return bot
         
     except ImportError as e:
@@ -183,18 +216,48 @@ def create_telegram_bot():
             print(f"❌ Failed to create Telegram bot: {e}")
         return None
 
-def run_telegram_bot(bot, logger):
-    """Run Telegram bot polling in a separate thread."""
+def setup_webhook():
+    """Setup webhook for production deployment."""
+    global telegram_bot, logger
+    
+    if not telegram_bot:
+        if logger:
+            logger.warning("⚠️  Cannot setup webhook - bot not initialized")
+        return False
+    
     try:
-        if bot is None:
-            logger.warning("⚠️  Bot is None, skipping bot polling")
-            return
-            
-        logger.info("🤖 Starting Telegram bot polling...")
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        # Get webhook URL from environment or construct from Render
+        webhook_url = os.getenv('TELEGRAM_WEBHOOK_URL')
         
+        if not webhook_url:
+            # Try to construct webhook URL for Render
+            render_service_url = os.getenv('RENDER_EXTERNAL_URL')
+            if render_service_url:
+                webhook_url = f"{render_service_url}/webhook"
+            else:
+                if logger:
+                    logger.warning("⚠️  No webhook URL configured")
+                return False
+        
+        # Set webhook
+        telegram_bot.remove_webhook()  # Remove any existing webhook first
+        time.sleep(1)  # Small delay
+        
+        result = telegram_bot.set_webhook(url=webhook_url)
+        
+        if result:
+            if logger:
+                logger.info(f"✅ Webhook set successfully: {webhook_url}")
+            return True
+        else:
+            if logger:
+                logger.error(f"❌ Failed to set webhook: {webhook_url}")
+            return False
+            
     except Exception as e:
-        logger.error(f"❌ Telegram bot error: {e}", exc_info=True)
+        if logger:
+            logger.error(f"❌ Error setting up webhook: {e}")
+        return False
 
 def run_flask_server(app, port, logger):
     """Run Flask server in a separate thread."""
@@ -205,15 +268,15 @@ def run_flask_server(app, port, logger):
         logger.error(f"Flask server error: {e}", exc_info=True)
 
 def main():
-    """Production scheduler main function with HTTP server."""
-    global app_running, flask_app, logger
+    """Production scheduler main function with HTTP server and webhook."""
+    global app_running, flask_app, telegram_bot, logger
     
     # Setup signal handlers first
     setup_signal_handlers()
     
     # Setup logging
     logger = setup_enhanced_logging()
-    logger.info("=== Production Scheduler Starting with HTTP Server ===")
+    logger.info("=== Production Scheduler Starting with Webhook Mode ===")
     
     try:
         # Get port from environment or use default
@@ -266,20 +329,20 @@ def main():
         flask_thread.start()
         logger.info(f"✅ Flask server started on port {port}")
         
-        # Start Telegram bot in a separate thread if available
-        bot_thread = None
+        # Setup webhook for Telegram bot (instead of polling)
         if telegram_bot:
-            bot_thread = threading.Thread(
-                target=run_telegram_bot,
-                args=(telegram_bot, logger),
-                daemon=True
-            )
-            bot_thread.start()
-            logger.info("✅ Telegram bot started")
+            # Wait a bit for Flask server to start
+            time.sleep(2)
+            
+            webhook_success = setup_webhook()
+            if webhook_success:
+                logger.info("✅ Telegram bot webhook configured successfully")
+            else:
+                logger.warning("⚠️  Telegram bot webhook setup failed - bot may not receive updates")
         else:
             logger.warning("⚠️  Telegram bot not started (token missing or error)")
         
-        logger.info("=== Production scheduler with HTTP server started successfully ===")
+        logger.info("=== Production scheduler with webhook mode started successfully ===")
         
         # Keep running with heartbeat
         logger.info("Application is running. Use SIGTERM or Ctrl+C to stop.")
@@ -293,6 +356,14 @@ def main():
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
             app_running = False
+        
+        # Cleanup webhook on shutdown
+        if telegram_bot:
+            try:
+                telegram_bot.remove_webhook()
+                logger.info("✅ Webhook removed on shutdown")
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to remove webhook on shutdown: {e}")
         
         logger.info("Application shutdown completed")
         return 0

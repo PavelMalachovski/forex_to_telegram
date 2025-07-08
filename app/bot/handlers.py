@@ -1,5 +1,4 @@
 
-
 """
 Telegram bot handlers for user interactions.
 """
@@ -26,6 +25,17 @@ class BotHandlers:
         self.bot = bot
         self.db_session_factory = db_session_factory
         self._register_handlers()
+    
+    def _get_db_session(self):
+        """Get database session with proper error handling."""
+        try:
+            if not self.db_session_factory:
+                logger.warning("Database session factory not available")
+                return None
+            return self.db_session_factory()
+        except Exception as e:
+            logger.error(f"Failed to create database session: {e}")
+            return None
     
     def _safe_answer_callback_query(self, call, text: str = None, show_alert: bool = False):
         """Safely answer callback query with proper error handling."""
@@ -91,25 +101,26 @@ class BotHandlers:
     def start_command(self, message):
         """Handle /start command."""
         try:
-            with self.db_session_factory() as db:
-                if db is None:
-                    # Database unavailable - send basic welcome message
-                    welcome_text = (
-                        f"👋 Welcome to Forex News Bot, {escape_markdown(message.from_user.first_name or 'User')}\\!\n\n"
-                        f"⚠️ *Database temporarily unavailable*\n"
-                        f"Some features may be limited\\.\n\n"
-                        f"🔹 Get the latest forex news and economic events\n"
-                        f"🔹 Filter by impact level and currency\n\n"
-                        f"Use /help to see all available commands\\."
-                    )
-                    
-                    self.bot.send_message(
-                        message.chat.id,
-                        welcome_text,
-                        parse_mode='MarkdownV2'
-                    )
-                    return
+            db = self._get_db_session()
+            if db is None:
+                # Database unavailable - send basic welcome message
+                welcome_text = (
+                    f"👋 Welcome to Forex News Bot, {escape_markdown(message.from_user.first_name or 'User')}\\!\n\n"
+                    f"⚠️ *Database temporarily unavailable*\n"
+                    f"Some features may be limited\\.\n\n"
+                    f"🔹 Get the latest forex news and economic events\n"
+                    f"🔹 Filter by impact level and currency\n\n"
+                    f"Use /help to see all available commands\\."
+                )
                 
+                self.bot.send_message(
+                    message.chat.id,
+                    welcome_text,
+                    parse_mode='MarkdownV2'
+                )
+                return
+            
+            try:
                 user_service = UserService(db)
                 
                 # Create or get user
@@ -119,6 +130,9 @@ class BotHandlers:
                     first_name=message.from_user.first_name,
                     last_name=message.from_user.last_name
                 )
+                
+                if not user:
+                    raise Exception("Failed to create or get user")
                 
                 welcome_text = (
                     f"👋 Welcome to Forex News Bot, {escape_markdown(user.first_name or 'User')}\\!\n\n"
@@ -149,6 +163,9 @@ class BotHandlers:
                     parse_mode='MarkdownV2',
                     reply_markup=markup
                 )
+            finally:
+                if db:
+                    db.close()
                 
         except Exception as e:
             logger.error(f"Error in start command: {e}")
@@ -195,674 +212,516 @@ class BotHandlers:
         """Handle /news command with optional date and impact level."""
         import asyncio
         
-        with self.db_session_factory() as db:
-            try:
-                # Parse command arguments
-                args = message.text.split()[1:] if len(message.text.split()) > 1 else []
-                
-                if not args:
-                    # Show impact level selection
-                    markup = types.InlineKeyboardMarkup(row_width=3)
-                    # ИСПРАВЛЕНИЕ 2: Изменить цвета кнопок
-                    markup.add(
-                        types.InlineKeyboardButton("🔴 HIGH", callback_data="impact_HIGH"),
-                        types.InlineKeyboardButton("🟠 MEDIUM", callback_data="impact_MEDIUM"),
-                        types.InlineKeyboardButton("🟡 LOW", callback_data="impact_LOW")
-                    )
-                    markup.add(types.InlineKeyboardButton("📊 ALL", callback_data="impact_ALL"))
-                    
-                    self.bot.send_message(
-                        message.chat.id,
-                        "📊 Select impact level for today's news:",
-                        reply_markup=markup
-                    )
-                    return
-                
-                date_str = args[0]
-                impact_level = args[1].upper() if len(args) > 1 else "HIGH"
-                
-                # Validate date format
-                try:
-                    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                except ValueError:
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ Invalid date format. Please use YYYY-MM-DD format."
-                    )
-                    return
-                
-                # Show loading message
-                loading_msg = self.bot.send_message(
-                    message.chat.id,
-                    text=f"🔄 Fetching Forex news for *{escape_markdown(date_str)}*\nImpact: *{escape_markdown(impact_level)}*",
-                    parse_mode='MarkdownV2'
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+        
+        try:
+            # Parse command arguments
+            args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+            
+            if not args:
+                # Show impact level selection
+                markup = types.InlineKeyboardMarkup(row_width=3)
+                markup.add(
+                    types.InlineKeyboardButton("🔴 HIGH", callback_data="impact_HIGH"),
+                    types.InlineKeyboardButton("🟠 MEDIUM", callback_data="impact_MEDIUM"),
+                    types.InlineKeyboardButton("🟡 LOW", callback_data="impact_LOW")
                 )
+                markup.add(types.InlineKeyboardButton("📊 ALL", callback_data="impact_ALL"))
                 
-                news_service = NewsService(db)
-                
-                # Check if data exists, if not - trigger auto-scraping
-                if not news_service.has_data_for_date(target_date):
-                    # Update loading message to indicate scraping
-                    self.bot.edit_message_text(
-                        f"🔄 No data found for *{escape_markdown(date_str)}*\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
-                        loading_msg.chat.id,
-                        loading_msg.message_id,
-                        parse_mode='MarkdownV2'
-                    )
-                
-                # Get news events with auto-scraping
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    news_events, was_scraped = loop.run_until_complete(
-                        news_service.get_or_scrape_news_by_date(target_date, impact_level)
-                    )
-                finally:
-                    loop.close()
-                
-                # Delete loading message
-                self.bot.delete_message(message.chat.id, loading_msg.message_id)
-                
-                if news_events:
-                    # Format and send message
-                    formatted_message = format_news_event_message(news_events, date_str, impact_level)
-                    
-                    # Add scraping notification if data was scraped
-                    if was_scraped:
-                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
-                        formatted_message = scraping_notice + formatted_message
-                    
-                    # Send message using notification service for long messages
-                    from app.services.notification_service import NotificationService
-                    notification_service = NotificationService(db, self.bot)
-                    notification_service.send_long_message(message.chat.id, formatted_message)
-                else:
-                    scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
-                    self.bot.send_message(
-                        message.chat.id,
-                        f"✅ No news {scraping_status} for {escape_markdown(date_str)} with impact: {escape_markdown(impact_level)}\\.\nPlease check the website for updates\\.",
-                        parse_mode='MarkdownV2'
-                    )
-                
-            except Exception as e:
-                logger.error(f"Error in news command: {e}")
                 self.bot.send_message(
                     message.chat.id,
-                    "❌ An error occurred while fetching news. Please try again later."
+                    "📊 Select impact level for today's news:",
+                    reply_markup=markup
                 )
+                return
+            
+            date_str = args[0]
+            impact_level = args[1].upper() if len(args) > 1 else "HIGH"
+            
+            # Validate date format
+            try:
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                self.bot.send_message(
+                    message.chat.id,
+                    "❌ Invalid date format. Please use YYYY-MM-DD format."
+                )
+                return
+            
+            # Show loading message
+            loading_msg = self.bot.send_message(
+                message.chat.id,
+                text=f"🔄 Fetching Forex news for *{escape_markdown(date_str)}*\nImpact: *{escape_markdown(impact_level)}*",
+                parse_mode='MarkdownV2'
+            )
+            
+            news_service = NewsService(db)
+            
+            # Check if data exists, if not - trigger auto-scraping
+            if not news_service.has_data_for_date(target_date):
+                # Update loading message to indicate scraping
+                self.bot.edit_message_text(
+                    f"🔄 No data found for *{escape_markdown(date_str)}*\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                    loading_msg.chat.id,
+                    loading_msg.message_id,
+                    parse_mode='MarkdownV2'
+                )
+            
+            # Get news events with auto-scraping
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                news_events, was_scraped = loop.run_until_complete(
+                    news_service.get_or_scrape_news_by_date(target_date, impact_level)
+                )
+            finally:
+                loop.close()
+            
+            # Delete loading message
+            try:
+                self.bot.delete_message(message.chat.id, loading_msg.message_id)
+            except:
+                pass
+            
+            if news_events:
+                # Format and send message
+                formatted_message = format_news_event_message(news_events, date_str, impact_level)
+                
+                # Add scraping notification if data was scraped
+                if was_scraped:
+                    scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
+                    formatted_message = scraping_notice + formatted_message
+                
+                # Send message using notification service for long messages
+                try:
+                    from app.services.notification_service import NotificationService
+                    notification_service = NotificationService(db, self.bot)
+                    if notification_service:
+                        notification_service.send_long_message(message.chat.id, formatted_message)
+                    else:
+                        # Fallback to direct bot message
+                        self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+                except Exception as e:
+                    logger.error(f"Error sending message via notification service: {e}")
+                    # Fallback to direct bot message
+                    self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+            else:
+                scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
+                self.bot.send_message(
+                    message.chat.id,
+                    f"✅ No news {scraping_status} for {escape_markdown(date_str)} with impact: {escape_markdown(impact_level)}\\.\nPlease check the website for updates\\.",
+                    parse_mode='MarkdownV2'
+                )
+            
+        except Exception as e:
+            logger.error(f"Error in news command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ An error occurred while fetching news. Please try again later."
+            )
+        finally:
+            if db:
+                db.close()
     
     def today_command(self, message):
         """Handle /today command."""
         import asyncio
         
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+        
         try:
-            with self.db_session_factory() as db:
-                if db is None:
-                    # Database unavailable
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ База данных временно недоступна. Попробуйте позже.",
-                        parse_mode='MarkdownV2'
-                    )
-                    return
-                
-                today = get_current_time().date()
-                news_service = NewsService(db)
-                
-                # Show loading message
-                loading_msg = self.bot.send_message(
-                    message.chat.id,
-                    "🔄 Fetching today's high\\-impact Forex news\\.\\.\\.",
+            today = get_current_time().date()
+            news_service = NewsService(db)
+            
+            # Show loading message
+            loading_msg = self.bot.send_message(
+                message.chat.id,
+                "🔄 Fetching today's high\\-impact Forex news\\.\\.\\.",
+                parse_mode='MarkdownV2'
+            )
+            
+            # Check if data exists, if not - trigger auto-scraping
+            if not news_service.has_data_for_date(today):
+                # Update loading message to indicate scraping
+                self.bot.edit_message_text(
+                    "🔄 No data found for today\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                    loading_msg.chat.id,
+                    loading_msg.message_id,
                     parse_mode='MarkdownV2'
                 )
+            
+            # Get high-impact news for today with auto-scraping
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                news_events, was_scraped = loop.run_until_complete(
+                    news_service.get_or_scrape_news_by_date(today, "HIGH")
+                )
+            finally:
+                loop.close()
+            
+            # Delete loading message
+            try:
+                self.bot.delete_message(message.chat.id, loading_msg.message_id)
+            except:
+                pass
+            
+            if news_events:
+                # Format and send message
+                formatted_message = format_news_event_message(news_events, today.strftime('%Y-%m-%d'))
                 
-                # Check if data exists, if not - trigger auto-scraping
-                if not news_service.has_data_for_date(today):
-                    # Update loading message to indicate scraping
-                    self.bot.edit_message_text(
-                        "🔄 No data found for today\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
-                        loading_msg.chat.id,
-                        loading_msg.message_id,
-                        parse_mode='MarkdownV2'
-                    )
+                # Add scraping notification if data was scraped
+                if was_scraped:
+                    scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
+                    formatted_message = scraping_notice + formatted_message
                 
-                # Get high-impact news for today with auto-scraping
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                # Send message using notification service for long messages
                 try:
-                    news_events, was_scraped = loop.run_until_complete(
-                        news_service.get_or_scrape_news_by_date(today, "HIGH")
-                    )
-                finally:
-                    loop.close()
-                
-                # Delete loading message
-                try:
-                    self.bot.delete_message(message.chat.id, loading_msg.message_id)
-                except:
-                    pass  # Ignore if message already deleted
-                
-                if news_events:
-                    # Format and send message
-                    formatted_message = format_news_event_message(news_events, today.strftime('%Y-%m-%d'))
-                    
-                    # Add scraping notification if data was scraped
-                    if was_scraped:
-                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
-                        formatted_message = scraping_notice + formatted_message
-                    
-                    # Send message using notification service for long messages
                     from app.services.notification_service import NotificationService
                     notification_service = NotificationService(db, self.bot)
-                    notification_service.send_long_message(message.chat.id, formatted_message)
-                else:
-                    scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
-                    self.bot.send_message(
-                        message.chat.id,
-                        f"✅ No high\\-impact news {scraping_status} for today \\({escape_markdown(today.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
-                        parse_mode='MarkdownV2'
-                    )
-                
+                    if notification_service:
+                        notification_service.send_long_message(message.chat.id, formatted_message)
+                    else:
+                        # Fallback to direct bot message
+                        self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+                except Exception as e:
+                    logger.error(f"Error sending message via notification service: {e}")
+                    # Fallback to direct bot message
+                    self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+            else:
+                scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
+                self.bot.send_message(
+                    message.chat.id,
+                    f"✅ No high\\-impact news {scraping_status} for today \\({escape_markdown(today.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
+                    parse_mode='MarkdownV2'
+                )
+            
         except Exception as e:
             logger.error(f"Error in today command: {e}")
             self.bot.send_message(
                 message.chat.id,
                 "❌ Произошла ошибка при получении новостей на сегодня. Попробуйте позже."
             )
+        finally:
+            if db:
+                db.close()
     
     def tomorrow_command(self, message):
         """Handle /tomorrow command."""
         import asyncio
         
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+        
         try:
-            with self.db_session_factory() as db:
-                if db is None:
-                    # Database unavailable
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ База данных временно недоступна. Попробуйте позже."
-                    )
-                    return
-                
-                tomorrow = get_current_time().date() + timedelta(days=1)
-                news_service = NewsService(db)
-                
-                # Show loading message
-                loading_msg = self.bot.send_message(
-                    message.chat.id,
-                    "🔄 Fetching tomorrow's high\\-impact Forex news\\.\\.\\.",
+            tomorrow = get_current_time().date() + timedelta(days=1)
+            news_service = NewsService(db)
+            
+            # Show loading message
+            loading_msg = self.bot.send_message(
+                message.chat.id,
+                "🔄 Fetching tomorrow's high\\-impact Forex news\\.\\.\\.",
+                parse_mode='MarkdownV2'
+            )
+            
+            # Check if data exists, if not - trigger auto-scraping
+            if not news_service.has_data_for_date(tomorrow):
+                # Update loading message to indicate scraping
+                self.bot.edit_message_text(
+                    "🔄 No data found for tomorrow\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                    loading_msg.chat.id,
+                    loading_msg.message_id,
                     parse_mode='MarkdownV2'
                 )
-                
-                # Check if data exists, if not - trigger auto-scraping
-                if not news_service.has_data_for_date(tomorrow):
-                    # Update loading message to indicate scraping
-                    self.bot.edit_message_text(
-                        "🔄 No data found for tomorrow\\.\n🌐 Scraping data from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
-                        loading_msg.chat.id,
-                        loading_msg.message_id,
-                        parse_mode='MarkdownV2'
-                    )
-                
-                # Get high-impact news for tomorrow with auto-scraping
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    news_events, was_scraped = loop.run_until_complete(
-                        news_service.get_or_scrape_news_by_date(tomorrow, "HIGH")
-                    )
-                finally:
-                    loop.close()
-                
-                # Delete loading message
+            
+            # Get high-impact news for tomorrow with auto-scraping
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                news_events, was_scraped = loop.run_until_complete(
+                    news_service.get_or_scrape_news_by_date(tomorrow, "HIGH")
+                )
+            finally:
+                loop.close()
+            
+            # Delete loading message
+            try:
                 self.bot.delete_message(message.chat.id, loading_msg.message_id)
+            except:
+                pass
+            
+            if news_events:
+                # Format and send message
+                formatted_message = format_news_event_message(news_events, tomorrow.strftime('%Y-%m-%d'))
                 
-                if news_events:
-                    # Format and send message
-                    formatted_message = format_news_event_message(news_events, tomorrow.strftime('%Y-%m-%d'))
-                    
-                    # Add scraping notification if data was scraped
-                    if was_scraped:
-                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
-                        formatted_message = scraping_notice + formatted_message
-                    
-                    # Send message using notification service for long messages
+                # Add scraping notification if data was scraped
+                if was_scraped:
+                    scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
+                    formatted_message = scraping_notice + formatted_message
+                
+                # Send message using notification service for long messages
+                try:
                     from app.services.notification_service import NotificationService
                     notification_service = NotificationService(db, self.bot)
-                    notification_service.send_long_message(message.chat.id, formatted_message)
-                else:
-                    scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
-                    self.bot.send_message(
-                        message.chat.id,
-                        f"✅ No high\\-impact news {scraping_status} for tomorrow \\({escape_markdown(tomorrow.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
-                        parse_mode='MarkdownV2'
-                    )
-                
+                    if notification_service:
+                        notification_service.send_long_message(message.chat.id, formatted_message)
+                    else:
+                        # Fallback to direct bot message
+                        self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+                except Exception as e:
+                    logger.error(f"Error sending message via notification service: {e}")
+                    # Fallback to direct bot message
+                    self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+            else:
+                scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
+                self.bot.send_message(
+                    message.chat.id,
+                    f"✅ No high\\-impact news {scraping_status} for tomorrow \\({escape_markdown(tomorrow.strftime('%d.%m.%Y'))}\\)\\.\nPlease check the website for updates\\.",
+                    parse_mode='MarkdownV2'
+                )
+            
         except Exception as e:
             logger.error(f"Error in tomorrow command: {e}")
             self.bot.send_message(
                 message.chat.id,
                 "❌ Произошла ошибка при получении новостей на завтра. Попробуйте позже."
             )
+        finally:
+            if db:
+                db.close()
     
     def week_command(self, message):
         """Handle /week command."""
-        try:
-            with self.db_session_factory() as db:
-                if db is None:
-                    # Database unavailable
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ База данных временно недоступна. Попробуйте позже."
-                    )
-                    return
-                
-                try:
-                    today = get_current_time().date()
-                    week_end = today + timedelta(days=7)
-                    
-                    news_service = NewsService(db)
-                    news_events = news_service.get_news_by_date_range(
-                        start_date=today,
-                        end_date=week_end,
-                        impact_levels=["HIGH"]
-                    )
-                
-                    if news_events:
-                        # Group events by date
-                        events_by_date = {}
-                        for event in news_events:
-                            date_key = event.event_date.strftime('%Y-%m-%d')
-                            if date_key not in events_by_date:
-                                events_by_date[date_key] = []
-                            events_by_date[date_key].append(event)
-                        
-                        # Send message for each date
-                        for date_str, events in sorted(events_by_date.items()):
-                            formatted_message = format_news_event_message(events, date_str)
-                            
-                            # Send message using notification service for long messages
-                            from app.services.notification_service import NotificationService
-                            notification_service = NotificationService(db, self.bot)
-                            notification_service.send_long_message(message.chat.id, formatted_message)
-                    else:
-                        self.bot.send_message(
-                            message.chat.id,
-                            "✅ No high\\-impact news found for this week\\.\nPlease check the website for updates\\.",
-                            parse_mode='MarkdownV2'
-                        )
-                    
-                except Exception as e:
-                    logger.error(f"Error in week command: {e}")
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ Произошла ошибка при получении новостей на неделю. Попробуйте позже."
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Critical error in week command: {e}")
+        db = self._get_db_session()
+        if db is None:
             self.bot.send_message(
                 message.chat.id,
-                "❌ Произошла критическая ошибка. Попробуйте позже."
+                "❌ База данных временно недоступна. Попробуйте позже."
             )
+            return
+        
+        try:
+            today = get_current_time().date()
+            week_end = today + timedelta(days=7)
+            
+            news_service = NewsService(db)
+            news_events = news_service.get_news_by_date_range(
+                start_date=today,
+                end_date=week_end,
+                impact_levels=["HIGH"]
+            )
+        
+            if news_events:
+                # Group events by date
+                events_by_date = {}
+                for event in news_events:
+                    date_key = event.event_date.strftime('%Y-%m-%d')
+                    if date_key not in events_by_date:
+                        events_by_date[date_key] = []
+                    events_by_date[date_key].append(event)
+                
+                # Send message for each date
+                for date_str, events in sorted(events_by_date.items()):
+                    formatted_message = format_news_event_message(events, date_str)
+                    
+                    # Send message using notification service for long messages
+                    try:
+                        from app.services.notification_service import NotificationService
+                        notification_service = NotificationService(db, self.bot)
+                        if notification_service:
+                            notification_service.send_long_message(message.chat.id, formatted_message)
+                        else:
+                            # Fallback to direct bot message
+                            self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+                    except Exception as e:
+                        logger.error(f"Error sending message via notification service: {e}")
+                        # Fallback to direct bot message
+                        self.bot.send_message(message.chat.id, formatted_message, parse_mode='MarkdownV2')
+            else:
+                self.bot.send_message(
+                    message.chat.id,
+                    "✅ No high\\-impact news found for this week\\.\nPlease check the website for updates\\.",
+                    parse_mode='MarkdownV2'
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in week command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла ошибка при получении новостей на неделю. Попробуйте позже."
+            )
+        finally:
+            if db:
+                db.close()
     
     def preferences_command(self, message):
         """Handle /preferences command."""
-        try:
-            with self.db_session_factory() as db:
-                if db is None:
-                    # Database unavailable
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ База данных временно недоступна. Настройки недоступны."
-                    )
-                    return
-                
-                try:
-                    from app.services.user_service import UserService
-                    user_service = UserService(db)
-                    # Создаем пользователя если он не существует
-                    user = user_service.create_or_get_user(
-                        telegram_user_id=message.from_user.id,
-                        username=message.from_user.username,
-                        first_name=message.from_user.first_name,
-                        last_name=message.from_user.last_name
-                    )
-                
-                    # Get notification settings
-                    notification_settings = user.notification_settings
-                    if not notification_settings:
-                        # Create default settings
-                        from app.database.models import UserNotificationSettings
-                        notification_settings = UserNotificationSettings(
-                            user_id=user.id,
-                            notifications_enabled=True,
-                            notify_15_minutes=False,
-                            notify_30_minutes=False,
-                            notify_60_minutes=False
-                        )
-                        db.add(notification_settings)
-                        db.commit()
-                    
-                    # Get current currency preferences
-                    current_currencies = user_service.get_user_currency_preferences(message.from_user.id)
-                    currency_display = ", ".join(current_currencies) if current_currencies else "All currencies"
-                    
-                    # Show current settings
-                    settings_text = (
-                        f"⚙️ *Current Settings*\n\n"
-                        f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
-                        f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
-                        f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
-                        f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
-                        f"💱 Currency preferences: {escape_markdown(currency_display)}\n\n"
-                        f"Choose options to modify:"
-                    )
-                    
-                    markup = types.InlineKeyboardMarkup(row_width=2)
-                    markup.add(
-                        types.InlineKeyboardButton("🔔 15 min", callback_data="notify_15"),
-                        types.InlineKeyboardButton("🔔 30 min", callback_data="notify_30"),
-                        types.InlineKeyboardButton("🔔 60 min", callback_data="notify_60")
-                    )
-                    # ИСПРАВЛЕНИЕ 4: Добавить кнопку для множественного выбора валют
-                    markup.add(types.InlineKeyboardButton("💱 Select Currencies", callback_data="select_currencies"))
-                    
-                    self.bot.send_message(
-                        message.chat.id,
-                        settings_text,
-                        parse_mode='MarkdownV2',
-                        reply_markup=markup
-                    )
-                
-                except Exception as e:
-                    logger.error(f"Error in preferences command: {e}")
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ Произошла ошибка при загрузке настроек. Попробуйте позже."
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Critical error in preferences command: {e}")
+        db = self._get_db_session()
+        if db is None:
             self.bot.send_message(
                 message.chat.id,
-                "❌ Произошла критическая ошибка. Попробуйте позже."
+                "❌ База данных временно недоступна. Настройки недоступны."
             )
+            return
+        
+        try:
+            user_service = UserService(db)
+            # Создаем пользователя если он не существует
+            user = user_service.create_or_get_user(
+                telegram_user_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+                last_name=message.from_user.last_name
+            )
+            
+            if not user:
+                raise Exception("Failed to create or get user")
+        
+            # Get notification settings
+            notification_settings = user.notification_settings
+            if not notification_settings:
+                # Create default settings
+                from app.database.models import UserNotificationSettings
+                notification_settings = UserNotificationSettings(
+                    user_id=user.id,
+                    notifications_enabled=True,
+                    notify_15_minutes=False,
+                    notify_30_minutes=False,
+                    notify_60_minutes=False
+                )
+                db.add(notification_settings)
+                db.commit()
+            
+            # Get current currency preferences
+            current_currencies = user_service.get_user_currency_preferences(message.from_user.id)
+            currency_display = ", ".join(current_currencies) if current_currencies else "All currencies"
+            
+            # Show current settings
+            settings_text = (
+                f"⚙️ *Current Settings*\n\n"
+                f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
+                f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
+                f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
+                f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
+                f"💱 Currency preferences: {escape_markdown(currency_display)}\n\n"
+                f"Choose options to modify:"
+            )
+            
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                types.InlineKeyboardButton("🔔 15 min", callback_data="notify_15"),
+                types.InlineKeyboardButton("🔔 30 min", callback_data="notify_30"),
+                types.InlineKeyboardButton("🔔 60 min", callback_data="notify_60")
+            )
+            markup.add(types.InlineKeyboardButton("💱 Select Currencies", callback_data="select_currencies"))
+            
+            self.bot.send_message(
+                message.chat.id,
+                settings_text,
+                parse_mode='MarkdownV2',
+                reply_markup=markup
+            )
+        
+        except Exception as e:
+            logger.error(f"Error in preferences command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла ошибка при загрузке настроек. Попробуйте позже."
+            )
+        finally:
+            if db:
+                db.close()
     
     def status_command(self, message):
         """Handle /status command."""
-        try:
-            with self.db_session_factory() as db:
-                if db is None:
-                    # Database unavailable
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ База данных временно недоступна. Статус недоступен."
-                    )
-                    return
-                
-                try:
-                    user_service = UserService(db)
-                    # Создаем пользователя если он не существует
-                    user = user_service.create_or_get_user(
-                        telegram_user_id=message.from_user.id,
-                        username=message.from_user.username,
-                        first_name=message.from_user.first_name,
-                        last_name=message.from_user.last_name
-                    )
-                
-                    # Get notification settings
-                    notification_settings = user.notification_settings
-                    if notification_settings:
-                        notifications_status = (
-                            f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
-                            f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
-                            f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
-                            f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
-                        )
-                    else:
-                        notifications_status = "🔔 Notifications: ❌ Not configured\n"
-                    
-                    status_text = (
-                        f"👤 User Status:\n\n"
-                        f"🆔 ID: {escape_markdown(str(user.telegram_user_id))}\n"
-                        f"👤 Name: {escape_markdown(user.first_name or 'N/A')}\n"
-                        f"🏷️ Username: {escape_markdown(user.telegram_username or 'N/A')}\n"
-                        f"🌐 Language: {escape_markdown(user.language_code or 'N/A')}\n"
-                        f"✅ Active: {'Yes' if user.is_active else 'No'}\n"
-                        f"📅 Registered: {escape_markdown(user.created_at.strftime('%d.%m.%Y %H:%M'))}\n"
-                        f"🕐 Last Activity: {escape_markdown(user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else 'N/A')}\n\n"
-                        f"{notifications_status}"
-                    )
-                    
-                    self.bot.send_message(
-                        message.chat.id,
-                        status_text,
-                        parse_mode='MarkdownV2'
-                    )
-                
-                except Exception as e:
-                    logger.error(f"Error in status command: {e}")
-                    self.bot.send_message(
-                        message.chat.id,
-                        "❌ Произошла ошибка при получении статуса. Попробуйте позже."
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Critical error in status command: {e}")
+        db = self._get_db_session()
+        if db is None:
             self.bot.send_message(
                 message.chat.id,
-                "❌ Произошла критическая ошибка. Попробуйте позже."
+                "❌ База данных временно недоступна. Статус недоступен."
             )
-    
-    def handle_impact_selection(self, call):
-        """Handle impact level selection."""
-        import asyncio
-        
-        # Validate callback query first
-        if not self._safe_answer_callback_query(call):
             return
         
-        with self.db_session_factory() as db:
-            try:
-                impact_level = call.data.replace('impact_', '')
-                today = get_current_time().date()
-                
-                # Edit message to show loading
-                self.bot.edit_message_text(
-                    f"🔄 Fetching {impact_level} impact news for today...",
-                    call.message.chat.id,
-                    call.message.message_id
-                )
-                
-                news_service = NewsService(db)
-                
-                # Check if data exists, if not - trigger auto-scraping
-                if not news_service.has_data_for_date(today):
-                    # Update loading message to indicate scraping
-                    self.bot.edit_message_text(
-                        f"🔄 No data found for today\\.\n🌐 Scraping {impact_level} impact news from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
-                        call.message.chat.id,
-                        call.message.message_id,
-                        parse_mode='MarkdownV2'
-                    )
-                
-                # Get news events with auto-scraping
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    news_events, was_scraped = loop.run_until_complete(
-                        news_service.get_or_scrape_news_by_date(today, impact_level)
-                    )
-                finally:
-                    loop.close()
-                
-                # Delete the loading message
-                self.bot.delete_message(call.message.chat.id, call.message.message_id)
-                
-                if news_events:
-                    # Format and send message
-                    formatted_message = format_news_event_message(news_events, today.strftime('%Y-%m-%d'), impact_level)
-                    
-                    # Add scraping notification if data was scraped
-                    if was_scraped:
-                        scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
-                        formatted_message = scraping_notice + formatted_message
-                    
-                    # Send message using notification service for long messages
-                    from app.services.notification_service import NotificationService
-                    notification_service = NotificationService(db, self.bot)
-                    notification_service.send_long_message(call.message.chat.id, formatted_message)
-                else:
-                    scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        f"✅ No {impact_level.lower()}\\-impact news {scraping_status} for today\\.\nPlease check the website for updates\\.",
-                        parse_mode='MarkdownV2'
-                    )
-                
-            except Exception as e:
-                logger.error(f"Error in impact selection: {e}")
-                self.bot.send_message(
-                    call.message.chat.id,
-                    "❌ An error occurred. Please try again later."
-                )
-    
-    def handle_currency_selection(self, call):
-        """Handle currency selection with multiple selection support."""
-        # Validate callback query first
-        if not self._safe_answer_callback_query(call):
-            return
+        try:
+            user_service = UserService(db)
+            # Создаем пользователя если он не существует
+            user = user_service.create_or_get_user(
+                telegram_user_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+                last_name=message.from_user.last_name
+            )
             
-        with self.db_session_factory() as db:
-            try:
-                user_service = UserService(db)
-                
-                # ИСПРАВЛЕНИЕ 4: Реализовать множественный выбор валют для уведомлений
-                if call.data.startswith('currency_toggle_'):
-                    # Toggle individual currency
-                    currency_code = call.data.replace('currency_toggle_', '')
-                    current_preferences = user_service.get_user_currency_preferences(call.from_user.id)
-                    
-                    if currency_code in current_preferences:
-                        # Remove currency
-                        user_service.remove_user_currency_preference(call.from_user.id, currency_code)
-                        current_preferences.remove(currency_code)
-                    else:
-                        # Add currency
-                        user_service.add_user_currency_preference(call.from_user.id, currency_code)
-                        current_preferences.append(currency_code)
-                    
-                    # Update keyboard with new selection
-                    from app.bot.keyboards import BotKeyboards
-                    new_markup = BotKeyboards.generate_currency_selection(current_preferences)
-                    
-                    self.bot.edit_message_reply_markup(
-                        call.message.chat.id,
-                        call.message.message_id,
-                        reply_markup=new_markup
-                    )
-                    
-                elif call.data == 'currency_select_all':
-                    # Select all currencies
-                    from app.config import config
-                    user_service.set_user_currency_preferences(call.from_user.id, config.AVAILABLE_CURRENCIES)
-                    
-                    from app.bot.keyboards import BotKeyboards
-                    new_markup = BotKeyboards.generate_currency_selection(config.AVAILABLE_CURRENCIES)
-                    
-                    self.bot.edit_message_reply_markup(
-                        call.message.chat.id,
-                        call.message.message_id,
-                        reply_markup=new_markup
-                    )
-                    
-                elif call.data == 'currency_clear_all':
-                    # Clear all currencies
-                    user_service.set_user_currency_preferences(call.from_user.id, [])
-                    
-                    from app.bot.keyboards import BotKeyboards
-                    new_markup = BotKeyboards.generate_currency_selection([])
-                    
-                    self.bot.edit_message_reply_markup(
-                        call.message.chat.id,
-                        call.message.message_id,
-                        reply_markup=new_markup
-                    )
-                    
-                elif call.data == 'currency_done':
-                    # Finish currency selection
-                    current_preferences = user_service.get_user_currency_preferences(call.from_user.id)
-                    
-                    if current_preferences:
-                        currency_display = ", ".join(current_preferences)
-                        message_text = f"✅ Currency preferences updated!\n💱 Selected currencies: {currency_display}"
-                    else:
-                        message_text = "✅ Currency preferences cleared!\n💱 You will receive notifications for all currencies."
-                    
-                    self.bot.edit_message_text(
-                        message_text,
-                        call.message.chat.id,
-                        call.message.message_id
-                    )
-                
-            except Exception as e:
-                logger.error(f"Error in currency selection: {e}")
-                self.bot.send_message(
-                    call.message.chat.id,
-                    "❌ An error occurred while updating currency preferences."
+            if not user:
+                raise Exception("Failed to create or get user")
+        
+            # Get notification settings
+            notification_settings = user.notification_settings
+            if notification_settings:
+                notifications_status = (
+                    f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
+                    f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
+                    f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
+                    f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
                 )
-    
-    def handle_preference_selection(self, call):
-        """Handle preference selection."""
-        # Validate callback query first
-        if not self._safe_answer_callback_query(call):
-            return
+            else:
+                notifications_status = "🔔 Notifications: ❌ Not configured\n"
             
-        with self.db_session_factory() as db:
-            try:
-                currency = call.data.replace('pref_', '')
-                user_service = UserService(db)
-                
-                # Update user preferences
-                user = user_service.update_user_preferences(
-                    telegram_user_id=call.from_user.id,
-                    currency_preference=currency if currency != "ALL" else None,
-                    notifications_enabled=True
-                )
-                
-                if user:
-                    currency_display = currency if currency != "ALL" else "All currencies"
-                    self.bot.edit_message_text(
-                        f"✅ Preferences updated!\n💱 Currency: {currency_display}\n🔔 Notifications: Enabled",
-                        call.message.chat.id,
-                        call.message.message_id
-                    )
-                else:
-                    self.bot.edit_message_text(
-                        "❌ Failed to update preferences. Please try /start first.",
-                        call.message.chat.id,
-                        call.message.message_id
-                    )
-                
-            except Exception as e:
-                logger.error(f"Error in preference selection: {e}")
-                self.bot.edit_message_text(
-                    "❌ An error occurred. Please try again later.",
-                    call.message.chat.id,
-                    call.message.message_id
-                )
+            status_text = (
+                f"👤 User Status:\n\n"
+                f"🆔 ID: {escape_markdown(str(user.telegram_user_id))}\n"
+                f"👤 Name: {escape_markdown(user.first_name or 'N/A')}\n"
+                f"🏷️ Username: {escape_markdown(user.telegram_username or 'N/A')}\n"
+                f"🌐 Language: {escape_markdown(user.language_code or 'N/A')}\n"
+                f"✅ Active: {'Yes' if user.is_active else 'No'}\n"
+                f"📅 Registered: {escape_markdown(user.created_at.strftime('%d.%m.%Y %H:%M'))}\n"
+                f"🕐 Last Activity: {escape_markdown(user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else 'N/A')}\n\n"
+                f"{notifications_status}"
+            )
+            
+            self.bot.send_message(
+                message.chat.id,
+                status_text,
+                parse_mode='MarkdownV2'
+            )
+        
+        except Exception as e:
+            logger.error(f"Error in status command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла ошибка при получении статуса. Попробуйте позже."
+            )
+        finally:
+            if db:
+                db.close()
     
     def calendar_command(self, message):
-        """Handle /calendar and /choose_date commands."""
+        """Handle /calendar command."""
         try:
-            calendar_markup = create_calendar()
-            message_text = "📅 Please select a date:"
+            # Create calendar markup
+            markup = create_calendar()
             
             self.bot.send_message(
                 message.chat.id,
-                message_text,
-                reply_markup=calendar_markup
+                "📅 Select a date:",
+                reply_markup=markup
             )
             
         except Exception as e:
@@ -872,302 +731,391 @@ class BotHandlers:
                 "❌ An error occurred while creating calendar. Please try again later."
             )
     
-    def handle_calendar_callback(self, call):
-        """Handle calendar callback queries."""
-        # Validate callback query first
-        if not self._safe_answer_callback_query(call):
-            return
-            
-        with self.db_session_factory():
-            try:
-                action, selected_date, navigation_data = process_calendar_callback(call.data)
-                
-                if action == "ignore":
-                    # Do nothing for ignored buttons
-                    return
-                
-                elif action == "close":
-                    # Close calendar
-                    self.bot.delete_message(call.message.chat.id, call.message.message_id)
-                    return
-                
-                elif action == "prev" or action == "next":
-                    # Navigate to different month
-                    year, month = navigation_data
-                    new_markup = create_calendar(year, month)
-                    
-                    self.bot.edit_message_reply_markup(
-                        call.message.chat.id,
-                        call.message.message_id,
-                        reply_markup=new_markup
-                    )
-                    return
-                
-                elif action == "today":
-                    # Select today's date
-                    selected_date = get_current_time().date()
-                
-                elif action == "select":
-                    # Date was selected
-                    pass
-                
-                # If we reach here, a date was selected
-                if selected_date:
-                    # Delete calendar message
-                    self.bot.delete_message(call.message.chat.id, call.message.message_id)
-                    
-                    # Show impact level selection for the selected date
-                    markup = types.InlineKeyboardMarkup(row_width=3)
-                    # ИСПРАВЛЕНИЕ 2: Изменить цвета кнопок в календаре
-                    markup.add(
-                        types.InlineKeyboardButton("🔴 HIGH", callback_data=f"date_impact_HIGH_{selected_date.strftime('%Y-%m-%d')}"),
-                        types.InlineKeyboardButton("🟠 MEDIUM", callback_data=f"date_impact_MEDIUM_{selected_date.strftime('%Y-%m-%d')}"),
-                        types.InlineKeyboardButton("🟡 LOW", callback_data=f"date_impact_LOW_{selected_date.strftime('%Y-%m-%d')}")
-                    )
-                    markup.add(types.InlineKeyboardButton("📊 ALL", callback_data=f"date_impact_ALL_{selected_date.strftime('%Y-%m-%d')}"))
-                    
-                    date_formatted = selected_date.strftime('%d.%m.%Y')
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        f"📅 Выбрана дата: *{escape_markdown(date_formatted)}*\n\n📊 Выберите уровень важности новостей:",
-                        parse_mode='MarkdownV2',
-                        reply_markup=markup
-                    )
-                
-            except Exception as e:
-                logger.error(f"Error in calendar callback: {e}")
-                self.bot.send_message(
-                    call.message.chat.id,
-                    "❌ Произошла ошибка при обработке календаря."
-                )
-    
-    def handle_date_impact_selection(self, call):
-        """Handle date and impact level selection from calendar."""
+    # Callback handlers with proper error handling
+    def handle_impact_selection(self, call):
+        """Handle impact level selection."""
         import asyncio
         
         # Validate callback query first
         if not self._safe_answer_callback_query(call):
             return
         
-        with self.db_session_factory() as db:
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+        
+        try:
+            impact_level = call.data.replace('impact_', '')
+            today = get_current_time().date()
+            
+            # Edit message to show loading
+            self.bot.edit_message_text(
+                f"🔄 Fetching {impact_level} impact news for today...",
+                call.message.chat.id,
+                call.message.message_id
+            )
+            
+            news_service = NewsService(db)
+            
+            # Check if data exists, if not - trigger auto-scraping
+            if not news_service.has_data_for_date(today):
+                # Update loading message to indicate scraping
+                self.bot.edit_message_text(
+                    f"🔄 No data found for today\\.\n🌐 Scraping {impact_level} impact news from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='MarkdownV2'
+                )
+            
+            # Get news events with auto-scraping
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                # Parse callback data: date_impact_LEVEL_YYYY-MM-DD
-                parts = call.data.split('_')
-                impact_level = parts[2]
-                date_str = parts[3]
+                news_events, was_scraped = loop.run_until_complete(
+                    news_service.get_or_scrape_news_by_date(today, impact_level)
+                )
+            finally:
+                loop.close()
+            
+            # Delete the loading message
+            try:
+                self.bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            
+            if news_events:
+                # Format and send message
+                formatted_message = format_news_event_message(news_events, today.strftime('%Y-%m-%d'), impact_level)
                 
-                # Validate date format
+                # Add scraping notification if data was scraped
+                if was_scraped:
+                    scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
+                    formatted_message = scraping_notice + formatted_message
+                
+                # Send message using notification service for long messages
                 try:
-                    selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                except ValueError:
+                    from app.services.notification_service import NotificationService
+                    notification_service = NotificationService(db, self.bot)
+                    if notification_service:
+                        notification_service.send_long_message(call.message.chat.id, formatted_message)
+                    else:
+                        # Fallback to direct bot message
+                        self.bot.send_message(call.message.chat.id, formatted_message, parse_mode='MarkdownV2')
+                except Exception as e:
+                    logger.error(f"Error sending message via notification service: {e}")
+                    # Fallback to direct bot message
+                    self.bot.send_message(call.message.chat.id, formatted_message, parse_mode='MarkdownV2')
+            else:
+                scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
+                self.bot.send_message(
+                    call.message.chat.id,
+                    f"✅ No {impact_level.lower()}\\-impact news {scraping_status} for today\\.\nPlease check the website for updates\\.",
+                    parse_mode='MarkdownV2'
+                )
+            
+        except Exception as e:
+            logger.error(f"Error in impact selection: {e}")
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ An error occurred. Please try again later."
+            )
+        finally:
+            if db:
+                db.close()
+    
+    def handle_currency_selection(self, call):
+        """Handle currency selection with multiple selection support."""
+        # Validate callback query first
+        if not self._safe_answer_callback_query(call):
+            return
+        
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+            
+        try:
+            user_service = UserService(db)
+            
+            if call.data.startswith('currency_toggle_'):
+                # Toggle individual currency
+                currency_code = call.data.replace('currency_toggle_', '')
+                current_preferences = user_service.get_user_currency_preferences(call.from_user.id)
+                
+                if currency_code in current_preferences:
+                    # Remove currency
+                    user_service.remove_user_currency_preference(call.from_user.id, currency_code)
+                    current_preferences.remove(currency_code)
+                else:
+                    # Add currency
+                    user_service.add_user_currency_preference(call.from_user.id, currency_code)
+                    current_preferences.append(currency_code)
+                
+                # Update keyboard with new selection
+                try:
+                    from app.bot.keyboards import BotKeyboards
+                    new_markup = BotKeyboards.generate_currency_selection(current_preferences)
+                    
+                    self.bot.edit_message_reply_markup(
+                        call.message.chat.id,
+                        call.message.message_id,
+                        reply_markup=new_markup
+                    )
+                except ImportError:
+                    # Fallback if keyboards module not available
                     self.bot.send_message(
                         call.message.chat.id,
-                        "❌ Неверный формат даты"
+                        f"Currency preference updated: {currency_code}"
                     )
-                    return
                 
-                # Edit message to show loading
+            elif call.data == 'currency_select_all':
+                # Select all currencies
+                try:
+                    from app.config import config
+                    available_currencies = getattr(config, 'AVAILABLE_CURRENCIES', ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD'])
+                    user_service.set_user_currency_preferences(call.from_user.id, available_currencies)
+                    
+                    from app.bot.keyboards import BotKeyboards
+                    new_markup = BotKeyboards.generate_currency_selection(available_currencies)
+                    
+                    self.bot.edit_message_reply_markup(
+                        call.message.chat.id,
+                        call.message.message_id,
+                        reply_markup=new_markup
+                    )
+                except ImportError:
+                    # Fallback if config or keyboards module not available
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        "All currencies selected"
+                    )
+                
+            elif call.data == 'currency_clear_all':
+                # Clear all currencies
+                user_service.set_user_currency_preferences(call.from_user.id, [])
+                
+                try:
+                    from app.bot.keyboards import BotKeyboards
+                    new_markup = BotKeyboards.generate_currency_selection([])
+                    
+                    self.bot.edit_message_reply_markup(
+                        call.message.chat.id,
+                        call.message.message_id,
+                        reply_markup=new_markup
+                    )
+                except ImportError:
+                    # Fallback if keyboards module not available
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        "All currency preferences cleared"
+                    )
+                
+            elif call.data == 'currency_done':
+                # Finish currency selection
+                current_preferences = user_service.get_user_currency_preferences(call.from_user.id)
+                
+                if current_preferences:
+                    currency_display = ", ".join(current_preferences)
+                    message_text = f"✅ Currency preferences updated!\n💱 Selected currencies: {currency_display}"
+                else:
+                    message_text = "✅ Currency preferences cleared!\n💱 You will receive notifications for all currencies."
+                
                 self.bot.edit_message_text(
-                    f"🔄 Загружаем новости за {escape_markdown(selected_date.strftime('%d.%m.%Y'))} с уровнем важности: {impact_level}...",
+                    message_text,
                     call.message.chat.id,
                     call.message.message_id
                 )
-                
-                news_service = NewsService(db)
-                
-                # Check if data exists, if not - trigger auto-scraping
-                if not news_service.has_data_for_date(selected_date):
-                    # Update loading message to indicate scraping
-                    self.bot.edit_message_text(
-                        f"🔄 Данные за {escape_markdown(selected_date.strftime('%d.%m.%Y'))} не найдены\\.\n🌐 Загружаем данные с ForexFactory\\.\\.\\.\n⏳ Это может занять некоторое время\\.",
-                        call.message.chat.id,
-                        call.message.message_id,
-                        parse_mode='MarkdownV2'
-                    )
-                
-                # Get news events with auto-scraping
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    news_events, was_scraped = loop.run_until_complete(
-                        news_service.get_or_scrape_news_by_date(selected_date, impact_level)
-                    )
-                finally:
-                    loop.close()
-                
-                # Delete the loading message
-                self.bot.delete_message(call.message.chat.id, call.message.message_id)
-                
-                if news_events:
-                    # Format and send message
-                    formatted_message = format_news_event_message(news_events, date_str, impact_level)
-                    
-                    # Add scraping notification if data was scraped
-                    if was_scraped:
-                        scraping_notice = "🌐 *Данные загружены с ForexFactory*\n\n"
-                        formatted_message = scraping_notice + formatted_message
-                    
-                    # Send message using notification service for long messages
-                    from app.services.notification_service import NotificationService
-                    notification_service = NotificationService(db, self.bot)
-                    notification_service.send_long_message(call.message.chat.id, formatted_message)
-                else:
-                    date_formatted = selected_date.strftime('%d.%m.%Y')
-                    scraping_status = "загружены с ForexFactory" if was_scraped else "найдены в базе данных"
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        f"✅ Новости не {scraping_status} за {escape_markdown(date_formatted)} с уровнем важности: {escape_markdown(impact_level)}\\.\nПроверьте сайт для обновлений\\.",
-                        parse_mode='MarkdownV2'
-                    )
-                
-                self._safe_answer_callback_query(call)
-                
-            except Exception as e:
-                logger.error(f"Error in date impact selection: {e}")
-                self._safe_answer_callback_query(call, "❌ Произошла ошибка")
+             
+        except Exception as e:
+            logger.error(f"Error in currency selection: {e}")
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ An error occurred while updating currency preferences."
+            )
+        finally:
+            if db:
+                db.close()
+    
+    def handle_preference_selection(self, call):
+        """Handle preference selection."""
+        # Validate callback query first
+        if not self._safe_answer_callback_query(call):
+            return
+        
+        # Implementation for preference selection
+        self.bot.send_message(
+            call.message.chat.id,
+            "Preference selection feature coming soon!"
+        )
+    
+    def handle_calendar_callback(self, call):
+        """Handle calendar callback."""
+        # Validate callback query first
+        if not self._safe_answer_callback_query(call):
+            return
+        
+        try:
+            result = process_calendar_callback(call)
+            if result:
+                # Handle the selected date
+                selected_date = result
                 self.bot.send_message(
                     call.message.chat.id,
-                    "❌ An error occurred while fetching news. Please try again later."
+                    f"You selected: {selected_date}"
                 )
+        except Exception as e:
+            logger.error(f"Error in calendar callback: {e}")
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ An error occurred while processing calendar selection."
+            )
+    
+    def handle_date_impact_selection(self, call):
+        """Handle date impact selection."""
+        # Validate callback query first
+        if not self._safe_answer_callback_query(call):
+            return
+        
+        # Implementation for date impact selection
+        self.bot.send_message(
+            call.message.chat.id,
+            "Date impact selection feature coming soon!"
+        )
     
     def handle_notification_setting(self, call):
-        """Handle notification setting toggle."""
+        """Handle notification setting."""
         # Validate callback query first
         if not self._safe_answer_callback_query(call):
             return
+        
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+        
+        try:
+            user_service = UserService(db)
             
-        with self.db_session_factory() as db:
-            try:
-                from app.services.user_service import UserService
-                user_service = UserService(db)
-                # Создаем пользователя если он не существует
-                user = user_service.create_or_get_user(
-                    telegram_user_id=call.from_user.id,
-                    username=call.from_user.username,
-                    first_name=call.from_user.first_name,
-                    last_name=call.from_user.last_name
+            # Create or get user
+            user = user_service.create_or_get_user(
+                telegram_user_id=call.from_user.id,
+                username=call.from_user.username,
+                first_name=call.from_user.first_name,
+                last_name=call.from_user.last_name
+            )
+            
+            if not user:
+                raise Exception("Failed to create or get user")
+            
+            # Get or create notification settings
+            notification_settings = user.notification_settings
+            if not notification_settings:
+                from app.database.models import UserNotificationSettings
+                notification_settings = UserNotificationSettings(
+                    user_id=user.id,
+                    notifications_enabled=True,
+                    notify_15_minutes=False,
+                    notify_30_minutes=False,
+                    notify_60_minutes=False
                 )
-                
-                # Get or create notification settings
-                notification_settings = user.notification_settings
-                if not notification_settings:
-                    from app.database.models import UserNotificationSettings
-                    notification_settings = UserNotificationSettings(
-                        user_id=user.id,
-                        notifications_enabled=True,
-                        notify_15_minutes=False,
-                        notify_30_minutes=False,
-                        notify_60_minutes=False
-                    )
-                    db.add(notification_settings)
-                    db.flush()
-                
-                # Toggle the appropriate setting
-                if call.data == "notify_15":
-                    notification_settings.notify_15_minutes = not notification_settings.notify_15_minutes
-                    status = "включены" if notification_settings.notify_15_minutes else "отключены"
-                    self.bot.send_message(call.message.chat.id, f"🔔 Уведомления за 15 минут {status}")
-                elif call.data == "notify_30":
-                    notification_settings.notify_30_minutes = not notification_settings.notify_30_minutes
-                    status = "включены" if notification_settings.notify_30_minutes else "отключены"
-                    self.bot.send_message(call.message.chat.id, f"🔔 Уведомления за 30 минут {status}")
-                elif call.data == "notify_60":
-                    notification_settings.notify_60_minutes = not notification_settings.notify_60_minutes
-                    status = "включены" if notification_settings.notify_60_minutes else "отключены"
-                    self.bot.send_message(call.message.chat.id, f"🔔 Уведомления за 60 минут {status}")
-                
-                db.commit()
-                
-                # Update the message with new settings
-                settings_text = (
-                    f"⚙️ *Current Settings*\n\n"
-                    f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
-                    f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
-                    f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
-                    f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n\n"
-                    f"Choose options to modify:"
-                )
-                
-                markup = types.InlineKeyboardMarkup(row_width=2)
-                markup.add(
-                    types.InlineKeyboardButton("🔔 15 min", callback_data="notify_15"),
-                    types.InlineKeyboardButton("🔔 30 min", callback_data="notify_30"),
-                    types.InlineKeyboardButton("🔔 60 min", callback_data="notify_60")
-                )
-                markup.add(
-                    types.InlineKeyboardButton("🇺🇸 USD", callback_data="pref_USD"),
-                    types.InlineKeyboardButton("🇪🇺 EUR", callback_data="pref_EUR")
-                )
-                markup.add(
-                    types.InlineKeyboardButton("🇬🇧 GBP", callback_data="pref_GBP"),
-                    types.InlineKeyboardButton("🇯🇵 JPY", callback_data="pref_JPY")
-                )
-                markup.add(
-                    types.InlineKeyboardButton("🇨🇭 CHF", callback_data="pref_CHF"),
-                    types.InlineKeyboardButton("🇦🇺 AUD", callback_data="pref_AUD")
-                )
-                markup.add(
-                    types.InlineKeyboardButton("🇨🇦 CAD", callback_data="pref_CAD"),
-                    types.InlineKeyboardButton("🇳🇿 NZD", callback_data="pref_NZD")
-                )
-                markup.add(types.InlineKeyboardButton("🌍 ALL", callback_data="pref_ALL"))
-                
-                self.bot.edit_message_text(
-                    settings_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='MarkdownV2',
-                    reply_markup=markup
-                )
-                
-            except Exception as e:
-                logger.error(f"Error in notification setting: {e}")
-                self.bot.send_message(
-                    call.message.chat.id,
-                    "❌ Произошла ошибка при изменении настроек уведомлений."
-                )
+                db.add(notification_settings)
+            
+            # Update settings based on callback data
+            if call.data == 'notify_15':
+                notification_settings.notify_15_minutes = not notification_settings.notify_15_minutes
+                status = "enabled" if notification_settings.notify_15_minutes else "disabled"
+                message = f"✅ 15-minute notifications {status}"
+            elif call.data == 'notify_30':
+                notification_settings.notify_30_minutes = not notification_settings.notify_30_minutes
+                status = "enabled" if notification_settings.notify_30_minutes else "disabled"
+                message = f"✅ 30-minute notifications {status}"
+            elif call.data == 'notify_60':
+                notification_settings.notify_60_minutes = not notification_settings.notify_60_minutes
+                status = "enabled" if notification_settings.notify_60_minutes else "disabled"
+                message = f"✅ 60-minute notifications {status}"
+            else:
+                message = "❌ Unknown notification setting"
+            
+            db.commit()
+            
+            self.bot.edit_message_text(
+                message,
+                call.message.chat.id,
+                call.message.message_id
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in notification setting: {e}")
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ An error occurred while updating notification settings."
+            )
+        finally:
+            if db:
+                db.close()
     
     def handle_show_preferences(self, call):
-        """Handle show preferences callback."""
+        """Handle show preferences."""
         # Validate callback query first
         if not self._safe_answer_callback_query(call):
             return
-            
+        
         # Redirect to preferences command
         self.preferences_command(call.message)
     
     def handle_select_currencies(self, call):
-        """Handle select currencies callback."""
+        """Handle select currencies."""
         # Validate callback query first
         if not self._safe_answer_callback_query(call):
             return
+        
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+        
+        try:
+            user_service = UserService(db)
+            current_preferences = user_service.get_user_currency_preferences(call.from_user.id)
             
-        with self.db_session_factory() as db:
+            # Create currency selection keyboard
             try:
-                from app.services.user_service import UserService
-                user_service = UserService(db)
-                
-                # Get current currency preferences
-                current_preferences = user_service.get_user_currency_preferences(call.from_user.id)
-                
-                # Create currency selection keyboard
                 from app.bot.keyboards import BotKeyboards
                 markup = BotKeyboards.generate_currency_selection(current_preferences)
                 
-                # Send currency selection message
                 self.bot.edit_message_text(
-                    "💱 *Select Currency Preferences*\n\nChoose currencies for notifications:\n\n"
-                    "✅ = Selected\n"
-                    "Click currencies to toggle selection",
+                    "💱 Select your preferred currencies:",
                     call.message.chat.id,
                     call.message.message_id,
-                    parse_mode='MarkdownV2',
                     reply_markup=markup
                 )
-                
-            except Exception as e:
-                logger.error(f"Error in select currencies: {e}")
-                self.bot.send_message(
+            except ImportError:
+                # Fallback if keyboards module not available
+                self.bot.edit_message_text(
+                    "Currency selection feature is temporarily unavailable.",
                     call.message.chat.id,
-                    "❌ An error occurred while loading currency selection. Please try again later."
+                    call.message.message_id
                 )
+            
+        except Exception as e:
+            logger.error(f"Error in select currencies: {e}")
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ An error occurred while loading currency selection."
+            )
+        finally:
+            if db:
+                db.close()
