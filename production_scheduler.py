@@ -144,6 +144,7 @@ def create_flask_app():
 
 def create_telegram_bot():
     """Create and configure Telegram bot."""
+    global logger
     try:
         from app.config import config
         import telebot
@@ -151,7 +152,10 @@ def create_telegram_bot():
         from app.bot.handlers import BotHandlers
         
         if not config.TELEGRAM_BOT_TOKEN:
-            logger.warning("⚠️  TELEGRAM_BOT_TOKEN not configured, bot will not start")
+            if logger:
+                logger.warning("⚠️  TELEGRAM_BOT_TOKEN not configured, bot will not start")
+            else:
+                print("⚠️  TELEGRAM_BOT_TOKEN not configured, bot will not start")
             return None
             
         # Create bot instance
@@ -160,14 +164,23 @@ def create_telegram_bot():
         # Initialize handlers with database session factory
         BotHandlers(bot, SessionLocal)
         
-        logger.info("✅ Telegram bot created and handlers registered")
+        if logger:
+            logger.info("✅ Telegram bot created and handlers registered")
+        else:
+            print("✅ Telegram bot created and handlers registered")
         return bot
         
     except ImportError as e:
-        logger.warning(f"⚠️  Could not import Telegram bot dependencies: {e}")
+        if logger:
+            logger.warning(f"⚠️  Could not import Telegram bot dependencies: {e}")
+        else:
+            print(f"⚠️  Could not import Telegram bot dependencies: {e}")
         return None
     except Exception as e:
-        logger.error(f"❌ Failed to create Telegram bot: {e}")
+        if logger:
+            logger.error(f"❌ Failed to create Telegram bot: {e}")
+        else:
+            print(f"❌ Failed to create Telegram bot: {e}")
         return None
 
 def run_telegram_bot(bot, logger):

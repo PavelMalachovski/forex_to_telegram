@@ -90,8 +90,26 @@ class BotHandlers:
     
     def start_command(self, message):
         """Handle /start command."""
-        with self.db_session_factory() as db:
-            try:
+        try:
+            with self.db_session_factory() as db:
+                if db is None:
+                    # Database unavailable - send basic welcome message
+                    welcome_text = (
+                        f"👋 Welcome to Forex News Bot, {escape_markdown(message.from_user.first_name or 'User')}\\!\n\n"
+                        f"⚠️ *Database temporarily unavailable*\n"
+                        f"Some features may be limited\\.\n\n"
+                        f"🔹 Get the latest forex news and economic events\n"
+                        f"🔹 Filter by impact level and currency\n\n"
+                        f"Use /help to see all available commands\\."
+                    )
+                    
+                    self.bot.send_message(
+                        message.chat.id,
+                        welcome_text,
+                        parse_mode='MarkdownV2'
+                    )
+                    return
+                
                 user_service = UserService(db)
                 
                 # Create or get user
@@ -132,12 +150,12 @@ class BotHandlers:
                     reply_markup=markup
                 )
                 
-            except Exception as e:
-                logger.error(f"Error in start command: {e}")
-                self.bot.send_message(
-                    message.chat.id,
-                    "❌ An error occurred. Please try again later."
-                )
+        except Exception as e:
+            logger.error(f"Error in start command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла ошибка при инициализации. Попробуйте позже или обратитесь к администратору."
+            )
     
     def help_command(self, message):
         """Handle /help command."""
@@ -277,8 +295,17 @@ class BotHandlers:
         """Handle /today command."""
         import asyncio
         
-        with self.db_session_factory() as db:
-            try:
+        try:
+            with self.db_session_factory() as db:
+                if db is None:
+                    # Database unavailable
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ База данных временно недоступна. Попробуйте позже.",
+                        parse_mode='MarkdownV2'
+                    )
+                    return
+                
                 today = get_current_time().date()
                 news_service = NewsService(db)
                 
@@ -310,7 +337,10 @@ class BotHandlers:
                     loop.close()
                 
                 # Delete loading message
-                self.bot.delete_message(message.chat.id, loading_msg.message_id)
+                try:
+                    self.bot.delete_message(message.chat.id, loading_msg.message_id)
+                except:
+                    pass  # Ignore if message already deleted
                 
                 if news_events:
                     # Format and send message
@@ -333,19 +363,27 @@ class BotHandlers:
                         parse_mode='MarkdownV2'
                     )
                 
-            except Exception as e:
-                logger.error(f"Error in today command: {e}")
-                self.bot.send_message(
-                    message.chat.id,
-                    "❌ An error occurred while fetching today's news. Please try again later."
-                )
+        except Exception as e:
+            logger.error(f"Error in today command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла ошибка при получении новостей на сегодня. Попробуйте позже."
+            )
     
     def tomorrow_command(self, message):
         """Handle /tomorrow command."""
         import asyncio
         
-        with self.db_session_factory() as db:
-            try:
+        try:
+            with self.db_session_factory() as db:
+                if db is None:
+                    # Database unavailable
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ База данных временно недоступна. Попробуйте позже."
+                    )
+                    return
+                
                 tomorrow = get_current_time().date() + timedelta(days=1)
                 news_service = NewsService(db)
                 
@@ -400,174 +438,222 @@ class BotHandlers:
                         parse_mode='MarkdownV2'
                     )
                 
-            except Exception as e:
-                logger.error(f"Error in tomorrow command: {e}")
-                self.bot.send_message(
-                    message.chat.id,
-                    "❌ An error occurred while fetching tomorrow's news. Please try again later."
-                )
+        except Exception as e:
+            logger.error(f"Error in tomorrow command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла ошибка при получении новостей на завтра. Попробуйте позже."
+            )
     
     def week_command(self, message):
         """Handle /week command."""
-        with self.db_session_factory() as db:
-            try:
-                today = get_current_time().date()
-                week_end = today + timedelta(days=7)
-                
-                news_service = NewsService(db)
-                news_events = news_service.get_news_by_date_range(
-                    start_date=today,
-                    end_date=week_end,
-                    impact_levels=["HIGH"]
-                )
-                
-                if news_events:
-                    # Group events by date
-                    events_by_date = {}
-                    for event in news_events:
-                        date_key = event.event_date.strftime('%Y-%m-%d')
-                        if date_key not in events_by_date:
-                            events_by_date[date_key] = []
-                        events_by_date[date_key].append(event)
-                    
-                    # Send message for each date
-                    for date_str, events in sorted(events_by_date.items()):
-                        formatted_message = format_news_event_message(events, date_str)
-                        
-                        # Send message using notification service for long messages
-                        from app.services.notification_service import NotificationService
-                        notification_service = NotificationService(db, self.bot)
-                        notification_service.send_long_message(message.chat.id, formatted_message)
-                else:
+        try:
+            with self.db_session_factory() as db:
+                if db is None:
+                    # Database unavailable
                     self.bot.send_message(
                         message.chat.id,
-                        "✅ No high\\-impact news found for this week\\.\nPlease check the website for updates\\.",
-                        parse_mode='MarkdownV2'
+                        "❌ База данных временно недоступна. Попробуйте позже."
+                    )
+                    return
+                
+                try:
+                    today = get_current_time().date()
+                    week_end = today + timedelta(days=7)
+                    
+                    news_service = NewsService(db)
+                    news_events = news_service.get_news_by_date_range(
+                        start_date=today,
+                        end_date=week_end,
+                        impact_levels=["HIGH"]
                     )
                 
-            except Exception as e:
-                logger.error(f"Error in week command: {e}")
-                self.bot.send_message(
-                    message.chat.id,
-                    "❌ An error occurred while fetching this week's news. Please try again later."
-                )
+                    if news_events:
+                        # Group events by date
+                        events_by_date = {}
+                        for event in news_events:
+                            date_key = event.event_date.strftime('%Y-%m-%d')
+                            if date_key not in events_by_date:
+                                events_by_date[date_key] = []
+                            events_by_date[date_key].append(event)
+                        
+                        # Send message for each date
+                        for date_str, events in sorted(events_by_date.items()):
+                            formatted_message = format_news_event_message(events, date_str)
+                            
+                            # Send message using notification service for long messages
+                            from app.services.notification_service import NotificationService
+                            notification_service = NotificationService(db, self.bot)
+                            notification_service.send_long_message(message.chat.id, formatted_message)
+                    else:
+                        self.bot.send_message(
+                            message.chat.id,
+                            "✅ No high\\-impact news found for this week\\.\nPlease check the website for updates\\.",
+                            parse_mode='MarkdownV2'
+                        )
+                    
+                except Exception as e:
+                    logger.error(f"Error in week command: {e}")
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ Произошла ошибка при получении новостей на неделю. Попробуйте позже."
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Critical error in week command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла критическая ошибка. Попробуйте позже."
+            )
     
     def preferences_command(self, message):
         """Handle /preferences command."""
-        with self.db_session_factory() as db:
-            try:
-                from app.services.user_service import UserService
-                user_service = UserService(db)
-                # Создаем пользователя если он не существует
-                user = user_service.create_or_get_user(
-                    telegram_user_id=message.from_user.id,
-                    username=message.from_user.username,
-                    first_name=message.from_user.first_name,
-                    last_name=message.from_user.last_name
-                )
-                
-                # Get notification settings
-                notification_settings = user.notification_settings
-                if not notification_settings:
-                    # Create default settings
-                    from app.database.models import UserNotificationSettings
-                    notification_settings = UserNotificationSettings(
-                        user_id=user.id,
-                        notifications_enabled=True,
-                        notify_15_minutes=False,
-                        notify_30_minutes=False,
-                        notify_60_minutes=False
+        try:
+            with self.db_session_factory() as db:
+                if db is None:
+                    # Database unavailable
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ База данных временно недоступна. Настройки недоступны."
                     )
-                    db.add(notification_settings)
-                    db.commit()
+                    return
                 
-                # Get current currency preferences
-                current_currencies = user_service.get_user_currency_preferences(message.from_user.id)
-                currency_display = ", ".join(current_currencies) if current_currencies else "All currencies"
+                try:
+                    from app.services.user_service import UserService
+                    user_service = UserService(db)
+                    # Создаем пользователя если он не существует
+                    user = user_service.create_or_get_user(
+                        telegram_user_id=message.from_user.id,
+                        username=message.from_user.username,
+                        first_name=message.from_user.first_name,
+                        last_name=message.from_user.last_name
+                    )
                 
-                # Show current settings
-                settings_text = (
-                    f"⚙️ *Current Settings*\n\n"
-                    f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
-                    f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
-                    f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
-                    f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
-                    f"💱 Currency preferences: {escape_markdown(currency_display)}\n\n"
-                    f"Choose options to modify:"
-                )
-                
-                markup = types.InlineKeyboardMarkup(row_width=2)
-                markup.add(
-                    types.InlineKeyboardButton("🔔 15 min", callback_data="notify_15"),
-                    types.InlineKeyboardButton("🔔 30 min", callback_data="notify_30"),
-                    types.InlineKeyboardButton("🔔 60 min", callback_data="notify_60")
-                )
-                # ИСПРАВЛЕНИЕ 4: Добавить кнопку для множественного выбора валют
-                markup.add(types.InlineKeyboardButton("💱 Select Currencies", callback_data="select_currencies"))
-                
-                self.bot.send_message(
-                    message.chat.id,
-                    settings_text,
-                    parse_mode='MarkdownV2',
-                    reply_markup=markup
-                )
-                
-            except Exception as e:
-                logger.error(f"Error in preferences command: {e}")
-                self.bot.send_message(
-                    message.chat.id,
-                    "❌ An error occurred while loading preferences. Please try again later."
-                )
-    
-    def status_command(self, message):
-        """Handle /status command."""
-        with self.db_session_factory() as db:
-            try:
-                user_service = UserService(db)
-                # Создаем пользователя если он не существует
-                user = user_service.create_or_get_user(
-                    telegram_user_id=message.from_user.id,
-                    username=message.from_user.username,
-                    first_name=message.from_user.first_name,
-                    last_name=message.from_user.last_name
-                )
-                
-                # Get notification settings
-                notification_settings = user.notification_settings
-                if notification_settings:
-                    notifications_status = (
+                    # Get notification settings
+                    notification_settings = user.notification_settings
+                    if not notification_settings:
+                        # Create default settings
+                        from app.database.models import UserNotificationSettings
+                        notification_settings = UserNotificationSettings(
+                            user_id=user.id,
+                            notifications_enabled=True,
+                            notify_15_minutes=False,
+                            notify_30_minutes=False,
+                            notify_60_minutes=False
+                        )
+                        db.add(notification_settings)
+                        db.commit()
+                    
+                    # Get current currency preferences
+                    current_currencies = user_service.get_user_currency_preferences(message.from_user.id)
+                    currency_display = ", ".join(current_currencies) if current_currencies else "All currencies"
+                    
+                    # Show current settings
+                    settings_text = (
+                        f"⚙️ *Current Settings*\n\n"
                         f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
                         f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
                         f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
                         f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
+                        f"💱 Currency preferences: {escape_markdown(currency_display)}\n\n"
+                        f"Choose options to modify:"
                     )
-                else:
-                    notifications_status = "🔔 Notifications: ❌ Not configured\n"
+                    
+                    markup = types.InlineKeyboardMarkup(row_width=2)
+                    markup.add(
+                        types.InlineKeyboardButton("🔔 15 min", callback_data="notify_15"),
+                        types.InlineKeyboardButton("🔔 30 min", callback_data="notify_30"),
+                        types.InlineKeyboardButton("🔔 60 min", callback_data="notify_60")
+                    )
+                    # ИСПРАВЛЕНИЕ 4: Добавить кнопку для множественного выбора валют
+                    markup.add(types.InlineKeyboardButton("💱 Select Currencies", callback_data="select_currencies"))
+                    
+                    self.bot.send_message(
+                        message.chat.id,
+                        settings_text,
+                        parse_mode='MarkdownV2',
+                        reply_markup=markup
+                    )
                 
-                status_text = (
-                    f"👤 User Status:\n\n"
-                    f"🆔 ID: {escape_markdown(str(user.telegram_user_id))}\n"
-                    f"👤 Name: {escape_markdown(user.first_name or 'N/A')}\n"
-                    f"🏷️ Username: {escape_markdown(user.telegram_username or 'N/A')}\n"
-                    f"🌐 Language: {escape_markdown(user.language_code or 'N/A')}\n"
-                    f"✅ Active: {'Yes' if user.is_active else 'No'}\n"
-                    f"📅 Registered: {escape_markdown(user.created_at.strftime('%d.%m.%Y %H:%M'))}\n"
-                    f"🕐 Last Activity: {escape_markdown(user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else 'N/A')}\n\n"
-                    f"{notifications_status}"
-                )
+                except Exception as e:
+                    logger.error(f"Error in preferences command: {e}")
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ Произошла ошибка при загрузке настроек. Попробуйте позже."
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Critical error in preferences command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла критическая ошибка. Попробуйте позже."
+            )
+    
+    def status_command(self, message):
+        """Handle /status command."""
+        try:
+            with self.db_session_factory() as db:
+                if db is None:
+                    # Database unavailable
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ База данных временно недоступна. Статус недоступен."
+                    )
+                    return
                 
-                self.bot.send_message(
-                    message.chat.id,
-                    status_text,
-                    parse_mode='MarkdownV2'
-                )
+                try:
+                    user_service = UserService(db)
+                    # Создаем пользователя если он не существует
+                    user = user_service.create_or_get_user(
+                        telegram_user_id=message.from_user.id,
+                        username=message.from_user.username,
+                        first_name=message.from_user.first_name,
+                        last_name=message.from_user.last_name
+                    )
                 
-            except Exception as e:
-                logger.error(f"Error in status command: {e}")
-                self.bot.send_message(
-                    message.chat.id,
-                    "❌ An error occurred. Please try again later."
-                )
+                    # Get notification settings
+                    notification_settings = user.notification_settings
+                    if notification_settings:
+                        notifications_status = (
+                            f"🔔 Notifications: {'✅ Enabled' if notification_settings.notifications_enabled else '❌ Disabled'}\n"
+                            f"⏰ 15 min alerts: {'✅' if notification_settings.notify_15_minutes else '❌'}\n"
+                            f"⏰ 30 min alerts: {'✅' if notification_settings.notify_30_minutes else '❌'}\n"
+                            f"⏰ 60 min alerts: {'✅' if notification_settings.notify_60_minutes else '❌'}\n"
+                        )
+                    else:
+                        notifications_status = "🔔 Notifications: ❌ Not configured\n"
+                    
+                    status_text = (
+                        f"👤 User Status:\n\n"
+                        f"🆔 ID: {escape_markdown(str(user.telegram_user_id))}\n"
+                        f"👤 Name: {escape_markdown(user.first_name or 'N/A')}\n"
+                        f"🏷️ Username: {escape_markdown(user.telegram_username or 'N/A')}\n"
+                        f"🌐 Language: {escape_markdown(user.language_code or 'N/A')}\n"
+                        f"✅ Active: {'Yes' if user.is_active else 'No'}\n"
+                        f"📅 Registered: {escape_markdown(user.created_at.strftime('%d.%m.%Y %H:%M'))}\n"
+                        f"🕐 Last Activity: {escape_markdown(user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else 'N/A')}\n\n"
+                        f"{notifications_status}"
+                    )
+                    
+                    self.bot.send_message(
+                        message.chat.id,
+                        status_text,
+                        parse_mode='MarkdownV2'
+                    )
+                
+                except Exception as e:
+                    logger.error(f"Error in status command: {e}")
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ Произошла ошибка при получении статуса. Попробуйте позже."
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Critical error in status command: {e}")
+            self.bot.send_message(
+                message.chat.id,
+                "❌ Произошла критическая ошибка. Попробуйте позже."
+            )
     
     def handle_impact_selection(self, call):
         """Handle impact level selection."""
