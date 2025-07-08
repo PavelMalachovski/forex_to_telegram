@@ -15,7 +15,11 @@ NC='\033[0m' # No Color
 
 # Configuration
 CHECK_INTERVAL=${CHECK_INTERVAL:-30}
-LOG_FILE=${LOG_FILE:-"/home/ubuntu/forex_bot_postgresql/logs/resource_check.log"}
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"
+LOG_FILE=${LOG_FILE:-"$LOG_DIR/resource_check.log"}
 MEMORY_WARNING_THRESHOLD=${MEMORY_WARNING_THRESHOLD:-80}
 MEMORY_CRITICAL_THRESHOLD=${MEMORY_CRITICAL_THRESHOLD:-90}
 CPU_WARNING_THRESHOLD=${CPU_WARNING_THRESHOLD:-80}
@@ -161,7 +165,7 @@ check_network_connectivity() {
 check_application_logs() {
     log_message "${BLUE}📋 Recent Application Logs${NC}"
     
-    local app_log="/home/ubuntu/forex_bot_postgresql/logs/enhanced_app.log"
+    local app_log="$LOG_DIR/enhanced_app.log"
     if [ -f "$app_log" ]; then
         log_message "Last 5 lines from application log:"
         tail -5 "$app_log" | while read line; do

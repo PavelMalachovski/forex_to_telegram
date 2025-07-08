@@ -1,219 +1,133 @@
 
 #!/bin/bash
 
-# Continuous monitoring script for Forex Bot
-# Runs health checks at regular intervals and maintains logs
+# System monitoring script for Forex Bot
+# This script monitors system resources and application performance
 
-set -euo pipefail
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HEALTH_CHECK_SCRIPT="$SCRIPT_DIR/health_check.sh"
-CHECK_INTERVAL=60  # seconds
-LOG_FILE="/home/ubuntu/forex_bot_postgresql/logs/monitor.log"
-PID_FILE="/tmp/forex_bot_monitor.pid"
-MAX_LOG_SIZE=10485760  # 10MB
-BACKUP_LOGS=5
+LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"
+LOG_FILE="$LOG_DIR/monitor.log"
+CHECK_INTERVAL=300  # 5 minutes
+CPU_THRESHOLD=80
+MEMORY_THRESHOLD=80
+DISK_THRESHOLD=90
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Ensure log directory exists
+mkdir -p "$LOG_DIR"
 
-# Logging function
-log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [MONITOR] $1" | tee -a "$LOG_FILE"
+# Function to log messages
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
 
-# Rotate logs if they get too large
-rotate_logs() {
-    if [ -f "$LOG_FILE" ] && [ $(stat -f%z "$LOG_FILE" 2>/dev/null || stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) -gt $MAX_LOG_SIZE ]; then
-        log "Rotating log file (size exceeded $MAX_LOG_SIZE bytes)"
+# Function to get CPU usage
+get_cpu_usage() {
+    top -bn1 | grep "Cpu(s)" | awk '{print $2}' | awk -F'%' '{print $1}'
+}
+
+# Function to get memory usage
+get_memory_usage() {
+    free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}'
+}
+
+# Function to get disk usage
+get_disk_usage() {
+    df -h "$PROJECT_DIR" | awk 'NR==2 {print $5}' | sed 's/%//'
+}
+
+# Function to get application metrics
+get_app_metrics() {
+    local pid
+    pid=$(pgrep -f "python.*production_scheduler.py")
+    
+    if [ -n "$pid" ]; then
+        local app_cpu app_memory
+        app_cpu=$(ps -p "$pid" -o %cpu --no-headers 2>/dev/null | tr -d ' ')
+        app_memory=$(ps -p "$pid" -o %mem --no-headers 2>/dev/null | tr -d ' ')
         
-        # Rotate existing backups
-        for i in $(seq $((BACKUP_LOGS-1)) -1 1); do
-            if [ -f "${LOG_FILE}.$i" ]; then
-                mv "${LOG_FILE}.$i" "${LOG_FILE}.$((i+1))"
-            fi
-        done
-        
-        # Move current log to .1
-        mv "$LOG_FILE" "${LOG_FILE}.1"
-        
-        # Remove oldest backup if it exists
-        if [ -f "${LOG_FILE}.$((BACKUP_LOGS+1))" ]; then
-            rm "${LOG_FILE}.$((BACKUP_LOGS+1))"
-        fi
-        
-        log "Log rotation completed"
+        echo "App CPU: ${app_cpu:-0}%, App Memory: ${app_memory:-0}%"
+    else
+        echo "App not running"
     fi
 }
 
-# Check if another instance is running
-check_running() {
-    if [ -f "$PID_FILE" ]; then
-        local pid=$(cat "$PID_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "Monitor is already running with PID $pid"
-            exit 1
-        else
-            rm -f "$PID_FILE"
-        fi
+# Function to check system health
+check_system_health() {
+    local cpu_usage memory_usage disk_usage
+    
+    cpu_usage=$(get_cpu_usage)
+    memory_usage=$(get_memory_usage)
+    disk_usage=$(get_disk_usage)
+    
+    log_message "System metrics - CPU: ${cpu_usage}%, Memory: ${memory_usage}%, Disk: ${disk_usage}%"
+    
+    # Check thresholds
+    if (( $(echo "$cpu_usage > $CPU_THRESHOLD" | bc -l) )); then
+        log_message "WARNING: High CPU usage detected: ${cpu_usage}%"
     fi
+    
+    if (( $(echo "$memory_usage > $MEMORY_THRESHOLD" | bc -l) )); then
+        log_message "WARNING: High memory usage detected: ${memory_usage}%"
+    fi
+    
+    if [ "$disk_usage" -gt "$DISK_THRESHOLD" ]; then
+        log_message "WARNING: High disk usage detected: ${disk_usage}%"
+    fi
+    
+    # Application metrics
+    local app_metrics
+    app_metrics=$(get_app_metrics)
+    log_message "Application metrics - $app_metrics"
 }
 
-# Signal handlers
-cleanup() {
-    log "Monitor stopping..."
-    rm -f "$PID_FILE"
-    exit 0
-}
-
-# Set up signal handlers
-trap cleanup SIGTERM SIGINT
-
-# Start monitoring
-start_monitor() {
-    check_running
+# Function to check log file sizes
+check_log_sizes() {
+    local log_size_mb
     
-    # Write PID file
-    echo $$ > "$PID_FILE"
-    
-    log "Starting Forex Bot monitor (PID: $$, interval: ${CHECK_INTERVAL}s)"
-    
-    local consecutive_failures=0
-    local last_status="unknown"
-    
-    while true; do
-        rotate_logs
-        
-        # Run health check
-        if "$HEALTH_CHECK_SCRIPT" --restart >/dev/null 2>&1; then
-            if [ "$last_status" != "healthy" ]; then
-                log "✓ Health check PASSED"
-                if [ $consecutive_failures -gt 0 ]; then
-                    log "Service recovered after $consecutive_failures consecutive failures"
-                fi
-            fi
-            consecutive_failures=0
-            last_status="healthy"
-        else
-            consecutive_failures=$((consecutive_failures + 1))
-            log "✗ Health check FAILED (consecutive failures: $consecutive_failures)"
-            last_status="unhealthy"
-            
-            # Alert on multiple consecutive failures
-            if [ $consecutive_failures -eq 3 ]; then
-                log "WARNING: 3 consecutive health check failures detected"
-            elif [ $consecutive_failures -eq 5 ]; then
-                log "CRITICAL: 5 consecutive health check failures detected"
+    for log_file in "$LOG_DIR"/*.log; do
+        if [ -f "$log_file" ]; then
+            log_size_mb=$(du -m "$log_file" | cut -f1)
+            if [ "$log_size_mb" -gt 100 ]; then  # 100MB threshold
+                log_message "WARNING: Large log file detected: $log_file (${log_size_mb}MB)"
+                
+                # Rotate log file
+                mv "$log_file" "${log_file}.old"
+                touch "$log_file"
+                log_message "Log file rotated: $log_file"
             fi
         fi
-        
-        sleep "$CHECK_INTERVAL"
     done
 }
 
-# Stop monitoring
-stop_monitor() {
-    if [ -f "$PID_FILE" ]; then
-        local pid=$(cat "$PID_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
-            log "Stopping monitor (PID: $pid)"
-            kill "$pid"
-            rm -f "$PID_FILE"
-            echo "Monitor stopped"
-        else
-            echo "Monitor is not running"
-            rm -f "$PID_FILE"
-        fi
+# Function to check network connectivity
+check_network() {
+    if ping -c 1 8.8.8.8 > /dev/null 2>&1; then
+        log_message "Network connectivity: OK"
     else
-        echo "Monitor is not running"
+        log_message "WARNING: Network connectivity issues detected"
     fi
 }
 
-# Show monitor status
-status_monitor() {
-    if [ -f "$PID_FILE" ]; then
-        local pid=$(cat "$PID_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo -e "${GREEN}Monitor is running${NC} (PID: $pid)"
-            
-            # Show recent log entries
-            if [ -f "$LOG_FILE" ]; then
-                echo ""
-                echo "Recent log entries:"
-                tail -n 10 "$LOG_FILE"
-            fi
-        else
-            echo -e "${RED}Monitor PID file exists but process is not running${NC}"
-            rm -f "$PID_FILE"
-        fi
-    else
-        echo -e "${YELLOW}Monitor is not running${NC}"
-    fi
-}
-
-# Show logs
-show_logs() {
-    local lines="${1:-50}"
+# Main monitoring loop
+main() {
+    log_message "System monitoring started for Forex Bot"
     
-    if [ -f "$LOG_FILE" ]; then
-        echo "Last $lines lines from monitor log:"
-        echo "=================================="
-        tail -n "$lines" "$LOG_FILE"
-    else
-        echo "No log file found at $LOG_FILE"
-    fi
+    while true; do
+        check_system_health
+        check_log_sizes
+        check_network
+        
+        log_message "Monitoring cycle completed"
+        sleep $CHECK_INTERVAL
+    done
 }
 
-# Show usage
-usage() {
-    echo "Usage: $0 {start|stop|restart|status|logs} [options]"
-    echo ""
-    echo "Commands:"
-    echo "  start     Start the monitor daemon"
-    echo "  stop      Stop the monitor daemon"
-    echo "  restart   Restart the monitor daemon"
-    echo "  status    Show monitor status"
-    echo "  logs      Show recent log entries"
-    echo ""
-    echo "Options for 'logs':"
-    echo "  -n NUM    Show NUM lines (default: 50)"
-    echo ""
-    echo "Examples:"
-    echo "  $0 start              # Start monitoring"
-    echo "  $0 status             # Check if monitoring is running"
-    echo "  $0 logs -n 100        # Show last 100 log lines"
-}
+# Handle signals
+trap 'log_message "Monitor stopping..."; exit 0' SIGTERM SIGINT
 
-# Main script logic
-case "${1:-}" in
-    start)
-        start_monitor
-        ;;
-    stop)
-        stop_monitor
-        ;;
-    restart)
-        stop_monitor
-        sleep 2
-        start_monitor
-        ;;
-    status)
-        status_monitor
-        ;;
-    logs)
-        if [ "${2:-}" = "-n" ] && [ -n "${3:-}" ]; then
-            show_logs "$3"
-        else
-            show_logs
-        fi
-        ;;
-    *)
-        usage
-        exit 1
-        ;;
-esac
+# Run main function
+main "$@"

@@ -1,177 +1,172 @@
 
 #!/bin/bash
 
-# Enhanced startup script with monitoring and auto-restart capabilities
-# This script provides temporary workaround for SIGTERM issues
+# Start Forex Bot with comprehensive monitoring
+# This script starts the application along with monitoring services
 
-set -e
-
-# Colors for output
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Configuration
-MAX_RESTARTS=${MAX_RESTARTS:-5}
-RESTART_DELAY=${RESTART_DELAY:-10}
-LOG_DIR="/home/ubuntu/forex_bot_postgresql/logs"
-MONITOR_INTERVAL=${MONITOR_INTERVAL:-30}
+LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"
+PID_DIR="$PROJECT_DIR/pids"
 
-# Create log directory
-mkdir -p "$LOG_DIR"
+# Ensure directories exist
+mkdir -p "$LOG_DIR" "$PID_DIR"
 
+# Function to log messages
 log_message() {
-    local message="$1"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
-    echo -e "[$timestamp] $message" | tee -a "$LOG_DIR/startup.log"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_DIR/startup.log"
 }
 
-cleanup() {
-    log_message "${YELLOW}🧹 Cleaning up processes...${NC}"
+# Function to start service in background
+start_service() {
+    local service_name="$1"
+    local script_path="$2"
+    local pid_file="$PID_DIR/${service_name}.pid"
     
-    # Kill background processes
-    if [ -n "$MONITOR_PID" ]; then
-        kill $MONITOR_PID 2>/dev/null || true
-    fi
+    log_message "Starting $service_name..."
     
-    if [ -n "$RESOURCE_CHECK_PID" ]; then
-        kill $RESOURCE_CHECK_PID 2>/dev/null || true
-    fi
-    
-    # Kill main application if running
-    pkill -f "python.*enhanced_main.py" 2>/dev/null || true
-    
-    log_message "${GREEN}✅ Cleanup completed${NC}"
-    exit 0
-}
-
-# Setup signal handlers
-trap cleanup INT TERM
-
-start_monitoring() {
-    log_message "${BLUE}🔍 Starting resource monitoring...${NC}"
-    
-    # Start resource monitor
-    python monitor_resources.py \
-        --interval $MONITOR_INTERVAL \
-        --log-file "$LOG_DIR/resource_monitor.log" &
-    MONITOR_PID=$!
-    
-    # Start resource check script
-    bash render_resource_check.sh &
-    RESOURCE_CHECK_PID=$!
-    
-    log_message "${GREEN}✅ Monitoring started (PIDs: $MONITOR_PID, $RESOURCE_CHECK_PID)${NC}"
-}
-
-start_application() {
-    log_message "${BLUE}🚀 Starting main application...${NC}"
-    
-    # Start the main application
-    python enhanced_main.py &
-    APP_PID=$!
-    
-    log_message "${GREEN}✅ Application started (PID: $APP_PID)${NC}"
-    return $APP_PID
-}
-
-wait_for_health() {
-    local max_wait=60
-    local wait_time=0
-    local port=${PORT:-10000}
-    
-    log_message "${BLUE}🏥 Waiting for application health check...${NC}"
-    
-    while [ $wait_time -lt $max_wait ]; do
-        if curl -s --max-time 5 "http://localhost:$port/health" > /dev/null 2>&1; then
-            log_message "${GREEN}✅ Application is healthy${NC}"
-            return 0
+    # Kill existing process if running
+    if [ -f "$pid_file" ]; then
+        local old_pid
+        old_pid=$(cat "$pid_file")
+        if kill -0 "$old_pid" 2>/dev/null; then
+            log_message "Stopping existing $service_name (PID: $old_pid)"
+            kill "$old_pid"
+            sleep 2
         fi
-        
-        sleep 5
-        wait_time=$((wait_time + 5))
-        log_message "Waiting for health... (${wait_time}s/${max_wait}s)"
+        rm -f "$pid_file"
+    fi
+    
+    # Start new process
+    nohup bash "$script_path" > "$LOG_DIR/${service_name}.log" 2>&1 &
+    local pid=$!
+    echo "$pid" > "$pid_file"
+    
+    log_message "$service_name started with PID: $pid"
+}
+
+# Function to stop all services
+stop_services() {
+    log_message "Stopping all services..."
+    
+    for pid_file in "$PID_DIR"/*.pid; do
+        if [ -f "$pid_file" ]; then
+            local pid service_name
+            pid=$(cat "$pid_file")
+            service_name=$(basename "$pid_file" .pid)
+            
+            if kill -0 "$pid" 2>/dev/null; then
+                log_message "Stopping $service_name (PID: $pid)"
+                kill "$pid"
+            fi
+            rm -f "$pid_file"
+        fi
     done
     
-    log_message "${RED}❌ Application failed to become healthy within ${max_wait}s${NC}"
-    return 1
+    # Also stop the main application
+    pkill -f "python.*production_scheduler.py" 2>/dev/null
+    
+    log_message "All services stopped"
 }
 
-main() {
-    log_message "${GREEN}🚀 Enhanced Startup Script for Render${NC}"
-    log_message "Max restarts: $MAX_RESTARTS"
-    log_message "Restart delay: ${RESTART_DELAY}s"
-    log_message "Monitor interval: ${MONITOR_INTERVAL}s"
+# Function to check service status
+check_services() {
+    log_message "Checking service status..."
     
-    # Check environment
-    if [ -n "$RENDER_EXTERNAL_HOSTNAME" ]; then
-        log_message "${GREEN}✅ Running on Render: $RENDER_EXTERNAL_HOSTNAME${NC}"
+    for pid_file in "$PID_DIR"/*.pid; do
+        if [ -f "$pid_file" ]; then
+            local pid service_name
+            pid=$(cat "$pid_file")
+            service_name=$(basename "$pid_file" .pid)
+            
+            if kill -0 "$pid" 2>/dev/null; then
+                log_message "$service_name: RUNNING (PID: $pid)"
+            else
+                log_message "$service_name: NOT RUNNING"
+                rm -f "$pid_file"
+            fi
+        fi
+    done
+    
+    # Check main application
+    if pgrep -f "python.*production_scheduler.py" > /dev/null; then
+        log_message "Main application: RUNNING"
     else
-        log_message "${YELLOW}⚠️ Running locally${NC}"
+        log_message "Main application: NOT RUNNING"
     fi
-    
-    # Start monitoring
-    start_monitoring
-    
-    local restart_count=0
-    
-    while [ $restart_count -lt $MAX_RESTARTS ]; do
-        log_message "${BLUE}📊 Attempt $((restart_count + 1))/$MAX_RESTARTS${NC}"
-        
-        # Start application
-        start_application
-        local app_pid=$!
-        
-        # Wait for health check
-        if wait_for_health; then
-            log_message "${GREEN}✅ Application started successfully${NC}"
-            
-            # Wait for the application to exit
-            wait $app_pid
-            local exit_code=$?
-            
-            log_message "${YELLOW}⚠️ Application exited with code $exit_code${NC}"
-            
-            # Check if this was a graceful shutdown
-            if [ $exit_code -eq 0 ]; then
-                log_message "${GREEN}✅ Graceful shutdown detected${NC}"
-                break
-            fi
-            
-            # Check if we should restart
-            restart_count=$((restart_count + 1))
-            
-            if [ $restart_count -lt $MAX_RESTARTS ]; then
-                log_message "${YELLOW}🔄 Restarting in ${RESTART_DELAY}s...${NC}"
-                sleep $RESTART_DELAY
-            fi
-        else
-            log_message "${RED}❌ Application failed to start properly${NC}"
-            restart_count=$((restart_count + 1))
-            
-            # Kill the failed process
-            kill $app_pid 2>/dev/null || true
-            
-            if [ $restart_count -lt $MAX_RESTARTS ]; then
-                log_message "${YELLOW}🔄 Retrying in ${RESTART_DELAY}s...${NC}"
-                sleep $RESTART_DELAY
-            fi
-        fi
-    done
-    
-    if [ $restart_count -ge $MAX_RESTARTS ]; then
-        log_message "${RED}❌ Maximum restart attempts reached. Giving up.${NC}"
-        cleanup
-        exit 1
-    fi
-    
-    log_message "${GREEN}✅ Application completed successfully${NC}"
-    cleanup
 }
 
-# Check if running as main script
-if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
-    main "$@"
-fi
+# Function to start main application
+start_main_app() {
+    log_message "Starting main Forex Bot application..."
+    cd "$PROJECT_DIR"
+    
+    # Set environment variables
+    export LOG_DIR="$LOG_DIR"
+    export PYTHONPATH="$PROJECT_DIR"
+    
+    # Start the application
+    nohup python production_scheduler.py > "$LOG_DIR/app_main.log" 2>&1 &
+    local pid=$!
+    echo "$pid" > "$PID_DIR/main_app.pid"
+    
+    log_message "Main application started with PID: $pid"
+    
+    # Wait a bit and verify it's running
+    sleep 10
+    if kill -0 "$pid" 2>/dev/null; then
+        log_message "Main application startup verified"
+    else
+        log_message "ERROR: Main application failed to start"
+        return 1
+    fi
+}
+
+# Main function
+main() {
+    case "${1:-start}" in
+        start)
+            log_message "=== Starting Forex Bot with monitoring ==="
+            
+            # Start main application first
+            start_main_app
+            
+            # Start monitoring services
+            start_service "watchdog" "$SCRIPT_DIR/watchdog.sh"
+            start_service "monitor" "$SCRIPT_DIR/monitor.sh"
+            
+            log_message "=== All services started ==="
+            check_services
+            ;;
+            
+        stop)
+            log_message "=== Stopping all services ==="
+            stop_services
+            ;;
+            
+        restart)
+            log_message "=== Restarting all services ==="
+            stop_services
+            sleep 5
+            main start
+            ;;
+            
+        status)
+            check_services
+            ;;
+            
+        *)
+            echo "Usage: $0 {start|stop|restart|status}"
+            exit 1
+            ;;
+    esac
+}
+
+# Handle signals
+trap 'stop_services; exit 0' SIGTERM SIGINT
+
+# Run main function
+main "$@"

@@ -31,7 +31,8 @@ FROM python:3.11-slim as production
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
-    ENVIRONMENT=production
+    ENVIRONMENT=production \
+    LOG_DIR=/app/logs
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
@@ -54,7 +55,8 @@ COPY --chown=forex:forex . .
 
 # Create necessary directories
 RUN mkdir -p logs data && \
-    chown -R forex:forex /app
+    chown -R forex:forex /app && \
+    chmod 755 logs data
 
 # Switch to non-root user
 USER forex

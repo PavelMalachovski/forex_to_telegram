@@ -4,7 +4,11 @@
 """
 
 import sys
-sys.path.append('/home/ubuntu/forex_bot_postgresql')
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
 
 from datetime import datetime, date, time, timedelta
 from app.utils.timezone_utils import get_current_time, get_local_timezone

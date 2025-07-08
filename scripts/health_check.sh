@@ -2,215 +2,103 @@
 #!/bin/bash
 
 # Health check script for Forex Bot
-# Can be used by monitoring systems or cron jobs
+# This script checks if the application is running and responding
 
-set -euo pipefail
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Configuration
-HEALTH_URL="http://localhost:5000/health"
-DETAILED_HEALTH_URL="http://localhost:5000/health/detailed"
+LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"
+LOG_FILE="$LOG_DIR/health_check.log"
+API_URL="http://localhost:8000"
 TIMEOUT=10
-LOG_FILE="/home/ubuntu/forex_bot_postgresql/logs/health_check.log"
-ALERT_EMAIL=""  # Set email for alerts
-MAX_RETRIES=3
-RETRY_DELAY=5
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Ensure log directory exists
+mkdir -p "$LOG_DIR"
 
-# Logging function
-log() {
+# Function to log messages
+log_message() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
 
-# Check if service is running
-check_service_status() {
-    if systemctl is-active --quiet forex_bot.service; then
-        log "✓ Service is running"
+# Function to check API health
+check_api_health() {
+    local response
+    response=$(curl -s -w "%{http_code}" -o /dev/null --max-time $TIMEOUT "$API_URL/health" 2>/dev/null)
+    
+    if [ "$response" = "200" ]; then
+        log_message "API health check: PASSED"
         return 0
     else
-        log "✗ Service is not running"
+        log_message "API health check: FAILED (HTTP $response)"
         return 1
     fi
 }
 
-# Check health endpoint
-check_health_endpoint() {
-    local url="$1"
-    local description="$2"
-    
-    log "Checking $description..."
-    
-    if response=$(curl -s -f --max-time "$TIMEOUT" "$url" 2>/dev/null); then
-        status=$(echo "$response" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
-        
-        if [ "$status" = "healthy" ]; then
-            log "✓ $description: HEALTHY"
-            return 0
-        else
-            log "✗ $description: UNHEALTHY (status: $status)"
-            return 1
-        fi
+# Function to check process
+check_process() {
+    if pgrep -f "python.*production_scheduler.py" > /dev/null; then
+        log_message "Process check: PASSED"
+        return 0
     else
-        log "✗ $description: UNREACHABLE"
+        log_message "Process check: FAILED"
         return 1
     fi
 }
 
-# Check detailed health with retries
-check_detailed_health() {
-    local retries=0
-    
-    while [ $retries -lt $MAX_RETRIES ]; do
-        if response=$(curl -s --max-time "$TIMEOUT" "$DETAILED_HEALTH_URL" 2>/dev/null); then
-            echo "$response" | jq '.' > "/tmp/health_detailed_$(date +%s).json" 2>/dev/null || true
-            
-            # Extract key metrics
-            overall_status=$(echo "$response" | jq -r '.overall_status // "unknown"' 2>/dev/null || echo "unknown")
-            uptime=$(echo "$response" | jq -r '.uptime_seconds // 0' 2>/dev/null || echo "0")
-            total_checks=$(echo "$response" | jq -r '.summary.total_checks // 0' 2>/dev/null || echo "0")
-            healthy_checks=$(echo "$response" | jq -r '.summary.healthy_checks // 0' 2>/dev/null || echo "0")
-            
-            log "Detailed health check - Status: $overall_status, Uptime: ${uptime}s, Checks: $healthy_checks/$total_checks"
-            
-            if [ "$overall_status" = "healthy" ]; then
-                return 0
-            else
-                log "Detailed health check failed - Status: $overall_status"
-                return 1
-            fi
-        else
-            retries=$((retries + 1))
-            if [ $retries -lt $MAX_RETRIES ]; then
-                log "Detailed health check failed, retrying in ${RETRY_DELAY}s... (attempt $retries/$MAX_RETRIES)"
-                sleep $RETRY_DELAY
-            fi
-        fi
-    done
-    
-    log "Detailed health check failed after $MAX_RETRIES attempts"
-    return 1
-}
-
-# Send alert (if email configured)
-send_alert() {
-    local subject="$1"
-    local message="$2"
-    
-    if [ -n "$ALERT_EMAIL" ]; then
-        echo "$message" | mail -s "$subject" "$ALERT_EMAIL" 2>/dev/null || true
-        log "Alert sent to $ALERT_EMAIL"
-    fi
-}
-
-# Restart service if needed
-restart_service() {
-    log "Attempting to restart forex_bot service..."
-    
-    if sudo systemctl restart forex_bot.service; then
-        log "Service restart initiated"
-        sleep 15  # Wait for service to start
-        
-        if check_service_status && check_health_endpoint "$HEALTH_URL" "Basic health"; then
-            log "Service restart successful"
-            send_alert "Forex Bot - Service Restarted" "The forex bot service was automatically restarted and is now healthy."
-            return 0
-        else
-            log "Service restart failed - service still unhealthy"
-            return 1
-        fi
+# Function to check database connectivity
+check_database() {
+    cd "$PROJECT_DIR"
+    if python -c "
+import sys
+sys.path.insert(0, '.')
+from src.database.db_manager import DatabaseManager
+db = DatabaseManager()
+if db.test_connection():
+    print('Database check: PASSED')
+    exit(0)
+else:
+    print('Database check: FAILED')
+    exit(1)
+" 2>/dev/null; then
+        log_message "Database check: PASSED"
+        return 0
     else
-        log "Failed to restart service"
+        log_message "Database check: FAILED"
         return 1
     fi
 }
 
-# Main health check function
+# Main health check
 main() {
+    log_message "Starting health check..."
+    
     local exit_code=0
-    local issues=()
     
-    log "=== Starting health check ==="
-    
-    # Check if service is running
-    if ! check_service_status; then
-        issues+=("Service not running")
+    # Check process
+    if ! check_process; then
         exit_code=1
     fi
     
-    # Check basic health endpoint
-    if ! check_health_endpoint "$HEALTH_URL" "Basic health"; then
-        issues+=("Basic health check failed")
+    # Check API
+    if ! check_api_health; then
         exit_code=1
     fi
     
-    # Check detailed health
-    if ! check_detailed_health; then
-        issues+=("Detailed health check failed")
+    # Check database
+    if ! check_database; then
         exit_code=1
     fi
     
-    # If there are issues, try to restart (if --restart flag is provided)
-    if [ $exit_code -ne 0 ] && [ "${1:-}" = "--restart" ]; then
-        log "Health check failed, attempting automatic restart..."
-        
-        if restart_service; then
-            exit_code=0
-            issues=()
-        else
-            issues+=("Automatic restart failed")
-        fi
-    fi
-    
-    # Summary
     if [ $exit_code -eq 0 ]; then
-        log "=== Health check PASSED ==="
-        echo -e "${GREEN}✓ All health checks passed${NC}"
+        log_message "Health check: ALL CHECKS PASSED"
     else
-        log "=== Health check FAILED ==="
-        echo -e "${RED}✗ Health check failed: ${issues[*]}${NC}"
-        
-        send_alert "Forex Bot - Health Check Failed" "Health check failed with issues: ${issues[*]}"
+        log_message "Health check: SOME CHECKS FAILED"
     fi
     
-    log "=== Health check completed ==="
     return $exit_code
 }
 
-# Show usage
-usage() {
-    echo "Usage: $0 [--restart] [--detailed] [--help]"
-    echo ""
-    echo "Options:"
-    echo "  --restart   Automatically restart service if health check fails"
-    echo "  --detailed  Show detailed health information"
-    echo "  --help      Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  $0                    # Basic health check"
-    echo "  $0 --restart         # Health check with auto-restart"
-    echo "  $0 --detailed        # Show detailed health info"
-}
-
-# Parse command line arguments
-case "${1:-}" in
-    --help|-h)
-        usage
-        exit 0
-        ;;
-    --detailed)
-        if response=$(curl -s --max-time "$TIMEOUT" "$DETAILED_HEALTH_URL" 2>/dev/null); then
-            echo "$response" | jq '.' 2>/dev/null || echo "$response"
-        else
-            echo "Failed to get detailed health information"
-            exit 1
-        fi
-        exit 0
-        ;;
-    *)
-        main "$@"
-        ;;
-esac
+# Run main function
+main "$@"

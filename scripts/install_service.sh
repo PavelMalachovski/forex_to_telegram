@@ -8,7 +8,9 @@ set -euo pipefail
 # Configuration
 SERVICE_NAME="forex_bot"
 SERVICE_FILE="forex_bot.service"
-PROJECT_DIR="/home/ubuntu/forex_bot_postgresql"
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SCRIPTS_DIR="$PROJECT_DIR/scripts"
 
 # Colors
