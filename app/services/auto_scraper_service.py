@@ -229,3 +229,44 @@ class AutoScraperService:
         
         # Return empty list if scraping failed
         return []
+    
+    async def scrape_date_range(self, start_date: date, end_date: date) -> int:
+        """
+        Scrape data for a date range.
+        
+        Args:
+            start_date: Start date for scraping
+            end_date: End date for scraping
+            
+        Returns:
+            Number of events scraped and saved
+        """
+        logger.info(f"Starting date range scraping from {start_date} to {end_date}")
+        
+        total_scraped = 0
+        current_date = start_date
+        
+        while current_date <= end_date:
+            try:
+                result = await self.scrape_date_if_missing(current_date)
+                if result['status'] in ['scraped', 'exists']:
+                    total_scraped += result['events_count']
+                    logger.info(f"Processed {current_date}: {result['events_count']} events")
+                else:
+                    logger.warning(f"Failed to process {current_date}: {result.get('message', 'Unknown error')}")
+                
+                # Move to next date
+                from datetime import timedelta
+                current_date += timedelta(days=1)
+                
+                # Small delay to avoid overwhelming the source
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"Error scraping {current_date}: {e}")
+                from datetime import timedelta
+                current_date += timedelta(days=1)
+                continue
+        
+        logger.info(f"Completed date range scraping: {total_scraped} total events")
+        return total_scraped

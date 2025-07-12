@@ -90,6 +90,7 @@ class BotUser(Base):
     id: Mapped[int] = Column(Integer, primary_key=True)
     telegram_user_id: Mapped[int] = Column(Integer, unique=True, nullable=False)
     username: Mapped[Optional[str]] = Column(String(100))
+    telegram_username: Mapped[Optional[str]] = Column(String(100))
     first_name: Mapped[Optional[str]] = Column(String(100))
     last_name: Mapped[Optional[str]] = Column(String(100))
     language_code: Mapped[Optional[str]] = Column(String(10))

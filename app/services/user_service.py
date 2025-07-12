@@ -50,18 +50,22 @@ class UserService:
             user.last_name = last_name
             user.language_code = language_code
             user.is_active = True
-            logger.info(f"Updated user: {telegram_user_id}")
+            logger.info(f"Updated user: {telegram_user_id} (username: {telegram_username})")
         else:
             # Create new user
-            user = BotUser(
-                telegram_user_id=telegram_user_id,
-                telegram_username=telegram_username,
-                first_name=first_name,
-                last_name=last_name,
-                language_code=language_code
-            )
-            self.db.add(user)
-            logger.info(f"Created new user: {telegram_user_id}")
+            try:
+                user = BotUser(
+                    telegram_user_id=telegram_user_id,
+                    telegram_username=telegram_username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    language_code=language_code
+                )
+                self.db.add(user)
+                logger.info(f"Created new user: {telegram_user_id} (username: {telegram_username})")
+            except Exception as e:
+                logger.error(f"Error creating user {telegram_user_id}: {e}", exc_info=True)
+                raise
         
         self.db.commit()
         return user

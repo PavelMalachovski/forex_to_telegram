@@ -962,16 +962,34 @@ class BotHandlers:
             return
         
         try:
-            result = process_calendar_callback(call)
-            if result:
-                # Handle the selected date
-                selected_date = result
-                self.bot.send_message(
-                    call.message.chat.id,
-                    f"You selected: {selected_date}"
-                )
+            logger.info(f"Processing calendar callback: {call.data}")
+            result = process_calendar_callback(call.data)
+            logger.info(f"Calendar callback result: {result}")
+            
+            if result and len(result) >= 2:
+                action, selected_date, nav_data = result
+                
+                if action == "select" and selected_date:
+                    # Handle the selected date
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        f"You selected: {selected_date}"
+                    )
+                elif action == "navigate" and nav_data:
+                    # Handle navigation - recreate calendar for new month
+                    from app.bot.utils.calendar import create_calendar
+                    new_calendar = create_calendar(nav_data['year'], nav_data['month'])
+                    self.bot.edit_message_reply_markup(
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        reply_markup=new_calendar
+                    )
+                # Ignore other actions
+            else:
+                logger.warning(f"Invalid calendar callback result: {result}")
+                
         except Exception as e:
-            logger.error(f"Error in calendar callback: {e}")
+            logger.error(f"Error in calendar callback: {e}", exc_info=True)
             self.bot.send_message(
                 call.message.chat.id,
                 "❌ An error occurred while processing calendar selection."
