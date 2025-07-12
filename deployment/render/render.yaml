@@ -8,7 +8,7 @@ services:
     plan: starter
     buildCommand: |
       pip install --upgrade pip
-      pip install -r config/requirements.txt
+      pip install -r config/production/requirements.production.txt
       python -m alembic upgrade head
     startCommand: python production_scheduler.py
     envVars:
@@ -88,7 +88,7 @@ services:
     plan: starter
     buildCommand: |
       pip install --upgrade pip
-      pip install -r config/requirements.txt
+      pip install -r config/production/requirements.production.txt
     startCommand: python scripts/background_worker.py
     envVars:
       - key: PYTHON_VERSION
@@ -119,7 +119,7 @@ services:
     plan: starter
     buildCommand: |
       pip install --upgrade pip
-      pip install -r config/requirements.txt
+      pip install -r config/production/requirements.production.txt
     schedule: "0 */6 * * *"  # Every 6 hours
     startCommand: python scripts/scheduled_scraper.py
     envVars:

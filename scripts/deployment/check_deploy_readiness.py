@@ -65,8 +65,8 @@ def check_required_files():
         'main.py',
         'production_scheduler.py',
         'enhanced_main.py',
-        'config/requirements.production.txt',
-        'config/requirements_enhanced.txt',
+        'config/production/requirements.production.txt',
+        'config/production/requirements_enhanced.txt',
         'docker/Dockerfile.production',
         'docker/Dockerfile.enhanced'
     ]

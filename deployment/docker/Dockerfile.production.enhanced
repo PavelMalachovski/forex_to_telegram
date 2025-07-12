@@ -26,9 +26,9 @@ RUN pip install --upgrade pip setuptools wheel
 
 # Copy requirements and install Python dependencies
 # Try multiple requirements files in order of preference
-COPY config/requirements.production.txt /tmp/requirements.production.txt
-COPY config/requirements_enhanced.txt /tmp/requirements_enhanced.txt 2>/dev/null || true
-COPY config/requirements.txt /tmp/requirements.txt 2>/dev/null || true
+COPY config/production/requirements.production.txt /tmp/requirements.production.txt
+COPY config/production/requirements_enhanced.txt /tmp/requirements_enhanced.txt 2>/dev/null || true
+COPY config/production/requirements.txt /tmp/requirements.txt 2>/dev/null || true
 
 # Install from the most complete requirements file
 RUN if [ -f /tmp/requirements.production.txt ]; then \

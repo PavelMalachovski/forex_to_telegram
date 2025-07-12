@@ -50,3 +50,28 @@ def get_db_session_factory(database_url: str):
     except Exception as e:
         logger.error(f"Failed to create database session factory: {e}")
         raise
+
+def get_db():
+    """
+    Get database session (for dependency injection).
+    """
+    from app.config import config
+    SessionLocal = get_db_session_factory(config.DATABASE_URL)
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def init_database():
+    """
+    Initialize database connection and create tables.
+    """
+    from app.config import config
+    try:
+        SessionLocal = get_db_session_factory(config.DATABASE_URL)
+        logger.info("Database initialized successfully")
+        return SessionLocal
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
