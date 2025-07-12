@@ -3,13 +3,11 @@
 Database package for Forex Bot application.
 """
 
-from .connection import engine, SessionLocal, get_db
+from .connection import get_db_session_factory
 from .models import Base, Currency, ImpactLevel, NewsEvent, BotUser, UserCurrencyPreference, UserNotificationSettings, ScrapingLog
 
 __all__ = [
-    'engine',
-    'SessionLocal', 
-    'get_db',
+    'get_db_session_factory',
     'Base',
     'Currency',
     'ImpactLevel', 

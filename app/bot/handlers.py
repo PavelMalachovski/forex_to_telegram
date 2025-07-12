@@ -15,6 +15,7 @@ from app.services.user_service import UserService
 from app.utils.text_utils import escape_markdown, format_news_event_message
 from app.utils.timezone_utils import get_current_time
 from app.bot.utils.calendar import create_calendar, process_calendar_callback
+from app.core.error_handler import safe_handler, safe_callback_handler, ErrorHandler
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,7 @@ class BotHandlers:
         self.bot.callback_query_handler(func=lambda call: call.data == 'show_preferences')(self.handle_show_preferences)
         self.bot.callback_query_handler(func=lambda call: call.data == 'select_currencies')(self.handle_select_currencies)
     
+    @safe_handler("❌ Ошибка при выполнении команды /start. Попробуйте позже.")
     def start_command(self, message):
         """Handle /start command."""
         try:
@@ -174,6 +176,7 @@ class BotHandlers:
                 "❌ Произошла ошибка при инициализации. Попробуйте позже или обратитесь к администратору."
             )
     
+    @safe_handler("❌ Ошибка при выполнении команды /help. Попробуйте позже.")
     def help_command(self, message):
         """Handle /help command."""
         try:
@@ -208,6 +211,7 @@ class BotHandlers:
                 "❌ An error occurred. Please try again later."
             )
     
+    @safe_handler("❌ Ошибка при получении новостей. Попробуйте позже.")
     def news_command(self, message):
         """Handle /news command with optional date and impact level."""
         import asyncio
@@ -329,6 +333,7 @@ class BotHandlers:
             if db:
                 db.close()
     
+    @safe_handler("❌ Ошибка при получении новостей на сегодня. Попробуйте позже.")
     def today_command(self, message):
         """Handle /today command."""
         import asyncio
@@ -418,6 +423,7 @@ class BotHandlers:
             if db:
                 db.close()
     
+    @safe_handler("❌ Ошибка при получении новостей на завтра. Попробуйте позже.")
     def tomorrow_command(self, message):
         """Handle /tomorrow command."""
         import asyncio
@@ -732,6 +738,7 @@ class BotHandlers:
             )
     
     # Callback handlers with proper error handling
+    @safe_callback_handler("❌ Ошибка при выборе уровня важности.")
     def handle_impact_selection(self, call):
         """Handle impact level selection."""
         import asyncio
@@ -827,6 +834,7 @@ class BotHandlers:
             if db:
                 db.close()
     
+    @safe_callback_handler("❌ Ошибка при выборе валюты.")
     def handle_currency_selection(self, call):
         """Handle currency selection with multiple selection support."""
         # Validate callback query first
@@ -1007,6 +1015,7 @@ class BotHandlers:
             "Date impact selection feature coming soon!"
         )
     
+    @safe_callback_handler("❌ Ошибка при изменении настроек уведомлений.")
     def handle_notification_setting(self, call):
         """Handle notification setting."""
         # Validate callback query first
