@@ -3,6 +3,7 @@
 
 import re
 import time
+import random
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional, Union
 from urllib.parse import urljoin
@@ -10,12 +11,29 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup, Tag
 from loguru import logger
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.scrapers.base import BaseScraper
 
 
 class ForexFactoryScraper(BaseScraper):
     """Scraper for Forex Factory economic calendar."""
+    
+    # Default headers to mimic a real browser
+    DEFAULT_HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
     
     def __init__(self, base_url: str = "https://www.forexfactory.com"):
         """
@@ -27,14 +45,26 @@ class ForexFactoryScraper(BaseScraper):
         super().__init__()
         self.base_url = base_url
         self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        })
+        self.session.headers.update(self.DEFAULT_HEADERS)
+        
+        # Add some randomization to avoid detection
+        self.session.headers['User-Agent'] = self._get_random_user_agent()
+        
+        # Set timeout and retry configuration
+        self.timeout = 30
+        self.max_retries = 3
+        self.retry_delay = 2
+    
+    def _get_random_user_agent(self) -> str:
+        """Get a random user agent string."""
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ]
+        return random.choice(user_agents)
         
     def scrape_events(
         self,
@@ -89,6 +119,51 @@ class ForexFactoryScraper(BaseScraper):
         logger.info(f"Total events scraped: {len(events)}")
         return events
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.RequestException, requests.Timeout, requests.ConnectionError))
+    )
+    def _make_request_with_retry(self, url: str) -> requests.Response:
+        """
+        Make HTTP request with retry mechanism.
+        
+        Args:
+            url: URL to request
+            
+        Returns:
+            Response object
+            
+        Raises:
+            requests.RequestException: If all retries fail
+        """
+        # Add some randomization to headers for each request
+        headers = self.session.headers.copy()
+        headers['User-Agent'] = self._get_random_user_agent()
+        
+        # Add random delay to avoid rate limiting
+        time.sleep(random.uniform(1, 3))
+        
+        logger.debug(f"Making request to: {url}")
+        response = self.session.get(url, timeout=self.timeout, headers=headers)
+        
+        # Check for specific error responses
+        if response.status_code == 403:
+            logger.warning(f"403 Forbidden received for {url}. Retrying with different headers...")
+            # Try with different headers
+            headers.update({
+                'Referer': 'https://www.forexfactory.com/',
+                'Origin': 'https://www.forexfactory.com',
+                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
+            })
+            time.sleep(random.uniform(3, 6))  # Longer delay for 403
+            response = self.session.get(url, timeout=self.timeout, headers=headers)
+        
+        response.raise_for_status()
+        return response
+    
     def _scrape_daily_events(self, target_date: date) -> List[Dict[str, Any]]:
         """
         Scrape events for a specific date.
@@ -104,17 +179,32 @@ class ForexFactoryScraper(BaseScraper):
         url = f"{self.base_url}/calendar?day={date_str}"
         
         try:
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
+            logger.info(f"Scraping events for {target_date} from {url}")
+            response = self._make_request_with_retry(url)
+            
+            if not response.content:
+                logger.warning(f"Empty response received for {target_date}")
+                return []
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            return self._parse_calendar_page(soup, target_date)
+            events = self._parse_calendar_page(soup, target_date)
             
+            logger.info(f"Successfully scraped {len(events)} events for {target_date}")
+            return events
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logger.error(f"403 Forbidden error for {target_date}. ForexFactory may be blocking requests.")
+                logger.error(f"URL: {url}")
+                logger.error(f"Headers used: {dict(self.session.headers)}")
+            else:
+                logger.error(f"HTTP error {e.response.status_code} for {target_date}: {e}")
+            return []
         except requests.RequestException as e:
             logger.error(f"Request error for {target_date}: {e}")
             return []
         except Exception as e:
-            logger.error(f"Parsing error for {target_date}: {e}")
+            logger.error(f"Unexpected error scraping {target_date}: {e}")
             return []
     
     def _parse_calendar_page(self, soup: BeautifulSoup, target_date: date) -> List[Dict[str, Any]]:
@@ -347,8 +437,8 @@ class ForexFactoryScraper(BaseScraper):
             True if connection is successful
         """
         try:
-            response = self.session.get(self.base_url, timeout=10)
-            response.raise_for_status()
+            logger.info("Testing connection to Forex Factory...")
+            response = self._make_request_with_retry(self.base_url)
             
             # Check if we got a valid page
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -359,8 +449,16 @@ class ForexFactoryScraper(BaseScraper):
                 return True
             else:
                 logger.warning("Forex Factory connection test failed: unexpected page content")
+                logger.debug(f"Page title: {title.get_text() if title else 'No title found'}")
                 return False
                 
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logger.error("403 Forbidden: Forex Factory is blocking our requests")
+                logger.error("Try using a VPN or different IP address")
+            else:
+                logger.error(f"HTTP error during connection test: {e}")
+            return False
         except Exception as e:
             logger.error(f"Forex Factory connection test failed: {e}")
             return False

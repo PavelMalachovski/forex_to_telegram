@@ -36,36 +36,59 @@ class AutoScraperService:
         """
         logger.info(f"Checking data availability for {target_date}")
         
-        # Check if data already exists
-        existing_events = self.news_service.get_news_by_date_range(
-            start_date=target_date,
-            end_date=target_date
-        )
-        
-        if existing_events:
-            logger.info(f"Data already exists for {target_date}: {len(existing_events)} events")
-            return {
-                'status': 'exists',
-                'events_count': len(existing_events),
-                'message': f'Data already available for {target_date.strftime("%Y-%m-%d")}',
-                'scraped': False,
-                'events': existing_events
-            }
-        
-        # Data doesn't exist, start scraping
-        logger.info(f"No data found for {target_date}, starting automatic scraping")
-        
-        # Start timing the scraping process
-        start_time = time.time()
-        
         try:
+            # Check if data already exists
+            existing_events = self.news_service.get_news_by_date_range(
+                start_date=target_date,
+                end_date=target_date
+            )
+            
+            if existing_events:
+                logger.info(f"Data already exists for {target_date}: {len(existing_events)} events")
+                return {
+                    'status': 'exists',
+                    'events_count': len(existing_events),
+                    'message': f'Data already available for {target_date.strftime("%Y-%m-%d")}',
+                    'scraped': False,
+                    'events': existing_events
+                }
+            
+            # Data doesn't exist, start scraping
+            logger.info(f"No data found for {target_date}, starting automatic scraping")
+            
+            # Start timing the scraping process
+            start_time = time.time()
+            
+            # Test connection first
+            if not self.scraper.test_connection():
+                logger.error("Failed to connect to ForexFactory - scraping aborted")
+                return {
+                    'status': 'connection_error',
+                    'events_count': 0,
+                    'message': f'Unable to connect to ForexFactory for {target_date.strftime("%Y-%m-%d")}. Please try again later.',
+                    'scraped': False,
+                    'events': [],
+                    'error': 'Connection failed'
+                }
+            
             # Run scraping in executor to avoid blocking
             loop = asyncio.get_event_loop()
             scraped_data = await loop.run_in_executor(
                 None, 
-                self.scraper.scrape_single_date, 
+                self._safe_scrape_single_date, 
                 target_date
             )
+            
+            if scraped_data is None:
+                logger.error(f"Scraping failed for {target_date} - returned None")
+                return {
+                    'status': 'scraping_error',
+                    'events_count': 0,
+                    'message': f'Scraping failed for {target_date.strftime("%Y-%m-%d")}. ForexFactory may be blocking requests.',
+                    'scraped': False,
+                    'events': [],
+                    'error': 'Scraping returned None'
+                }
             
             if not scraped_data:
                 logger.warning(f"No data scraped for {target_date}")
@@ -101,6 +124,22 @@ class AutoScraperService:
                 'events': [],
                 'error': str(e)
             }
+    
+    def _safe_scrape_single_date(self, target_date: date) -> Optional[List[Dict]]:
+        """
+        Safely scrape a single date with proper error handling.
+        
+        Args:
+            target_date: Date to scrape
+            
+        Returns:
+            List of scraped events or None if failed
+        """
+        try:
+            return self.scraper.scrape_single_date(target_date)
+        except Exception as e:
+            logger.error(f"Error in _safe_scrape_single_date for {target_date}: {e}")
+            return None
     
     async def _save_scraped_data(self, scraped_data: List[Dict], duration_seconds: int) -> List[NewsEvent]:
         """

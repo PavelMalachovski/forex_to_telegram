@@ -12,7 +12,16 @@ from telebot.apihelper import ApiTelegramException
 
 from app.services.news_service import NewsService
 from app.services.user_service import UserService
-from app.utils.text_utils import escape_markdown, format_news_event_message
+from app.utils.text_utils import escape_markdown, format_daily_summary
+
+def format_news_event_message(events, date_str, impact_level=None):
+    """Compatibility wrapper for format_daily_summary."""
+    try:
+        from datetime import datetime
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        return format_news_event_message(events, target_date)
+    except:
+        return f"📅 *News for {date_str}*\n\nNo events available."
 from app.utils.timezone_utils import get_current_time
 from app.bot.utils.calendar import create_calendar, process_calendar_callback
 from app.core.error_handler import safe_handler, safe_callback_handler, ErrorHandler
@@ -963,6 +972,7 @@ class BotHandlers:
             "Preference selection feature coming soon!"
         )
     
+    @safe_callback_handler("❌ Ошибка при выборе даты в календаре.")
     def handle_calendar_callback(self, call):
         """Handle calendar callback."""
         # Validate callback query first
@@ -978,10 +988,20 @@ class BotHandlers:
                 action, selected_date, nav_data = result
                 
                 if action == "select" and selected_date:
-                    # Handle the selected date
-                    self.bot.send_message(
+                    # Show impact level selection for the selected date
+                    markup = types.InlineKeyboardMarkup(row_width=3)
+                    markup.add(
+                        types.InlineKeyboardButton("🔴 HIGH", callback_data=f"date_impact_HIGH_{selected_date.strftime('%Y-%m-%d')}"),
+                        types.InlineKeyboardButton("🟠 MEDIUM", callback_data=f"date_impact_MEDIUM_{selected_date.strftime('%Y-%m-%d')}"),
+                        types.InlineKeyboardButton("🟡 LOW", callback_data=f"date_impact_LOW_{selected_date.strftime('%Y-%m-%d')}")
+                    )
+                    markup.add(types.InlineKeyboardButton("📊 ALL", callback_data=f"date_impact_ALL_{selected_date.strftime('%Y-%m-%d')}"))
+                    
+                    self.bot.edit_message_text(
+                        f"📅 Selected date: {selected_date.strftime('%Y-%m-%d')}\n\nSelect impact level:",
                         call.message.chat.id,
-                        f"You selected: {selected_date}"
+                        call.message.message_id,
+                        reply_markup=markup
                     )
                 elif action == "navigate" and nav_data:
                     # Handle navigation - recreate calendar for new month
@@ -991,6 +1011,12 @@ class BotHandlers:
                         chat_id=call.message.chat.id,
                         message_id=call.message.message_id,
                         reply_markup=new_calendar
+                    )
+                elif action == "cancel":
+                    self.bot.edit_message_text(
+                        "❌ Calendar selection cancelled.",
+                        call.message.chat.id,
+                        call.message.message_id
                     )
                 # Ignore other actions
             else:
@@ -1003,17 +1029,117 @@ class BotHandlers:
                 "❌ An error occurred while processing calendar selection."
             )
     
+    @safe_callback_handler("❌ Ошибка при выборе уровня важности для даты.")
     def handle_date_impact_selection(self, call):
         """Handle date impact selection."""
+        import asyncio
+        
         # Validate callback query first
         if not self._safe_answer_callback_query(call):
             return
         
-        # Implementation for date impact selection
-        self.bot.send_message(
-            call.message.chat.id,
-            "Date impact selection feature coming soon!"
-        )
+        db = self._get_db_session()
+        if db is None:
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ База данных временно недоступна. Попробуйте позже."
+            )
+            return
+        
+        try:
+            # Parse callback data: date_impact_LEVEL_YYYY-MM-DD
+            parts = call.data.split('_')
+            if len(parts) < 4:
+                logger.error(f"Invalid date impact callback data: {call.data}")
+                return
+            
+            impact_level = parts[2]
+            date_str = parts[3]
+            
+            # Validate date format
+            try:
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                self.bot.send_message(
+                    call.message.chat.id,
+                    "❌ Invalid date format."
+                )
+                return
+            
+            # Edit message to show loading
+            self.bot.edit_message_text(
+                f"🔄 Fetching {impact_level} impact news for {date_str}...",
+                call.message.chat.id,
+                call.message.message_id
+            )
+            
+            news_service = NewsService(db)
+            
+            # Check if data exists, if not - trigger auto-scraping
+            if not news_service.has_data_for_date(target_date):
+                # Update loading message to indicate scraping
+                self.bot.edit_message_text(
+                    f"🔄 No data found for {date_str}\\.\n🌐 Scraping {impact_level} impact news from ForexFactory\\.\\.\\.\n⏳ This may take a moment\\.",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='MarkdownV2'
+                )
+            
+            # Get news events with auto-scraping
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                news_events, was_scraped = loop.run_until_complete(
+                    news_service.get_or_scrape_news_by_date(target_date, impact_level)
+                )
+            finally:
+                loop.close()
+            
+            # Delete the loading message
+            try:
+                self.bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            
+            if news_events:
+                # Format and send message
+                formatted_message = format_news_event_message(news_events, date_str, impact_level)
+                
+                # Add scraping notification if data was scraped
+                if was_scraped:
+                    scraping_notice = "🌐 *Data scraped from ForexFactory*\n\n"
+                    formatted_message = scraping_notice + formatted_message
+                
+                # Send message using notification service for long messages
+                try:
+                    from app.services.notification_service import NotificationService
+                    notification_service = NotificationService(db, self.bot)
+                    if notification_service:
+                        notification_service.send_long_message(call.message.chat.id, formatted_message)
+                    else:
+                        # Fallback to direct bot message
+                        self.bot.send_message(call.message.chat.id, formatted_message, parse_mode='MarkdownV2')
+                except Exception as e:
+                    logger.error(f"Error sending message via notification service: {e}")
+                    # Fallback to direct bot message
+                    self.bot.send_message(call.message.chat.id, formatted_message, parse_mode='MarkdownV2')
+            else:
+                scraping_status = "scraped from ForexFactory" if was_scraped else "found in database"
+                self.bot.send_message(
+                    call.message.chat.id,
+                    f"✅ No {impact_level} impact news {scraping_status} for {escape_markdown(date_str)}\\.\nPlease check the website for updates\\.",
+                    parse_mode='MarkdownV2'
+                )
+            
+        except Exception as e:
+            logger.error(f"Error in date impact selection: {e}")
+            self.bot.send_message(
+                call.message.chat.id,
+                "❌ Произошла ошибка при получении новостей. Попробуйте позже."
+            )
+        finally:
+            if db:
+                db.close()
     
     @safe_callback_handler("❌ Ошибка при изменении настроек уведомлений.")
     def handle_notification_setting(self, call):
