@@ -25,7 +25,7 @@ COPY . .
 
 # Port and environment variables
 ENV PORT=5000
-EXPOSE 5000
+EXPOSE ${PORT}
 
 # Start the application
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:5000"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:${PORT}"]
