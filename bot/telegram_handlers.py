@@ -61,10 +61,11 @@ class TelegramBotManager:
 
     def setup_webhook_async(self):
         def delayed_webhook_setup():
-            time.sleep(30)
+            # Reduced delay for faster deployment readiness
+            time.sleep(10)
             self.setup_webhook()
         threading.Thread(target=delayed_webhook_setup, daemon=True).start()
-        logger.info("Webhook setup scheduled for 30 seconds after startup")
+        logger.info("Webhook setup scheduled for 10 seconds after startup")
 
 
 class RenderKeepAlive:

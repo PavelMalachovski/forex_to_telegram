@@ -24,8 +24,7 @@ RUN apt-get update && \
 COPY . .
 
 # Port and environment variables
-ENV PORT=10000
-EXPOSE $PORT
+EXPOSE 10000
 
 # Start the application
-CMD ["sh", "-c", "gunicorn app:app --bind 0.0.0.0:$PORT"]
+CMD ["sh", "-c", "gunicorn app:app --bind 0.0.0.0:${PORT:-10000} --timeout 120 --workers 1 --threads 2"]

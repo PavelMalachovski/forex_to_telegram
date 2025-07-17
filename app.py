@@ -51,6 +51,17 @@ def ping():
     })
 
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint for Render deployment."""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "forex-telegram-bot",
+        "ready": True
+    }), 200
+
+
 @app.route('/manual_scrape', methods=['POST'])
 def manual_scrape():
     provided_key = request.headers.get('X-API-Key') or request.json.get('api_key')
@@ -110,17 +121,25 @@ def home():
 
 
 def initialize_application():
+    """Initialize the application - called both in direct run and gunicorn."""
     logger.info("Starting Forex News Telegram Bot...")
     missing_vars = config.validate_required_vars()
     if missing_vars:
         logger.warning("Missing environment variables: %s", missing_vars)
+    
+    # Setup webhook with shorter delay for faster startup
     if bot and config.render_hostname:
         bot_manager.setup_webhook_async()
     else:
         logger.warning("Webhook setup skipped: Bot or hostname not configured")
+    
     logger.info("Application initialized successfully on port %s", config.port)
 
 
+# Initialize application when module is imported (for gunicorn)
+initialize_application()
+
+
 if __name__ == '__main__':
-    initialize_application()
+    # This runs only when called directly (not via gunicorn)
     app.run(host='0.0.0.0', port=config.port, debug=False, threaded=True)
