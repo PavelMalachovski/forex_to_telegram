@@ -12,13 +12,10 @@ def escape_markdown_v2(text: Optional[str]) -> str:
     text = str(text).strip()
     
     # Characters that need escaping in MarkdownV2
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!', '\\']
+    special_chars = ['\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     
-    # Escape backslashes first to avoid double escaping
-    text = text.replace('\\', '\\\\')
-    
-    # Then escape other special characters
-    for char in special_chars[1:]:  # Skip backslash as it's already handled
+    # Escape each special character (backslash first to avoid double escaping)
+    for char in special_chars:
         text = text.replace(char, f"\\{char}")
     
     return text

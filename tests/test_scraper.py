@@ -35,6 +35,7 @@ def test_message_formatter():
         "time": "12:30pm",
         "currency": "USD",
         "event": "NFP",
+        "actual": "105K",  # Added missing actual field
         "forecast": "100K",
         "previous": "90K",
         "analysis": "Test"

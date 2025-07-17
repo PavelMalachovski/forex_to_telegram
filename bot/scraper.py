@@ -153,13 +153,23 @@ class ForexNewsScraper:
         )
         if not impact_element:
             return False
+        
         classes = impact_element.get('class', [])
         is_high = 'icon--ff-impact-red' in classes
         is_medium = 'icon--ff-impact-orange' in classes
-        return (
-            (impact_level == 'medium' and (is_high or is_medium))
-            or (impact_level == 'high' and is_high)
-        )
+        is_low = 'icon--ff-impact-yellow' in classes
+        
+        # Handle different impact levels
+        if impact_level == 'all':
+            return is_high or is_medium or is_low
+        elif impact_level == 'low':
+            return is_low
+        elif impact_level == 'medium':
+            return is_high or is_medium
+        elif impact_level == 'high':
+            return is_high
+        
+        return False
 
     def _extract_news_data(self, row) -> Dict[str, str]:
         time_elem = row.select_one('.calendar__time')
