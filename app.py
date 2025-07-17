@@ -40,7 +40,7 @@ class Config:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.api_key = os.getenv("API_KEY")
         self.render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
-        self.port = int(os.getenv("PORT", 5000))
+        self.port = int(os.getenv("PORT", 10000))
         self.timezone = "Europe/Prague"
         
     def validate_required_vars(self) -> List[str]:
@@ -213,7 +213,6 @@ def escape_markdown_v2(text: str) -> str:
     for char in special_chars:
         text = text.replace(char, f"\\{char}")
     return text
-
 
 def send_long_message(chat_id: str, message: str):
     """Send long messages by splitting them into chunks."""
@@ -604,57 +603,94 @@ if bot:
         """Show calendar for date selection."""
         try:
             today = datetime.today()
+            markup = TelegramHandlers.generate_calendar(today.year, today.month)
             bot.send_message(
                 message.chat.id,
-                "📅 Select a date:",
-                reply_markup=TelegramHandlers.generate_calendar(today.year, today.month)
+                "📅 Select a date for forex news:",
+                reply_markup=markup
             )
         except Exception as e:
-            logger.error(f"Error in /calendar: {e}")
-            bot.send_message(message.chat.id, "⚠️ Error showing calendar.")
-
-    @bot.message_handler(commands=["today"])
-    def send_today_news(message):
-        """Send today's forex news."""
+            logger.error(f"Error showing calendar: {e}")
+            bot.send_message(message.chat.id, "❌ Error showing calendar. Please try again.")
+    
+    @bot.message_handler(commands=["impact"])
+    def select_impact(message):
+        """Show impact level selection."""
         try:
-            bot.send_message(message.chat.id, "📬 Fetching today's Forex news...")
-            run_forex_news_sync()
-            bot.send_message(message.chat.id, "✅ News sent to the channel!")
+            markup = InlineKeyboardMarkup()
+            markup.add(
+                InlineKeyboardButton("🔴 High Impact", callback_data="IMPACT_high"),
+                InlineKeyboardButton("🟠 Medium+ Impact", callback_data="IMPACT_medium")
+            )
+            bot.send_message(
+                message.chat.id,
+                "📊 Select impact level for news filtering:",
+                reply_markup=markup
+            )
         except Exception as e:
-            logger.error(f"Error in /today: {e}")
-            bot.send_message(message.chat.id, "⚠️ Error fetching news.")
-
+            logger.error(f"Error showing impact selection: {e}")
+            bot.send_message(message.chat.id, "❌ Error showing impact selection. Please try again.")
+    
+    @bot.message_handler(commands=["today"])
+    def get_today_news(message):
+        """Get today's forex news."""
+        try:
+            user_id = message.from_user.id
+            impact_level = user_selected_impact.get(user_id, "high")
+            
+            bot.send_message(message.chat.id, "🔄 Fetching today's forex news...")
+            
+            def fetch_and_send():
+                try:
+                    asyncio.run(process_forex_news(None, impact_level, False))
+                except Exception as e:
+                    logger.error(f"Error fetching today's news: {e}")
+                    bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
+            
+            import threading
+            threading.Thread(target=fetch_and_send, daemon=True).start()
+            
+        except Exception as e:
+            logger.error(f"Error in today command: {e}")
+            bot.send_message(message.chat.id, "❌ Error processing request. Please try again.")
+    
     @bot.message_handler(commands=["help", "start"])
     def show_help(message):
-        """Show help message."""
-        try:
-            help_text = escape_markdown_v2(
-                "🤖 Forex News Bot Commands:\n\n"
-                "/today — Get today's forex news\n"
-                "/calendar — Choose a date to get past news\n"
-                "/help — Show this help message\n\n"
-                "The bot scrapes high-impact forex news from ForexFactory "
-                "and provides ChatGPT analysis for each event."
-            )
-            bot.send_message(message.chat.id, help_text, parse_mode='MarkdownV2')
-        except Exception as e:
-            logger.error(f"Error in /help: {e}")
-            plain_help = (
-                "🤖 Forex News Bot Commands:\n\n"
-                "/today — Get today's forex news\n"
-                "/calendar — Choose a date to get past news\n"
-                "/help — Show this help message\n\n"
-                "The bot scrapes high-impact forex news from ForexFactory "
-                "and provides ChatGPT analysis for each event."
-            )
-            bot.send_message(message.chat.id, plain_help)
+        """Show help message with available commands."""
+        help_text = """
+🤖 **Forex News Bot Commands:**
 
+📅 /calendar - Select a specific date for news
+📊 /impact - Choose impact level (High/Medium+)
+📰 /today - Get today's forex news
+❓ /help - Show this help message
+
+**How to use:**
+1. Use /impact to set your preferred news impact level
+2. Use /calendar to select a specific date, or /today for current news
+3. The bot will fetch and analyze forex news from ForexFactory
+
+**Impact Levels:**
+🔴 High - Only high-impact news
+🟠 Medium+ - Medium and high-impact news
+
+**Note:** News analysis is powered by ChatGPT for market insights.
+        """
+        
+        try:
+            bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Error sending help message: {e}")
+            # Fallback to plain text
+            plain_help = help_text.replace('*', '').replace('`', '')
+            bot.send_message(message.chat.id, plain_help)
+    
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callback(call: CallbackQuery):
         """Handle inline keyboard callbacks."""
         try:
-            data = call.data
             user_id = call.from_user.id
+            data = call.data
             
             if data == "IGNORE":
                 bot.answer_callback_query(call.id)
@@ -663,49 +699,36 @@ if bot:
             if data.startswith("DAY_"):
                 date_str = data[4:]
                 user_selected_date[user_id] = date_str
-                
-                # Show impact level selection
-                markup = InlineKeyboardMarkup()
-                markup.add(
-                    InlineKeyboardButton("🔴 High Impact", callback_data="IMPACT_high"),
-                    InlineKeyboardButton("🟠 Medium+ Impact", callback_data="IMPACT_medium")
-                )
+                impact_level = user_selected_impact.get(user_id, "high")
                 
                 bot.edit_message_text(
-                    f"📅 Selected date: {date_str}\n\nChoose impact level:",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=markup
-                )
-            
-            elif data.startswith("IMPACT_"):
-                impact = data[7:]
-                selected_date = user_selected_date.get(user_id)
-                
-                if not selected_date:
-                    bot.answer_callback_query(call.id, "❌ Date not selected")
-                    return
-                
-                user_selected_impact[user_id] = impact
-                
-                bot.edit_message_text(
-                    f"📅 Date: {selected_date}\n📊 Impact: {impact}\n\n⏳ Fetching news...",
+                    f"🔄 Fetching forex news for {date_str}...",
                     call.message.chat.id,
                     call.message.message_id
                 )
                 
-                # Process news for selected date and impact
-                try:
-                    run_forex_news_for_date(selected_date, impact)
-                    bot.send_message(call.message.chat.id, "✅ News sent to the channel!")
-                except Exception as e:
-                    logger.error(f"Error processing news for {selected_date}: {e}")
-                    bot.send_message(call.message.chat.id, "⚠️ Error fetching news.")
+                def fetch_and_send():
+                    try:
+                        target_date = datetime.strptime(date_str, "%Y-%m-%d")
+                        asyncio.run(process_forex_news(target_date, impact_level, False))
+                    except Exception as e:
+                        logger.error(f"Error fetching news for {date_str}: {e}")
+                        bot.send_message(call.message.chat.id, "❌ Error fetching news. Please try again.")
                 
-                # Clean up user data
-                user_selected_date.pop(user_id, None)
-                user_selected_impact.pop(user_id, None)
-            
+                import threading
+                threading.Thread(target=fetch_and_send, daemon=True).start()
+                
+            elif data.startswith("IMPACT_"):
+                impact_level = data[7:]
+                user_selected_impact[user_id] = impact_level
+                
+                impact_text = "🔴 High Impact" if impact_level == "high" else "🟠 Medium+ Impact"
+                bot.edit_message_text(
+                    f"✅ Impact level set to: {impact_text}\n\nUse /calendar to select a date or /today for current news.",
+                    call.message.chat.id,
+                    call.message.message_id
+                )
+                
             elif data.startswith("PREV_") or data.startswith("NEXT_"):
                 # Handle calendar navigation
                 direction, date_part = data.split("_", 1)
@@ -724,17 +747,17 @@ if bot:
                     else:
                         month += 1
                 
-                new_markup = TelegramHandlers.generate_calendar(year, month)
+                markup = TelegramHandlers.generate_calendar(year, month)
                 bot.edit_message_reply_markup(
                     call.message.chat.id,
                     call.message.message_id,
-                    reply_markup=new_markup
+                    reply_markup=markup
                 )
             
             bot.answer_callback_query(call.id)
             
         except Exception as e:
-            logger.error(f"Error in callback handler: {e}")
+            logger.error(f"Error handling callback {call.data}: {e}")
             bot.answer_callback_query(call.id, "❌ Error processing request")
 
 
@@ -742,102 +765,130 @@ if bot:
 # FLASK ROUTES
 # =============================================================================
 
-@app.route("/", methods=["GET"])
-def index():
-    """Health check endpoint."""
-    return "🤖 Forex bot is online!", 200
-
-
-@app.route("/ping", methods=["GET"])
-def ping():
-    """Ping endpoint for keep-alive functionality."""
-    logger.info("Received ping request")
-    return "OK", 200
-
-
-@app.route("/run", methods=["GET"])
-def run_forex_endpoint():
-    """API endpoint to trigger forex news processing."""
-    api_key = request.args.get("api_key")
-    if api_key != config.api_key:
-        logger.warning("Unauthorized access attempt")
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    debug = request.args.get("debug") == "1"
-    impact = request.args.get("impact", "high")
-    date_str = request.args.get("date")
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Handle Telegram webhook requests."""
+    if not bot:
+        logger.error("Webhook called but bot not initialized")
+        return jsonify({"error": "Bot not initialized"}), 500
     
     try:
-        if debug:
-            logger.info("Running in debug mode")
-            events = run_forex_news_for_date(date_str, impact, debug=True)
-            
-            return jsonify({
-                "date": date_str or datetime.now(timezone(config.timezone)).strftime("%Y-%m-%d"),
-                "impact": impact,
-                "count": len(events),
-                "events": events
-            }), 200
-        else:
-            logger.info("Triggering forex news processing")
-            run_forex_news_for_date(date_str, impact)
-            return f"✅ Forex news for {date_str or 'today'} triggered", 200
-            
+        json_str = request.get_data().decode('UTF-8')
+        update = telebot.types.Update.de_json(json_str)
+        bot.process_new_updates([update])
+        return jsonify({"status": "ok"})
     except Exception as e:
-        logger.error(f"Error in /run endpoint: {e}")
+        logger.error(f"Webhook error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    """Webhook endpoint for Telegram bot updates."""
-    if not bot:
-        logger.error("Webhook not available: Bot not initialized")
-        return "Bot not initialized", 503
+@app.route('/ping', methods=['GET'])
+def ping():
+    """Health check endpoint for Render.com."""
+    return jsonify({
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "bot_status": "initialized" if bot else "not_initialized"
+    })
+
+
+@app.route('/manual_scrape', methods=['POST'])
+def manual_scrape():
+    """Manual endpoint to trigger news scraping."""
+    # Verify API key
+    provided_key = request.headers.get('X-API-Key') or request.json.get('api_key')
+    if not provided_key or provided_key != config.api_key:
+        return jsonify({"error": "Invalid or missing API key"}), 401
     
     try:
-        update = telebot.types.Update.de_json(request.get_json())
-        bot.process_new_updates([update])
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return "Error", 500
-
-
-@app.route("/health", methods=["GET"])
-def health_check():
-    """Comprehensive health check endpoint for deployment monitoring."""
-    try:
-        health_status = {
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "port": config.port,
-            "bot_initialized": bot is not None,
-            "webhook_configured": config.render_hostname is not None,
-            "required_env_vars": {
-                "TELEGRAM_BOT_TOKEN": bool(config.telegram_bot_token),
-                "TELEGRAM_CHAT_ID": bool(config.telegram_chat_id),
-                "API_KEY": bool(config.api_key),
-                "RENDER_EXTERNAL_HOSTNAME": bool(config.render_hostname)
-            }
-        }
+        data = request.get_json() or {}
+        date_str = data.get('date')
+        impact_level = data.get('impact_level', 'high')
+        debug = data.get('debug', False)
         
-        # Check if any critical components are missing
-        missing_vars = config.validate_required_vars()
-        if missing_vars:
-            health_status["status"] = "degraded"
-            health_status["missing_vars"] = missing_vars
+        target_date = None
+        if date_str:
+            try:
+                target_date = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
         
-        status_code = 200 if health_status["status"] == "healthy" else 503
-        return jsonify(health_status), status_code
+        def scrape_async():
+            try:
+                return asyncio.run(process_forex_news(target_date, impact_level, debug))
+            except Exception as e:
+                logger.error(f"Manual scrape error: {e}")
+                return []
         
-    except Exception as e:
-        logger.error(f"Health check error: {e}")
+        import threading
+        result_container = []
+        
+        def run_scrape():
+            result_container.append(scrape_async())
+        
+        thread = threading.Thread(target=run_scrape)
+        thread.start()
+        thread.join(timeout=60)  # 60 second timeout
+        
+        if thread.is_alive():
+            return jsonify({"error": "Scraping timeout"}), 408
+        
+        result = result_container[0] if result_container else []
+        
         return jsonify({
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }), 500
+            "status": "success",
+            "date": date_str or datetime.now().strftime("%Y-%m-%d"),
+            "impact_level": impact_level,
+            "news_count": len(result),
+            "news_items": result if debug else "News sent to Telegram"
+        })
+        
+    except Exception as e:
+        logger.error(f"Manual scrape endpoint error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/status', methods=['GET'])
+def status():
+    """Get application status."""
+    missing_vars = config.validate_required_vars()
+    
+    return jsonify({
+        "status": "running",
+        "timestamp": datetime.now().isoformat(),
+        "config": {
+            "bot_initialized": bot is not None,
+            "chat_id_configured": bool(config.telegram_chat_id),
+            "openai_configured": bool(config.openai_api_key),
+            "render_hostname": config.render_hostname,
+            "port": config.port,
+            "timezone": config.timezone
+        },
+        "missing_env_vars": missing_vars,
+        "ready": len(missing_vars) == 0 and bot is not None
+    })
+
+
+@app.route('/', methods=['GET'])
+def home():
+    """Home page with basic information."""
+    return jsonify({
+        "service": "Forex News Telegram Bot",
+        "status": "running",
+        "endpoints": {
+            "/ping": "Health check",
+            "/status": "Application status",
+            "/manual_scrape": "Manual news scraping (POST, requires API key)",
+            "/webhook": "Telegram webhook (POST)"
+        },
+        "telegram_commands": {
+            "/start": "Show help message",
+            "/help": "Show available commands",
+            "/today": "Get today's forex news",
+            "/calendar": "Select date for news",
+            "/impact": "Set impact level filter"
+        }
+    })
 
 
 # =============================================================================
@@ -846,36 +897,33 @@ def health_check():
 
 def initialize_application():
     """Initialize the application with proper error handling."""
-    logger.info("Initializing Forex News Bot application")
-    logger.info(f"Application will run on host 0.0.0.0 port {config.port}")
+    logger.info("Starting Forex News Telegram Bot...")
     
-    # Validate environment variables
+    # Validate configuration
     missing_vars = config.validate_required_vars()
     if missing_vars:
-        logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
-        return False
+        logger.warning(f"Missing environment variables: {missing_vars}")
+        logger.warning("Some functionality may be limited")
     
-    logger.info("All required environment variables are set")
-    
-    # Set up webhook if bot is available
-    if bot:
-        logger.info("Bot initialized, scheduling webhook setup")
-        # Use async webhook setup to avoid blocking startup
+    # Set up webhook asynchronously
+    if bot and config.render_hostname:
         bot_manager.setup_webhook_async()
     else:
-        logger.warning("Skipping webhook setup: Bot not initialized")
+        logger.warning("Webhook setup skipped: Bot or hostname not configured")
     
-    return True
+    logger.info(f"Application initialized successfully on port {config.port}")
+    logger.info(f"Bot status: {'Initialized' if bot else 'Not initialized'}")
+    logger.info(f"Chat ID configured: {bool(config.telegram_chat_id)}")
+    logger.info(f"OpenAI configured: {bool(config.openai_api_key)}")
 
 
-# =============================================================================
-# MAIN ENTRY POINT
-# =============================================================================
-
-if __name__ == "__main__":
-    if initialize_application():
-        logger.info(f"Starting Flask application on host 0.0.0.0 port {config.port}")
-        app.run(host="0.0.0.0", port=config.port, debug=False)
-    else:
-        logger.error("Application initialization failed")
-        exit(1)
+if __name__ == '__main__':
+    initialize_application()
+    
+    # Run Flask app
+    app.run(
+        host='0.0.0.0',
+        port=config.port,
+        debug=False,
+        threaded=True
+    )
