@@ -130,7 +130,11 @@ class TelegramHandlers:
         ]
         markup.row(*nav_buttons)
         today_str = datetime.today().strftime('%Y-%m-%d')
-        markup.add(InlineKeyboardButton("📍 Today", callback_data=f"DAY_{today_str}"))
+        tomorrow_str = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+        markup.add(
+            InlineKeyboardButton("📍 Today", callback_data=f"DAY_{today_str}"),
+            InlineKeyboardButton("🔜 Tomorrow", callback_data=f"DAY_{tomorrow_str}")
+        )
         return markup
 
 
@@ -157,6 +161,10 @@ def register_handlers(bot, process_news: Callable, config: Config):
                 InlineKeyboardButton("🔴 High Impact", callback_data="IMPACT_high"),
                 InlineKeyboardButton("🟠 Medium+ Impact", callback_data="IMPACT_medium"),
             )
+            markup.add(
+                InlineKeyboardButton("🟡 Low Impact", callback_data="IMPACT_low"),
+                InlineKeyboardButton("🌈 All Impact", callback_data="IMPACT_all"),
+            )
             bot.send_message(message.chat.id, "📊 Select impact level for news filtering:", reply_markup=markup)
         except Exception as e:
             logger.error("Error showing impact selection: %s", e)
@@ -181,21 +189,44 @@ def register_handlers(bot, process_news: Callable, config: Config):
             logger.error("Error in today command: %s", e)
             bot.send_message(message.chat.id, "❌ Error processing request. Please try again.")
 
+    @bot.message_handler(commands=["tomorrow"])
+    def get_tomorrow_news(message):
+        try:
+            user_id = message.from_user.id
+            impact_level = user_selected_impact.get(user_id, "high")
+            bot.send_message(message.chat.id, "🔄 Fetching tomorrow's forex news...")
+
+            def fetch_and_send():
+                try:
+                    tomorrow = datetime.now() + timedelta(days=1)
+                    asyncio.run(process_news(tomorrow, impact_level, False))
+                except Exception as e:
+                    logger.error("Error fetching tomorrow's news: %s", e)
+                    bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
+
+            threading.Thread(target=fetch_and_send, daemon=True).start()
+        except Exception as e:
+            logger.error("Error in tomorrow command: %s", e)
+            bot.send_message(message.chat.id, "❌ Error processing request. Please try again.")
+
     @bot.message_handler(commands=["help", "start"])
     def show_help(message):
         help_text = (
             "🤖 **Forex News Bot Commands:**\n\n"
             "📅 /calendar - Select a specific date for news\n"
-            "📊 /impact - Choose impact level (High/Medium+)\n"
+            "📊 /impact - Choose impact level (High/Medium+/Low/All)\n"
             "📰 /today - Get today's forex news\n"
+            "🔜 /tomorrow - Get tomorrow's forex news\n"
             "❓ /help - Show this help message\n\n"
             "**How to use:**\n"
             "1. Use /impact to set your preferred news impact level\n"
-            "2. Use /calendar to select a specific date, or /today for current news\n"
+            "2. Use /calendar to select a specific date, /today for current news, or /tomorrow for next day\n"
             "3. The bot will fetch and analyze forex news from ForexFactory\n\n"
             "**Impact Levels:**\n"
             "🔴 High - Only high-impact news\n"
-            "🟠 Medium+ - Medium and high-impact news\n\n"
+            "🟠 Medium+ - Medium and high-impact news\n"
+            "🟡 Low - Only low-impact news\n"
+            "🌈 All - All impact levels\n\n"
             "**Note:** News analysis is powered by ChatGPT for market insights."
         )
         try:
@@ -235,9 +266,15 @@ def register_handlers(bot, process_news: Callable, config: Config):
             elif data.startswith("IMPACT_"):
                 impact_level = data[7:]
                 user_selected_impact[user_id] = impact_level
-                impact_text = "🔴 High Impact" if impact_level == "high" else "🟠 Medium+ Impact"
+                impact_text_map = {
+                    "high": "🔴 High Impact",
+                    "medium": "🟠 Medium+ Impact", 
+                    "low": "🟡 Low Impact",
+                    "all": "🌈 All Impact"
+                }
+                impact_text = impact_text_map.get(impact_level, "🔴 High Impact")
                 bot.edit_message_text(
-                    f"✅ Impact level set to: {impact_text}\n\nUse /calendar to select a date or /today for current news.",
+                    f"✅ Impact level set to: {impact_text}\n\nUse /calendar to select a date, /today for current news, or /tomorrow for next day.",
                     call.message.chat.id,
                     call.message.message_id,
                 )
