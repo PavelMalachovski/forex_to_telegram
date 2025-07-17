@@ -12,6 +12,7 @@ logging, and environment variable management.
 import os
 import logging
 import asyncio
+import time
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
@@ -101,21 +102,57 @@ class TelegramBotManager:
         except Exception as e:
             logger.error(f"Failed to initialize Telegram bot: {e}")
     
-    def setup_webhook(self):
-        """Set up webhook for Telegram bot."""
-        if not self.bot or not self.config.render_hostname:
-            logger.warning("Cannot set webhook: Bot not initialized or hostname not set")
-            return
+    def setup_webhook(self, max_retries: int = 5, initial_delay: int = 10):
+        """Set up webhook for Telegram bot with retry logic and exponential backoff."""
+        if not self.bot:
+            logger.warning("Cannot set webhook: Bot not initialized")
+            return False
         
-        try:
-            webhook_url = f"https://{self.config.render_hostname}/webhook"
-            logger.info(f"Setting webhook to {webhook_url}")
-            
-            self.bot.remove_webhook()
-            self.bot.set_webhook(url=webhook_url)
-            logger.info("Webhook successfully configured")
-        except Exception as e:
-            logger.error(f"Failed to set webhook: {e}")
+        if not self.config.render_hostname:
+            logger.warning("Cannot set webhook: RENDER_EXTERNAL_HOSTNAME not set")
+            return False
+        
+        webhook_url = f"https://{self.config.render_hostname}/webhook"
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Setting webhook attempt {attempt + 1}/{max_retries} to {webhook_url}")
+                
+                # Remove existing webhook first
+                self.bot.remove_webhook()
+                time.sleep(2)  # Brief pause between remove and set
+                
+                # Set new webhook
+                result = self.bot.set_webhook(url=webhook_url)
+                
+                if result:
+                    logger.info("Webhook successfully configured")
+                    return True
+                else:
+                    logger.warning(f"Webhook setup returned False on attempt {attempt + 1}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to set webhook on attempt {attempt + 1}: {e}")
+                
+                if attempt < max_retries - 1:
+                    delay = initial_delay * (2 ** attempt)  # Exponential backoff
+                    logger.info(f"Retrying webhook setup in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    logger.error("All webhook setup attempts failed")
+        
+        return False
+    
+    def setup_webhook_async(self):
+        """Set up webhook asynchronously after a delay to allow service to fully start."""
+        def delayed_webhook_setup():
+            time.sleep(30)  # Wait 30 seconds for service to be fully ready
+            self.setup_webhook()
+        
+        import threading
+        webhook_thread = threading.Thread(target=delayed_webhook_setup, daemon=True)
+        webhook_thread.start()
+        logger.info("Webhook setup scheduled for 30 seconds after startup")
 
 
 # Initialize bot manager
@@ -595,92 +632,110 @@ if bot:
                 "🤖 Forex News Bot Commands:\n\n"
                 "/today — Get today's forex news\n"
                 "/calendar — Choose a date to get past news\n"
-                "/help — Show this message"
+                "/help — Show this help message\n\n"
+                "The bot scrapes high-impact forex news from ForexFactory "
+                "and provides ChatGPT analysis for each event."
             )
-            bot.send_message(message.chat.id, help_text, parse_mode="MarkdownV2")
+            bot.send_message(message.chat.id, help_text, parse_mode='MarkdownV2')
         except Exception as e:
             logger.error(f"Error in /help: {e}")
-            bot.send_message(message.chat.id, "⚠️ Error showing help.")
+            plain_help = (
+                "🤖 Forex News Bot Commands:\n\n"
+                "/today — Get today's forex news\n"
+                "/calendar — Choose a date to get past news\n"
+                "/help — Show this help message\n\n"
+                "The bot scrapes high-impact forex news from ForexFactory "
+                "and provides ChatGPT analysis for each event."
+            )
+            bot.send_message(message.chat.id, plain_help)
 
-    @bot.callback_query_handler(func=lambda c: c.data.startswith(("DAY_", "NEXT_", "PREV_")))
-    def handle_calendar(c: CallbackQuery):
-        """Handle calendar navigation and date selection."""
+    @bot.callback_query_handler(func=lambda call: True)
+    def handle_callback(call: CallbackQuery):
+        """Handle inline keyboard callbacks."""
         try:
-            chat_id = c.message.chat.id
-            data = c.data
+            data = call.data
+            user_id = call.from_user.id
+            
+            if data == "IGNORE":
+                bot.answer_callback_query(call.id)
+                return
             
             if data.startswith("DAY_"):
                 date_str = data[4:]
-                
-                # Check if date is not too far in the past
-                if datetime.strptime(date_str, "%Y-%m-%d") < datetime.today() - timedelta(days=365):
-                    bot.send_message(chat_id, "⚠️ Date too far in the past.")
-                    return
-                
-                user_selected_date[chat_id] = date_str
+                user_selected_date[user_id] = date_str
                 
                 # Show impact level selection
                 markup = InlineKeyboardMarkup()
                 markup.add(
-                    InlineKeyboardButton("🔴 High Only", callback_data="IMPACT_high"),
-                    InlineKeyboardButton("🟠 Medium + High", callback_data="IMPACT_medium")
+                    InlineKeyboardButton("🔴 High Impact", callback_data="IMPACT_high"),
+                    InlineKeyboardButton("🟠 Medium+ Impact", callback_data="IMPACT_medium")
                 )
                 
                 bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=c.message.message_id,
-                    text=f"📅 Selected date: {date_str}\nSelect news impact level:",
+                    f"📅 Selected date: {date_str}\n\nChoose impact level:",
+                    call.message.chat.id,
+                    call.message.message_id,
                     reply_markup=markup
                 )
-            else:
-                # Handle navigation
-                prefix, year_month = data.split("_")
-                year, month = map(int, year_month.split("-"))
+            
+            elif data.startswith("IMPACT_"):
+                impact = data[7:]
+                selected_date = user_selected_date.get(user_id)
                 
-                if prefix == "NEXT":
-                    new_date = datetime(year, month, 15) + timedelta(days=31)
-                else:
-                    new_date = datetime(year, month, 1) - timedelta(days=1)
+                if not selected_date:
+                    bot.answer_callback_query(call.id, "❌ Date not selected")
+                    return
                 
-                bot.edit_message_reply_markup(
-                    chat_id=chat_id,
-                    message_id=c.message.message_id,
-                    reply_markup=TelegramHandlers.generate_calendar(new_date.year, new_date.month)
+                user_selected_impact[user_id] = impact
+                
+                bot.edit_message_text(
+                    f"📅 Date: {selected_date}\n📊 Impact: {impact}\n\n⏳ Fetching news...",
+                    call.message.chat.id,
+                    call.message.message_id
                 )
+                
+                # Process news for selected date and impact
+                try:
+                    run_forex_news_for_date(selected_date, impact)
+                    bot.send_message(call.message.chat.id, "✅ News sent to the channel!")
+                except Exception as e:
+                    logger.error(f"Error processing news for {selected_date}: {e}")
+                    bot.send_message(call.message.chat.id, "⚠️ Error fetching news.")
+                
+                # Clean up user data
+                user_selected_date.pop(user_id, None)
+                user_selected_impact.pop(user_id, None)
+            
+            elif data.startswith("PREV_") or data.startswith("NEXT_"):
+                # Handle calendar navigation
+                direction, date_part = data.split("_", 1)
+                year, month = map(int, date_part.split("-"))
+                
+                if direction == "PREV":
+                    if month == 1:
+                        year -= 1
+                        month = 12
+                    else:
+                        month -= 1
+                else:  # NEXT
+                    if month == 12:
+                        year += 1
+                        month = 1
+                    else:
+                        month += 1
+                
+                new_markup = TelegramHandlers.generate_calendar(year, month)
+                bot.edit_message_reply_markup(
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=new_markup
+                )
+            
+            bot.answer_callback_query(call.id)
+            
         except Exception as e:
-            logger.error(f"Error in handle_calendar: {e}")
-            bot.send_message(c.message.chat.id, "⚠️ Error processing calendar.")
-
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("IMPACT_"))
-    def handle_impact_selection(c: CallbackQuery):
-        """Handle impact level selection and trigger news fetching."""
-        try:
-            chat_id = c.message.chat.id
-            impact = c.data.split("_")[1]
-            date_str = user_selected_date.get(chat_id)
-            
-            if not date_str:
-                bot.send_message(chat_id, "⚠️ No date selected.")
-                return
-            
-            user_selected_impact[chat_id] = impact
-            
-            # Send confirmation message
-            date_escaped = escape_markdown_v2(date_str)
-            impact_escaped = escape_markdown_v2(impact)
-            bot.send_message(
-                chat_id,
-                f"🔄 Fetching Forex news for *{date_escaped}*\nImpact: *{impact_escaped}*",
-                parse_mode="MarkdownV2"
-            )
-            
-            # Fetch and send news
-            run_forex_news_for_date(date_str, impact)
-            bot.send_message(chat_id, "✅ News sent to the channel!")
-            
-        except Exception as e:
-            logger.error(f"Error in handle_impact_selection: {e}")
-            bot.send_message(chat_id, "⚠️ Error fetching news.")
+            logger.error(f"Error in callback handler: {e}")
+            bot.answer_callback_query(call.id, "❌ Error processing request")
 
 
 # =============================================================================
@@ -749,6 +804,42 @@ def webhook():
         return "Error", 500
 
 
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Comprehensive health check endpoint for deployment monitoring."""
+    try:
+        health_status = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "port": config.port,
+            "bot_initialized": bot is not None,
+            "webhook_configured": config.render_hostname is not None,
+            "required_env_vars": {
+                "TELEGRAM_BOT_TOKEN": bool(config.telegram_bot_token),
+                "TELEGRAM_CHAT_ID": bool(config.telegram_chat_id),
+                "API_KEY": bool(config.api_key),
+                "RENDER_EXTERNAL_HOSTNAME": bool(config.render_hostname)
+            }
+        }
+        
+        # Check if any critical components are missing
+        missing_vars = config.validate_required_vars()
+        if missing_vars:
+            health_status["status"] = "degraded"
+            health_status["missing_vars"] = missing_vars
+        
+        status_code = 200 if health_status["status"] == "healthy" else 503
+        return jsonify(health_status), status_code
+        
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
 # =============================================================================
 # APPLICATION STARTUP
 # =============================================================================
@@ -756,6 +847,7 @@ def webhook():
 def initialize_application():
     """Initialize the application with proper error handling."""
     logger.info("Initializing Forex News Bot application")
+    logger.info(f"Application will run on host 0.0.0.0 port {config.port}")
     
     # Validate environment variables
     missing_vars = config.validate_required_vars()
@@ -767,8 +859,9 @@ def initialize_application():
     
     # Set up webhook if bot is available
     if bot:
-        logger.info("Setting up Telegram webhook")
-        bot_manager.setup_webhook()
+        logger.info("Bot initialized, scheduling webhook setup")
+        # Use async webhook setup to avoid blocking startup
+        bot_manager.setup_webhook_async()
     else:
         logger.warning("Skipping webhook setup: Bot not initialized")
     
@@ -781,7 +874,7 @@ def initialize_application():
 
 if __name__ == "__main__":
     if initialize_application():
-        logger.info(f"Starting Flask application on port {config.port}")
+        logger.info(f"Starting Flask application on host 0.0.0.0 port {config.port}")
         app.run(host="0.0.0.0", port=config.port, debug=False)
     else:
         logger.error("Application initialization failed")
