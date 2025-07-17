@@ -60,7 +60,7 @@ playwright install
 _If your `requirements.txt` is stale:_
 
 ```bash
-pip install flask python-telegram-bot playwright beautifulsoup4 requests pytz apscheduler
+pip install flask pyTelegramBotAPI beautifulsoup4 playwright pytz gunicorn apscheduler requests
 playwright install
 ```
 
