@@ -1,157 +1,207 @@
-# Forex News Bot
+# Forex News Telegram Bot
 
-A lean Telegram bot that scrapes Forex news from Forex Factory and pushes it straight to your channel—no fluff, just the headlines you need.
-
-## Table of Contents
-
-- [Forex News Bot](#forex-news-bot)
-  - [Table of Contents](#table-of-contents)
-  - [Features](#features)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-    - [Clone \& Virtualenv](#clone--virtualenv)
-    - [Install Dependencies](#install-dependencies)
-  - [Configuration](#configuration)
-  - [Running Locally](#running-locally)
-  - [Deployment on Render.com](#deployment-on-rendercom)
-  - [Usage](#usage)
-    - [Telegram Commands](#telegram-commands)
-    - [API Endpoints](#api-endpoints)
-      - [Examples](#examples)
-  - [Testing](#testing)
-  - [Troubleshooting](#troubleshooting)
-  - [Contributing](#contributing)
-
----
+A Telegram bot that scrapes forex news from ForexFactory and sends high-impact news to a specified Telegram chat. The bot uses OpenAI's GPT to analyze and summarize news events.
 
 ## Features
 
-- **Date-picker interface** via Telegram calendar.
-- **Impact filtering**: high — or medium+high — because you don’t have time for the noise.
-- **Markdown-formatted** messages so headlines look sharp.
-- **Keep-alive**: APScheduler pings itself every 5 min on Render to dodge idling.
-- **Debug mode**: hit `/run?debug=1` and get raw JSON.
+- **Automated News Scraping**: Fetches forex news from ForexFactory
+- **AI-Powered Analysis**: Uses OpenAI GPT to analyze and summarize news
+- **Telegram Integration**: Sends formatted news updates to Telegram
+- **Impact Filtering**: Filters news by impact level (high, medium, low)
+- **Scheduled Updates**: Can be configured to run at specific times
+- **Web Interface**: Provides REST API endpoints for manual triggering and status checks
+- **Render.com Ready**: Configured for easy deployment on Render.com
 
-## Prerequisites
+## Setup
 
-- Python 3.9+
-- Telegram bot token (via BotFather)
-- Telegram channel/chat ID (e.g., `@YourChannel` or numeric ID)
-- (Optional) Render.com account for hassle-free hosting
+### Prerequisites
 
-## Installation
+- Python 3.11+
+- Telegram Bot Token (from @BotFather)
+- OpenAI API Key
+- Render.com account (for deployment)
 
-### Clone & Virtualenv
+### Environment Variables
 
-```bash
-git clone https://github.com/your-username/forex_to_telegram.git
-cd forex_to_telegram
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-```
-
-### Install Dependencies
+Create a `.env` file or set the following environment variables:
 
 ```bash
-pip install -r requirements.txt
-playwright install
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+OPENAI_API_KEY=your_openai_api_key
+API_KEY=your_custom_api_key_for_manual_endpoints
+RENDER_EXTERNAL_HOSTNAME=your-app-name.onrender.com  # For webhook setup
+PORT=10000  # Default port for the web server
 ```
 
-_If your `requirements.txt` is stale:_
+### Local Development
 
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/PavelMalachovski/forex_to_telegram.git
+   cd forex_to_telegram
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
+
+3. **Set environment variables** (create `.env` file or export them)
+
+4. **Run the application**:
+   ```bash
+   python app.py
+   ```
+
+5. **Test the bot**:
+   - Send `/start` to your bot in Telegram
+   - Use `/news` to get today's high-impact news
+   - Use `/news_all` to get all news regardless of impact
+
+## API Endpoints
+
+### Health Check
 ```bash
-pip install flask python-telegram-bot playwright beautifulsoup4 requests pytz apscheduler
-playwright install
+GET /ping
+```
+Returns basic health status and timestamp.
+
+### Application Status
+```bash
+GET /status
+```
+Returns detailed application status including configuration and missing environment variables.
+
+### Manual News Scraping
+```bash
+POST /manual_scrape
+Content-Type: application/json
+X-API-Key: your_api_key
+
+{
+  "date": "2024-01-15",  # Optional: specific date (YYYY-MM-DD)
+  "impact_level": "high", # Optional: high, medium, low, all
+  "debug": false          # Optional: return news data instead of sending to Telegram
+}
 ```
 
-## Configuration
-
-Create a `.env` file in the project root:
-
-```dotenv
-TELEGRAM_BOT_TOKEN=your-telegram-bot-token
-TELEGRAM_CHAT_ID=your-telegram-chat-id
-API_KEY=your-secret-api-key
-RENDER_EXTERNAL_HOSTNAME=your-render-hostname  # e.g., forex-to-telegram-1j5p.onrender.com
+### Telegram Webhook
+```bash
+POST /webhook
 ```
+Endpoint for Telegram webhook (automatically configured).
 
-- **TELEGRAM_BOT_TOKEN**: From BotFather.
-- **TELEGRAM_CHAT_ID**: Channel or group ID (must be bot-admin).
-- **API_KEY**: Guards the `/run` endpoint.
-- **RENDER_EXTERNAL_HOSTNAME**: Used for self-pings.
+## Usage
 
-## Running Locally
+### Telegram Commands
+
+- `/start` - Initialize the bot and get welcome message
+- `/news` - Get today's high-impact forex news
+- `/news_all` - Get all today's forex news regardless of impact
+- `/help` - Show available commands
+
+### Manual Testing
+
+Run the application locally:
 
 ```bash
 python app.py
 ```
 
-Open `http://0.0.0.0:5000` to check the bot’s heartbeat.
+Open `http://0.0.0.0:10000` to check the bot's heartbeat.
 
 ## Deployment on Render.com
 
 1. **New Web Service** → Link GitHub repo → Branch: `main` (or your feature branch).
 2. **Build Command**
    ```bash
-   pip install -r requirements.txt && playwright install
+   pip install -r requirements.txt && playwright install chromium
    ```
-3. **Start Command**
-   ```bash
-   python app.py
-   ```
-4. **Env Vars**: Paste the `.env` keys into Render’s dashboard.
-5. **Deploy** and watch it stay alive with self-pings.
+3. **Start Command**: Leave empty (uses Procfile)
+4. **Environment Variables**: Add all required variables listed above
+5. **Auto-Deploy**: Enable for automatic deployments on git push
 
-## Usage
+### Render.com Configuration
 
-### Telegram Commands
+- **Runtime**: Python 3.11
+- **Build Command**: `pip install -r requirements.txt && playwright install chromium`
+- **Start Command**: (empty - uses Procfile)
+- **Health Check Path**: `/ping`
+- **Port**: 10000 (automatically configured)
 
-- `/start` or `/help` — Show commands.
-- `/today` — Blast today’s high-impact news.
-- `/calendar` — Pick a date & impact level.
+## Project Structure
 
-### API Endpoints
-
-- `GET /`
-  Returns “Bot is online”
-- `GET /ping`
-  Self-ping endpoint for APScheduler.
-- `GET /run?api_key=<KEY>&date=<YYYY-MM-DD>&impact=<high|medium>&debug=<0|1>`
-  Scrapes news (defaults: today, high-impact).
-- `POST /webhook`
-  Telegram updates webhook.
-
-#### Examples
-
-```bash
-# Trigger news for April 1, 2025
-curl "https://<your-host>/run?api_key=KEY&date=2025-04-01"
-
-# Debug mode
-curl "https://<your-host>/run?api_key=KEY&debug=1&date=2025-04-01"
+```
+forex_to_telegram/
+├── app.py                 # Main Flask application
+├── bot/
+│   ├── __init__.py
+│   ├── config.py          # Configuration management
+│   ├── scraper.py         # ForexFactory scraping logic
+│   ├── telegram_handlers.py # Telegram bot handlers
+│   └── utils.py           # Utility functions
+├── tests/
+│   ├── test_scraper.py    # Scraper tests
+│   └── test_utils.py      # Utility tests
+├── Dockerfile             # Docker configuration
+├── Procfile              # Render.com process configuration
+├── requirements.txt      # Python dependencies
+└── README.md            # This file
 ```
 
-## Testing
+## Key Components
 
-1. **Logs** on Render should show:
-   ```
-   [INFO] All required environment variables are set
-   [INFO] Telegram bot initialized
-   [INFO] Webhook set to https://<your-host>/webhook
-   [INFO] APScheduler started (5 min ping)
-   ```
-2. **Webhook status**:
-   ```bash
-   curl "https://api.telegram.org/bot<token>/getWebhookInfo"
-   ```
-3. **Bot commands**: `/start`, `/today`, `/calendar` → verify messages.
+### ForexNewsScraper
+Handles web scraping of ForexFactory using Playwright with Chromium browser.
+
+### ChatGPTAnalyzer
+Integrates with OpenAI API to analyze and summarize forex news events.
+
+### TelegramBotManager
+Manages Telegram bot initialization, webhook setup, and message handling.
+
+### RenderKeepAlive
+Prevents Render.com free tier from sleeping by sending periodic requests.
 
 ## Troubleshooting
 
-- **Webhook fails**: Double-check `RENDER_EXTERNAL_HOSTNAME`.
-- **Scraping errors**: Ensure `playwright install` ran; inspect `scraper.log`.
-- **Telegram “403”**: Bot needs admin rights; verify `TELEGRAM_CHAT_ID`.
+### Common Issues
+
+1. **Bot not responding**: Check `TELEGRAM_BOT_TOKEN` and ensure bot is started with `/start`
+2. **No news received**: Verify `TELEGRAM_CHAT_ID` and check `/status` endpoint
+3. **OpenAI errors**: Ensure `OPENAI_API_KEY` is valid and has sufficient credits
+4. **Scraping failures**: ForexFactory might be blocking requests; check logs
+5. **Webhook issues**: Ensure `RENDER_EXTERNAL_HOSTNAME` matches your Render app URL
+
+### Debugging
+
+- Check application logs in Render.com dashboard
+- Use `/status` endpoint to verify configuration
+- Test manual scraping with `debug: true` parameter
+- Monitor `scraper.log` file for detailed scraping logs
+
+### Environment Variables Validation
+
+The application validates required environment variables on startup:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID` 
+- `API_KEY`
+
+Optional variables:
+- `OPENAI_API_KEY` (required for AI analysis)
+- `RENDER_EXTERNAL_HOSTNAME` (required for webhook setup)
+- `PORT` (defaults to 10000)
 
 ## Contributing
 
-Feel free to fork, tweak, and PR. For big changes, open an issue first.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License.
