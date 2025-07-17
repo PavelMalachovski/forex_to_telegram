@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
+from collections import defaultdict
 
 import requests
 from bs4 import BeautifulSoup
@@ -56,6 +57,7 @@ class ChatGPTAnalyzer:
             f"Time: {news_item['time']}\n"
             f"Currency: {news_item['currency']}\n"
             f"Event: {news_item['event']}\n"
+            f"Actual: {news_item.get('actual', 'N/A')}\n"
             f"Forecast: {news_item['forecast']}\n"
             f"Previous: {news_item['previous']}\n"
             "Provide a concise analysis (up to 100 words) of how this news might affect the market."
@@ -88,6 +90,7 @@ class ForexNewsScraper:
         self.config = config
         self.analyzer = analyzer
         self.base_url = "https://www.forexfactory.com/calendar"
+        self.last_seen_time = "N/A"  # Keep track of last seen time
 
     async def scrape_news(self, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> List[Dict[str, Any]]:
         if target_date is None:
@@ -130,13 +133,17 @@ class ForexNewsScraper:
         )
         logger.info("Found %s total rows", len(rows))
         news_items: List[Dict[str, str]] = []
-        last_time = "N/A"
+        
         for row in rows:
             if self._should_include_news(row, impact_level):
-                news_item = self._extract_news_data(row, last_time)
+                news_item = self._extract_news_data(row)
                 if news_item["time"] != "N/A":
-                    last_time = news_item["time"]
+                    self.last_seen_time = news_item["time"]
+                elif self.last_seen_time != "N/A":
+                    # Use last seen time if current row doesn't have time
+                    news_item["time"] = self.last_seen_time
                 news_items.append(news_item)
+        
         return news_items
 
     def _should_include_news(self, row, impact_level: str) -> bool:
@@ -154,13 +161,23 @@ class ForexNewsScraper:
             or (impact_level == 'high' and is_high)
         )
 
-    def _extract_news_data(self, row, last_time: str) -> Dict[str, str]:
+    def _extract_news_data(self, row) -> Dict[str, str]:
         time_elem = row.select_one('.calendar__time')
-        time = time_elem.text.strip() if time_elem else last_time
+        time = time_elem.text.strip() if time_elem else "N/A"
+        
+        # Extract actual value with proper handling
+        actual_elem = row.select_one('.calendar__actual')
+        actual = "N/A"
+        if actual_elem:
+            actual_text = actual_elem.text.strip()
+            if actual_text and actual_text != "":
+                actual = actual_text
+        
         return {
             "time": escape_markdown_v2(time),
             "currency": escape_markdown_v2(self._get_text_or_na(row, '.calendar__currency')),
             "event": escape_markdown_v2(self._get_text_or_na(row, '.calendar__event-title')),
+            "actual": escape_markdown_v2(actual),
             "forecast": escape_markdown_v2(self._get_text_or_na(row, '.calendar__forecast')),
             "previous": escape_markdown_v2(self._get_text_or_na(row, '.calendar__previous')),
         }
@@ -172,13 +189,14 @@ class ForexNewsScraper:
 
 
 class MessageFormatter:
-    """Handles formatting of news messages for Telegram."""
+    """Handles formatting of news messages for Telegram with grouping."""
 
     @staticmethod
     def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str) -> str:
         date_str = target_date.strftime("%d.%m.%Y")
         date_escaped = escape_markdown_v2(date_str)
         header = f"🗓️ Forex News for {date_escaped} \\(CET\\):\n\n"
+        
         if not news_items:
             impact_escaped = escape_markdown_v2(impact_level)
             return (
@@ -186,19 +204,62 @@ class MessageFormatter:
                 + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\n"
                 + "Please check the website for updates."
             )
+
+        # Group events by currency and time
+        grouped_events = MessageFormatter._group_events_by_currency_and_time(news_items)
+        
         message_parts = [header]
-        for item in news_items:
-            part = (
-                f"⏰ Time: {item['time']}\n"
-                f"💰 Currency: {item['currency']}\n"
-                f"📰 Event: {item['event']}\n"
-                f"📈 Forecast: {item['forecast']}\n"
-                f"📊 Previous: {item['previous']}\n"
-                f"🔍 ChatGPT Analysis: {item['analysis']}\n\n"
-                f"{'-' * 40}\n\n"
-            )
-            message_parts.append(part)
+        
+        for (currency, time), events in grouped_events.items():
+            # Currency and time header
+            currency_header = f"💰 **{currency}** \\- {time}\n"
+            message_parts.append(currency_header)
+            
+            for event in events:
+                part = (
+                    f"📰 Event: {event['event']}\n"
+                    f"📊 Actual: {event['actual']}\n"
+                    f"📈 Forecast: {event['forecast']}\n"
+                    f"📉 Previous: {event['previous']}\n"
+                    f"🔍 Analysis: {event['analysis']}\n\n"
+                )
+                message_parts.append(part)
+            
+            message_parts.append(f"{'-' * 30}\n\n")
+        
         return "".join(message_parts)
+
+    @staticmethod
+    def _group_events_by_currency_and_time(news_items: List[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
+        """Group events by currency and time for better presentation."""
+        grouped = defaultdict(list)
+        
+        for item in news_items:
+            # Remove escape characters for grouping key
+            currency = item['currency'].replace('\\', '')
+            time = item['time'].replace('\\', '')
+            key = (currency, time)
+            grouped[key].append(item)
+        
+        # Sort by time, then by currency
+        def sort_key(item):
+            currency, time = item[0]
+            # Convert time to sortable format (handle "All Day" and other formats)
+            if time == "N/A" or "All Day" in time:
+                return (99, currency)  # Put "All Day" events at the end
+            try:
+                # Try to parse time in various formats
+                if ":" in time:
+                    if "am" in time.lower() or "pm" in time.lower():
+                        time_obj = datetime.strptime(time, "%I:%M%p")
+                    else:
+                        time_obj = datetime.strptime(time, "%H:%M")
+                    return (time_obj.hour * 60 + time_obj.minute, currency)
+            except:
+                pass
+            return (50, currency)  # Default sorting for unparseable times
+        
+        return dict(sorted(grouped.items(), key=sort_key))
 
 
 async def process_forex_news(scraper: ForexNewsScraper, bot, config: Config, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> Optional[List[Dict[str, Any]]]:
