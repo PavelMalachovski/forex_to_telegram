@@ -1,6 +1,12 @@
 import os
 import logging
 
+# Database configuration
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", 
+    "postgresql://forex_user:0VGr0I02HDKaiVUVT21Z3ORnEiCBAYtC@dpg-d1mkim2li9vc73c7toi0-a:5432/forex_db_0myg?sslmode=require"
+)
+
 class Config:
     """Application configuration management."""
 
@@ -12,6 +18,7 @@ class Config:
         self.render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
         self.port = int(os.getenv("PORT", 10000))
         self.timezone = "Europe/Prague"
+        self.database_url = DATABASE_URL
 
     def validate_required_vars(self):
         required_vars = {

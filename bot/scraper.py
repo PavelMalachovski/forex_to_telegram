@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
@@ -12,6 +12,7 @@ from pytz import timezone
 
 from .config import Config
 from .utils import escape_markdown_v2, send_long_message
+from .database import get_db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -309,3 +310,125 @@ def run_forex_news_for_date(scraper: ForexNewsScraper, bot, config: Config, date
     except Exception as e:
         logger.exception("Error parsing date: %s", e)
         return []
+
+
+def scrape_and_send_forex_data(start_date: date, end_date: date):
+    """
+    Main function to scrape forex data for a date range and send to telegram.
+    Checks database first, scrapes if needed, stores in database, and sends to telegram.
+    """
+    from .telegram_handlers import get_bot
+    
+    config = Config()
+    bot = get_bot()
+    db_manager = get_db_manager()
+    
+    # Initialize scraper and analyzer
+    analyzer = ChatGPTAnalyzer(config.openai_api_key)
+    scraper = ForexNewsScraper(config, analyzer)
+    
+    logger.info(f"Processing forex data from {start_date} to {end_date}")
+    
+    # Check if data already exists in database
+    if db_manager.check_data_exists(start_date, end_date):
+        logger.info(f"Data already exists in database for {start_date} to {end_date}")
+        # Get existing data from database and send to telegram
+        events = db_manager.get_events_by_date_range(start_date, end_date)
+        if events:
+            _send_database_events_to_telegram(events, bot, config)
+        return
+    
+    # Scrape data for each date in the range
+    all_events_data = []
+    current_date = start_date
+    
+    while current_date <= end_date:
+        logger.info(f"Scraping data for {current_date}")
+        
+        # Convert date to datetime for scraper
+        target_datetime = datetime.combine(current_date, datetime.min.time())
+        target_datetime = timezone(config.timezone).localize(target_datetime)
+        
+        try:
+            # Scrape news for this date
+            news_items = asyncio.run(scraper.scrape_news(target_datetime, "high", debug=True))
+            
+            # Convert scraped data to database format
+            for item in news_items:
+                event_data = {
+                    'currencies': item['currency'].replace('\\', ''),  # Remove escape chars
+                    'date': current_date,
+                    'impact': 'high',  # We're only scraping high impact
+                    'actual': item['actual'].replace('\\', '') if item['actual'] != 'N/A' else None,
+                    'forecast': item['forecast'].replace('\\', '') if item['forecast'] != 'N/A' else None,
+                    'previous': item['previous'].replace('\\', '') if item['previous'] != 'N/A' else None,
+                    'event_title': item['event'].replace('\\', '')  # Remove escape chars
+                }
+                all_events_data.append(event_data)
+                
+        except Exception as e:
+            logger.error(f"Error scraping data for {current_date}: {e}")
+            
+        current_date += timedelta(days=1)
+    
+    # Store all scraped data in database
+    if all_events_data:
+        try:
+            db_manager.insert_events(all_events_data)
+            logger.info(f"Stored {len(all_events_data)} events in database")
+        except Exception as e:
+            logger.error(f"Error storing events in database: {e}")
+    
+    # Get the stored data from database and send to telegram
+    events = db_manager.get_events_by_date_range(start_date, end_date)
+    if events:
+        _send_database_events_to_telegram(events, bot, config)
+    else:
+        logger.warning("No events found to send to telegram")
+
+
+def _send_database_events_to_telegram(events, bot, config: Config):
+    """Send events from database to telegram with proper formatting"""
+    if not bot or not config.telegram_chat_id:
+        logger.error("Cannot send to telegram: Bot or CHAT_ID not configured")
+        return
+        
+    try:
+        # Group events by date
+        events_by_date = defaultdict(list)
+        for event in events:
+            events_by_date[event.date].append(event)
+        
+        # Send message for each date
+        for event_date, date_events in sorted(events_by_date.items()):
+            # Convert database events to the format expected by MessageFormatter
+            formatted_events = []
+            for event in date_events:
+                formatted_event = {
+                    'time': escape_markdown_v2('All Day'),  # Database doesn't store time
+                    'currency': escape_markdown_v2(event.currencies or 'N/A'),
+                    'event': escape_markdown_v2(event.event_title or 'N/A'),
+                    'actual': escape_markdown_v2(event.actual or 'N/A'),
+                    'forecast': escape_markdown_v2(event.forecast or 'N/A'),
+                    'previous': escape_markdown_v2(event.previous or 'N/A'),
+                    'analysis': escape_markdown_v2('Analysis from database')
+                }
+                formatted_events.append(formatted_event)
+            
+            # Create datetime object for formatting
+            target_datetime = datetime.combine(event_date, datetime.min.time())
+            target_datetime = timezone(config.timezone).localize(target_datetime)
+            
+            # Format and send message
+            message = MessageFormatter.format_news_message(formatted_events, target_datetime, 'high')
+            if message.strip():
+                send_long_message(bot, config.telegram_chat_id, message)
+                logger.info(f"Sent telegram message for {event_date}")
+            
+    except Exception as e:
+        logger.error(f"Error sending events to telegram: {e}")
+        try:
+            error_msg = escape_markdown_v2(f"⚠️ Error sending forex data: {str(e)}")
+            bot.send_message(config.telegram_chat_id, error_msg, parse_mode='MarkdownV2')
+        except Exception:
+            logger.exception("Failed to send error notification")

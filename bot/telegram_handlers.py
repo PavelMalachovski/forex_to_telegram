@@ -2,13 +2,15 @@ import logging
 import asyncio
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Callable
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from .config import Config
+from .database import get_db_manager
+from .scraper import scrape_and_send_forex_data
 
 logger = logging.getLogger(__name__)
 
@@ -173,13 +175,12 @@ def register_handlers(bot, process_news: Callable, config: Config):
     @bot.message_handler(commands=["today"])
     def get_today_news(message):
         try:
-            user_id = message.from_user.id
-            impact_level = user_selected_impact.get(user_id, "high")
             bot.send_message(message.chat.id, "🔄 Fetching today's forex news...")
 
             def fetch_and_send():
                 try:
-                    asyncio.run(process_news(None, impact_level, False))
+                    today = date.today()
+                    scrape_and_send_forex_data(today, today)
                 except Exception as e:
                     logger.error("Error fetching today's news: %s", e)
                     bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
@@ -192,14 +193,12 @@ def register_handlers(bot, process_news: Callable, config: Config):
     @bot.message_handler(commands=["tomorrow"])
     def get_tomorrow_news(message):
         try:
-            user_id = message.from_user.id
-            impact_level = user_selected_impact.get(user_id, "high")
             bot.send_message(message.chat.id, "🔄 Fetching tomorrow's forex news...")
 
             def fetch_and_send():
                 try:
-                    tomorrow = datetime.now() + timedelta(days=1)
-                    asyncio.run(process_news(tomorrow, impact_level, False))
+                    tomorrow = date.today() + timedelta(days=1)
+                    scrape_and_send_forex_data(tomorrow, tomorrow)
                 except Exception as e:
                     logger.error("Error fetching tomorrow's news: %s", e)
                     bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
@@ -247,7 +246,6 @@ def register_handlers(bot, process_news: Callable, config: Config):
             if data.startswith("DAY_"):
                 date_str = data[4:]
                 user_selected_date[user_id] = date_str
-                impact_level = user_selected_impact.get(user_id, "high")
                 bot.edit_message_text(
                     f"🔄 Fetching forex news for {date_str}...",
                     call.message.chat.id,
@@ -256,8 +254,8 @@ def register_handlers(bot, process_news: Callable, config: Config):
 
                 def fetch_and_send():
                     try:
-                        target_date = datetime.strptime(date_str, "%Y-%m-%d")
-                        asyncio.run(process_news(target_date, impact_level, False))
+                        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                        scrape_and_send_forex_data(target_date, target_date)
                     except Exception as e:
                         logger.error("Error fetching news for %s: %s", date_str, e)
                         bot.send_message(call.message.chat.id, "❌ Error fetching news. Please try again.")
@@ -303,3 +301,44 @@ def register_handlers(bot, process_news: Callable, config: Config):
         except Exception as e:
             logger.error("Error handling callback %s: %s", call.data, e)
             bot.answer_callback_query(call.id)
+
+
+# Global bot instance
+_bot_instance = None
+
+def get_bot():
+    """Get the global bot instance"""
+    global _bot_instance
+    if _bot_instance is None:
+        config = Config()
+        bot_manager = TelegramBotManager(config)
+        _bot_instance = bot_manager.bot
+    return _bot_instance
+
+def initialize_bot_with_scheduler():
+    """Initialize bot and start scheduler"""
+    from .scheduler import start_scheduler
+    
+    config = Config()
+    bot_manager = TelegramBotManager(config)
+    
+    if bot_manager.bot:
+        # Register handlers with the new database-integrated functions
+        register_handlers(bot_manager.bot, None, config)  # process_news not needed anymore
+        
+        # Start the scheduler for daily scraping
+        start_scheduler()
+        
+        # Setup webhook
+        bot_manager.setup_webhook_async()
+        
+        # Setup keep-alive
+        keep_alive = RenderKeepAlive(config)
+        
+        global _bot_instance
+        _bot_instance = bot_manager.bot
+        
+        return bot_manager.bot
+    else:
+        logger.error("Failed to initialize bot")
+        return None
