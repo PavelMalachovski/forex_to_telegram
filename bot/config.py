@@ -19,6 +19,37 @@ class Config:
         self.port = int(os.getenv("PORT", 10000))
         self.timezone = "Europe/Prague"
         self.database_url = DATABASE_URL
+        
+        # Multi-source configuration
+        self.news_sources = self._load_news_sources_config()
+    
+    def _load_news_sources_config(self):
+        """Load news sources configuration."""
+        return {
+            'forex_factory': {
+                'enabled': os.getenv("FOREX_FACTORY_ENABLED", "true").lower() == "true",
+                'priority': int(os.getenv("FOREX_FACTORY_PRIORITY", "1")),
+            },
+            'alpha_vantage': {
+                'enabled': os.getenv("ALPHA_VANTAGE_ENABLED", "true").lower() == "true",
+                'priority': int(os.getenv("ALPHA_VANTAGE_PRIORITY", "2")),
+                'api_key': os.getenv("ALPHA_VANTAGE_API_KEY"),
+            },
+            'fmp': {
+                'enabled': os.getenv("FMP_ENABLED", "true").lower() == "true",
+                'priority': int(os.getenv("FMP_PRIORITY", "3")),
+                'api_key': os.getenv("FMP_API_KEY"),
+            },
+            'newsapi': {
+                'enabled': os.getenv("NEWSAPI_ENABLED", "true").lower() == "true",
+                'priority': int(os.getenv("NEWSAPI_PRIORITY", "4")),
+                'api_key': os.getenv("NEWSAPI_API_KEY"),
+            },
+            'rss': {
+                'enabled': os.getenv("RSS_ENABLED", "true").lower() == "true",
+                'priority': int(os.getenv("RSS_PRIORITY", "5")),
+            }
+        }
 
     def validate_required_vars(self):
         required_vars = {

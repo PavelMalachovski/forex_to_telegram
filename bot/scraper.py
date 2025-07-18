@@ -1368,19 +1368,24 @@ def run_forex_news_for_date(scraper: ForexNewsScraper, bot, config: Config, date
 def scrape_and_send_forex_data(start_date: date, end_date: date):
     """
     Main function to scrape forex data for a date range and send to telegram.
+    Uses multi-source approach with fallback system.
     Checks database first, scrapes if needed, stores in database, and sends to telegram.
     """
     from .telegram_handlers import get_bot
+    from .multi_source_scraper import MultiSourceForexScraper
     
     config = Config()
     bot = get_bot()
     db_manager = get_db_manager()
     
-    # Initialize scraper and analyzer
-    analyzer = ChatGPTAnalyzer(config.openai_api_key)
-    scraper = ForexNewsScraper(config, analyzer)
+    # Initialize multi-source scraper
+    multi_scraper = MultiSourceForexScraper(config)
     
-    logger.info(f"Processing forex data from {start_date} to {end_date}")
+    logger.info(f"Processing forex data from {start_date} to {end_date} using multi-source approach")
+    
+    # Log source status
+    source_status = multi_scraper.get_source_status()
+    logger.info(f"Available sources: {source_status['available_sources']}/{source_status['total_sources']}")
     
     # Check if data already exists in database
     if db_manager.check_data_exists(start_date, end_date):
@@ -1391,36 +1396,69 @@ def scrape_and_send_forex_data(start_date: date, end_date: date):
             _send_database_events_to_telegram(events, bot, config)
         return
     
-    # Scrape data for each date in the range
+    # Scrape data for each date in the range using multi-source approach
     all_events_data = []
     current_date = start_date
     
     while current_date <= end_date:
-        logger.info(f"Scraping data for {current_date}")
+        logger.info(f"Multi-source scraping data for {current_date}")
         
         # Convert date to datetime for scraper
         target_datetime = datetime.combine(current_date, datetime.min.time())
         target_datetime = timezone(config.timezone).localize(target_datetime)
         
         try:
-            # Scrape news for this date
-            news_items = asyncio.run(scraper.scrape_news(target_datetime, "high", debug=True))
+            # Scrape news for this date using multi-source approach
+            news_items = asyncio.run(multi_scraper.scrape_news(target_datetime, "high", debug=True))
             
-            # Convert scraped data to database format
-            for item in news_items:
-                event_data = {
-                    'currencies': item['currency'].replace('\\', ''),  # Remove escape chars
-                    'date': current_date,
-                    'impact': 'high',  # We're only scraping high impact
-                    'actual': item['actual'].replace('\\', '') if item['actual'] != 'N/A' else None,
-                    'forecast': item['forecast'].replace('\\', '') if item['forecast'] != 'N/A' else None,
-                    'previous': item['previous'].replace('\\', '') if item['previous'] != 'N/A' else None,
-                    'event_title': item['event'].replace('\\', '')  # Remove escape chars
-                }
-                all_events_data.append(event_data)
+            if news_items:
+                logger.info(f"Multi-source scraper found {len(news_items)} events for {current_date}")
+                
+                # Convert scraped data to database format
+                for item in news_items:
+                    event_data = {
+                        'currencies': item['currency'].replace('\\', ''),  # Remove escape chars
+                        'date': current_date,
+                        'impact': item.get('impact', 'high'),
+                        'actual': item['actual'].replace('\\', '') if item['actual'] != 'N/A' else None,
+                        'forecast': item['forecast'].replace('\\', '') if item['forecast'] != 'N/A' else None,
+                        'previous': item['previous'].replace('\\', '') if item['previous'] != 'N/A' else None,
+                        'event_title': item['event'].replace('\\', ''),  # Remove escape chars
+                        'source': item.get('source', 'Unknown')  # Track source
+                    }
+                    all_events_data.append(event_data)
+            else:
+                logger.warning(f"No events found for {current_date} from any source")
                 
         except Exception as e:
-            logger.error(f"Error scraping data for {current_date}: {e}")
+            logger.error(f"Error in multi-source scraping for {current_date}: {e}")
+            
+            # Fallback to original ForexFactory scraper if multi-source fails
+            logger.info(f"Attempting fallback to ForexFactory for {current_date}")
+            try:
+                analyzer = ChatGPTAnalyzer(config.openai_api_key)
+                ff_scraper = ForexNewsScraper(config, analyzer)
+                fallback_items = asyncio.run(ff_scraper.scrape_news(target_datetime, "high", debug=True))
+                
+                if fallback_items:
+                    logger.info(f"Fallback scraper found {len(fallback_items)} events")
+                    for item in fallback_items:
+                        event_data = {
+                            'currencies': item['currency'].replace('\\', ''),
+                            'date': current_date,
+                            'impact': 'high',
+                            'actual': item['actual'].replace('\\', '') if item['actual'] != 'N/A' else None,
+                            'forecast': item['forecast'].replace('\\', '') if item['forecast'] != 'N/A' else None,
+                            'previous': item['previous'].replace('\\', '') if item['previous'] != 'N/A' else None,
+                            'event_title': item['event'].replace('\\', ''),
+                            'source': 'ForexFactory_Fallback'
+                        }
+                        all_events_data.append(event_data)
+                else:
+                    logger.warning(f"Fallback scraper also found no events for {current_date}")
+                    
+            except Exception as fallback_e:
+                logger.error(f"Fallback scraping also failed for {current_date}: {fallback_e}")
             
         current_date += timedelta(days=1)
     
@@ -1429,6 +1467,17 @@ def scrape_and_send_forex_data(start_date: date, end_date: date):
         try:
             db_manager.insert_events(all_events_data)
             logger.info(f"Stored {len(all_events_data)} events in database")
+            
+            # Log source breakdown
+            source_counts = {}
+            for event in all_events_data:
+                source = event.get('source', 'Unknown')
+                source_counts[source] = source_counts.get(source, 0) + 1
+            
+            logger.info("Events stored by source:")
+            for source, count in source_counts.items():
+                logger.info(f"  - {source}: {count} events")
+                
         except Exception as e:
             logger.error(f"Error storing events in database: {e}")
     
@@ -1438,6 +1487,45 @@ def scrape_and_send_forex_data(start_date: date, end_date: date):
         _send_database_events_to_telegram(events, bot, config)
     else:
         logger.warning("No events found to send to telegram")
+        
+        # Send status message about source availability
+        if bot and config.telegram_chat_id:
+            try:
+                status_msg = _create_source_status_message(multi_scraper.get_source_status())
+                bot.send_message(config.telegram_chat_id, status_msg, parse_mode='MarkdownV2')
+            except Exception as e:
+                logger.error(f"Failed to send source status message: {e}")
+
+
+def _create_source_status_message(source_status: Dict[str, Any]) -> str:
+    """Create a formatted status message about news sources."""
+    from .utils import escape_markdown_v2
+    
+    total = source_status['total_sources']
+    available = source_status['available_sources']
+    last_successful = source_status.get('last_successful_source', 'None')
+    
+    message = f"🔍 *Forex News Sources Status*\n\n"
+    message += f"📊 Available: {available}/{total} sources\n"
+    message += f"✅ Last successful: {escape_markdown_v2(last_successful)}\n\n"
+    
+    message += "*Source Details:*\n"
+    for source_info in source_status['sources']:
+        name = source_info['name']
+        enabled = "✅" if source_info['enabled'] else "❌"
+        available_icon = "🟢" if source_info['available'] else "🔴"
+        healthy_icon = "💚" if source_info['healthy'] else "💔"
+        
+        status_line = f"{enabled} {available_icon} {healthy_icon} {escape_markdown_v2(name)}"
+        
+        if source_info['consecutive_failures'] > 0:
+            status_line += f" \\({source_info['consecutive_failures']} failures\\)"
+        
+        message += f"{status_line}\n"
+    
+    message += f"\n⚠️ All sources currently unavailable\\. Please check configuration or try again later\\."
+    
+    return message
 
 
 def _send_database_events_to_telegram(events, bot, config: Config):
