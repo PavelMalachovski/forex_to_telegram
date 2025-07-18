@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import random
+import time
+import subprocess
+import tempfile
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
-import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -66,93 +68,244 @@ class ChatGPTAnalyzer:
         )
 
 
-@asynccontextmanager
-async def get_browser_page():
-    """Enhanced browser context with comprehensive anti-bot detection bypass."""
-    async with async_playwright() as playwright:
+class CloudflareBypassError(Exception):
+    """Custom exception for Cloudflare bypass failures."""
+    pass
+
+
+class ForexNewsScraper:
+    """Enhanced ForexFactory scraper with advanced anti-bot bypass techniques."""
+    
+    def __init__(self, config: Config, analyzer: ChatGPTAnalyzer):
+        self.config = config
+        self.analyzer = analyzer
+        self.base_url = "https://www.forexfactory.com/calendar"
+        self.last_seen_time = "N/A"
+        self.max_retries = 3
+        self.base_delay = 2
+        
+        # Enhanced user agents pool
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
+        ]
+
+    async def scrape_news(self, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> List[Dict[str, Any]]:
+        """Main scraping method with multiple bypass strategies."""
+        if target_date is None:
+            target_date = datetime.now(timezone(self.config.timezone))
+        
+        url = self._build_url(target_date)
+        logger.info(f"Fetching URL: {url}")
+        
+        # Strategy 1: Advanced curl-based scraping (most reliable)
         try:
-            # Enhanced browser launch arguments for stealth
-            browser = await playwright.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-gpu',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-background-networking',
-                    '--disable-background-timer-throttling',
-                    '--disable-renderer-backgrounding',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-client-side-phishing-detection',
-                    '--disable-component-extensions-with-background-pages',
-                    '--disable-default-apps',
-                    '--disable-extensions',
-                    '--disable-features=TranslateUI',
-                    '--disable-hang-monitor',
-                    '--disable-ipc-flooding-protection',
-                    '--disable-popup-blocking',
-                    '--disable-prompt-on-repost',
-                    '--disable-sync',
-                    '--force-color-profile=srgb',
-                    '--metrics-recording-only',
-                    '--no-default-browser-check',
-                    '--no-pings',
-                    '--password-store=basic',
-                    '--use-mock-keychain',
-                    '--disable-blink-features=AutomationControlled'
-                ]
+            logger.info("Attempting Strategy 1: Advanced curl-based scraping")
+            news_items = await self._scrape_with_advanced_curl(url, impact_level)
+            if news_items:
+                logger.info(f"Strategy 1 successful: {len(news_items)} items found")
+                for item in news_items:
+                    item["analysis"] = self.analyzer.analyze_news(item)
+                return news_items
+        except Exception as e:
+            logger.warning(f"Strategy 1 failed: {e}")
+        
+        # Strategy 2: Enhanced HTTP with session management
+        try:
+            logger.info("Attempting Strategy 2: Enhanced HTTP session")
+            news_items = await self._scrape_with_enhanced_http(url, impact_level)
+            if news_items:
+                logger.info(f"Strategy 2 successful: {len(news_items)} items found")
+                for item in news_items:
+                    item["analysis"] = self.analyzer.analyze_news(item)
+                return news_items
+        except Exception as e:
+            logger.warning(f"Strategy 2 failed: {e}")
+        
+        # Strategy 3: Advanced Playwright with timeout
+        try:
+            logger.info("Attempting Strategy 3: Advanced Playwright")
+            news_items = await asyncio.wait_for(
+                self._scrape_with_advanced_playwright(url, impact_level, debug),
+                timeout=90  # 90 second timeout
             )
-            
-            # Create new page with enhanced stealth configuration
-            page = await browser.new_page()
-            
-            # Remove webdriver traces
-            await page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined,
-                });
-                
-                // Remove automation indicators
-                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-                
-                // Mock plugins
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5],
-                });
-                
-                // Mock languages
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en'],
-                });
-                
-                // Mock permissions
-                const originalQuery = window.navigator.permissions.query;
-                window.navigator.permissions.query = (parameters) => (
-                    parameters.name === 'notifications' ?
-                        Promise.resolve({ state: Notification.permission }) :
-                        originalQuery(parameters)
-                );
-            """)
-            
-            # Set comprehensive headers with randomization
-            user_agents = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            if news_items:
+                logger.info(f"Strategy 3 successful: {len(news_items)} items found")
+                for item in news_items:
+                    item["analysis"] = self.analyzer.analyze_news(item)
+                return news_items
+        except asyncio.TimeoutError:
+            logger.warning("Strategy 3 timed out")
+        except Exception as e:
+            logger.warning(f"Strategy 3 failed: {e}")
+        
+        logger.error("All scraping strategies failed")
+        return []
+
+    async def _scrape_with_advanced_curl(self, url: str, impact_level: str) -> List[Dict[str, Any]]:
+        """Strategy 1: Advanced curl with multiple techniques."""
+        techniques = [
+            self._curl_with_browser_simulation,
+            self._curl_with_mobile_headers,
+            self._curl_with_minimal_headers
+        ]
+        
+        for i, technique in enumerate(techniques):
+            try:
+                logger.info(f"Trying curl technique {i+1}")
+                result = await technique(url, impact_level)
+                if result:
+                    return result
+            except Exception as e:
+                logger.warning(f"Curl technique {i+1} failed: {e}")
+                await asyncio.sleep(random.uniform(2, 5))
+        
+        raise CloudflareBypassError("All curl techniques failed")
+
+    async def _curl_with_browser_simulation(self, url: str, impact_level: str) -> List[Dict[str, Any]]:
+        """Curl with full browser simulation."""
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.html', delete=False) as temp_file:
+            temp_path = temp_file.name
+        
+        try:
+            curl_cmd = [
+                'curl', '-s', '-L', '--compressed', '--max-time', '45',
+                '-H', f'User-Agent: {random.choice(self.user_agents)}',
+                '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                '-H', 'Accept-Language: en-US,en;q=0.9',
+                '-H', 'Accept-Encoding: gzip, deflate, br',
+                '-H', 'Cache-Control: no-cache',
+                '-H', 'Pragma: no-cache',
+                '-H', 'Sec-Fetch-Dest: document',
+                '-H', 'Sec-Fetch-Mode: navigate',
+                '-H', 'Sec-Fetch-Site: cross-site',
+                '-H', 'Sec-Fetch-User: ?1',
+                '-H', 'Upgrade-Insecure-Requests: 1',
+                '-H', 'Connection: keep-alive',
+                '-b', 'session_id=abc123; preferences=en',  # Add some cookies
+                '-o', temp_path,
+                url
             ]
             
-            await page.set_extra_http_headers({
-                'User-Agent': random.choice(user_agents),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            process = await asyncio.create_subprocess_exec(
+                *curl_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                raise Exception(f"Curl failed: {stderr.decode()}")
+            
+            with open(temp_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            logger.info(f"Downloaded {len(content)} characters")
+            
+            if len(content) < 1000 or self._is_blocked_content(content):
+                raise Exception("Content blocked or too short")
+            
+            return self._parse_news_from_html(content, impact_level)
+            
+        finally:
+            import os
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    async def _curl_with_mobile_headers(self, url: str, impact_level: str) -> List[Dict[str, Any]]:
+        """Curl with mobile browser headers."""
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.html', delete=False) as temp_file:
+            temp_path = temp_file.name
+        
+        try:
+            curl_cmd = [
+                'curl', '-s', '-L', '--compressed', '--max-time', '30',
+                '-H', 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+                '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                '-H', 'Accept-Language: en-US,en;q=0.5',
+                '-H', 'Accept-Encoding: gzip, deflate',
+                '-H', 'Connection: keep-alive',
+                '-o', temp_path,
+                url
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *curl_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                raise Exception(f"Mobile curl failed: {stderr.decode()}")
+            
+            with open(temp_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            if len(content) < 1000 or self._is_blocked_content(content):
+                raise Exception("Mobile content blocked")
+            
+            return self._parse_news_from_html(content, impact_level)
+            
+        finally:
+            import os
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    async def _curl_with_minimal_headers(self, url: str, impact_level: str) -> List[Dict[str, Any]]:
+        """Curl with minimal headers to avoid detection."""
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.html', delete=False) as temp_file:
+            temp_path = temp_file.name
+        
+        try:
+            curl_cmd = [
+                'curl', '-s', '-L', '--max-time', '30',
+                '-H', 'User-Agent: curl/7.68.0',
+                '-o', temp_path,
+                url
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *curl_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                raise Exception(f"Minimal curl failed: {stderr.decode()}")
+            
+            with open(temp_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            if len(content) < 1000 or self._is_blocked_content(content):
+                raise Exception("Minimal content blocked")
+            
+            return self._parse_news_from_html(content, impact_level)
+            
+        finally:
+            import os
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    async def _scrape_with_enhanced_http(self, url: str, impact_level: str) -> List[Dict[str, Any]]:
+        """Strategy 2: Enhanced HTTP with session management."""
+        session = requests.Session()
+        
+        try:
+            # First, establish session with main page
+            await asyncio.sleep(random.uniform(1, 3))
+            
+            session.headers.update({
+                'User-Agent': random.choice(self.user_agents),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Accept-Encoding': 'gzip, deflate, br',
                 'DNT': '1',
@@ -165,165 +318,254 @@ async def get_browser_page():
                 'Cache-Control': 'max-age=0'
             })
             
-            # Set viewport to common resolution
-            await page.set_viewport_size({"width": 1366, "height": 768})
+            # Visit main page first
+            main_response = session.get('https://www.forexfactory.com', timeout=30)
+            logger.info(f"Main page status: {main_response.status_code}")
+            
+            # Wait before accessing calendar
+            await asyncio.sleep(random.uniform(3, 6))
+            
+            # Now try calendar
+            response = session.get(url, timeout=30)
+            
+            if response.status_code != 200:
+                raise Exception(f"HTTP {response.status_code}")
+            
+            if len(response.text) < 1000 or self._is_blocked_content(response.text):
+                raise Exception("Content blocked")
+            
+            return self._parse_news_from_html(response.text, impact_level)
+            
+        finally:
+            session.close()
+
+    async def _scrape_with_advanced_playwright(self, url: str, impact_level: str, debug: bool = False) -> List[Dict[str, Any]]:
+        """Strategy 3: Advanced Playwright with comprehensive stealth."""
+        async with self._get_stealth_browser_context() as page:
+            # Navigate with human-like behavior
+            await self._human_navigate(page, url)
+            
+            # Handle challenges
+            if await self._detect_and_handle_challenges(page):
+                logger.info("Challenges handled, waiting for content...")
+                await asyncio.sleep(random.uniform(5, 10))
+            
+            # Get content
+            content = await page.content()
+            
+            if debug:
+                await page.screenshot(path=f'/tmp/forex_playwright_{int(time.time())}.png', full_page=True)
+                with open('/tmp/forex_playwright_content.html', 'w', encoding='utf-8') as f:
+                    f.write(content)
+            
+            if self._is_blocked_content(content):
+                raise CloudflareBypassError("Still blocked after challenges")
+            
+            return self._parse_news_from_html(content, impact_level)
+
+    @asynccontextmanager
+    async def _get_stealth_browser_context(self):
+        """Create advanced stealth browser context."""
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--no-first-run',
+                    '--disable-default-apps',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-background-timer-throttling',
+                    '--disable-renderer-backgrounding',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-hang-monitor',
+                    '--disable-popup-blocking',
+                    '--disable-prompt-on-repost',
+                    '--disable-sync',
+                    '--metrics-recording-only',
+                    '--no-pings',
+                    '--password-store=basic',
+                    '--use-mock-keychain',
+                    '--force-color-profile=srgb'
+                ]
+            )
+            
+            context = await browser.new_context(
+                viewport={'width': 1366, 'height': 768},
+                user_agent=random.choice(self.user_agents),
+                locale='en-US',
+                timezone_id='America/New_York'
+            )
+            
+            # Advanced stealth script
+            await context.add_init_script("""
+                // Remove webdriver traces
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                
+                // Remove automation indicators
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                
+                // Mock plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [
+                        {name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer'},
+                        {name: 'Chromium PDF Plugin', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai'}
+                    ],
+                });
+                
+                // Mock languages
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                // Mock hardware
+                Object.defineProperty(navigator, 'hardwareConcurrency', {
+                    get: () => 4,
+                });
+                
+                // Mock permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: 'default' }) :
+                        originalQuery(parameters)
+                );
+            """)
+            
+            page = await context.new_page()
             
             try:
                 yield page
             finally:
                 await browser.close()
+
+    async def _human_navigate(self, page, url: str):
+        """Navigate like a human user."""
+        await asyncio.sleep(random.uniform(1, 3))
+        await page.goto(url, timeout=60000, wait_until='domcontentloaded')
+        await asyncio.sleep(random.uniform(2, 4))
+
+    async def _detect_and_handle_challenges(self, page) -> bool:
+        """Detect and handle various challenges."""
+        try:
+            title = await page.title()
+            if 'just a moment' in title.lower():
+                logger.info("Detected Cloudflare challenge")
+                
+                # Wait for automatic resolution
+                for _ in range(30):
+                    await asyncio.sleep(1)
+                    new_title = await page.title()
+                    if 'just a moment' not in new_title.lower():
+                        return True
+                
+                # Try to handle Turnstile if present
+                return await self._handle_turnstile(page)
+            
+            return False
         except Exception as e:
-            logger.error("Failed to launch browser: %s", e)
-            raise
+            logger.warning(f"Challenge detection failed: {e}")
+            return False
 
+    async def _handle_turnstile(self, page) -> bool:
+        """Handle Cloudflare Turnstile challenge."""
+        try:
+            # Look for Turnstile iframe
+            iframe_selector = 'iframe[src*="challenges.cloudflare.com"]'
+            await page.wait_for_selector(iframe_selector, timeout=10000)
+            
+            iframe = await page.query_selector(iframe_selector)
+            if not iframe:
+                return False
+            
+            # Get iframe position
+            bbox = await iframe.bounding_box()
+            if not bbox:
+                return False
+            
+            # Calculate click position
+            click_x = bbox['x'] + bbox['width'] / 9
+            click_y = bbox['y'] + bbox['height'] / 2
+            
+            # Human-like mouse movement and click
+            await page.mouse.move(click_x, click_y)
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+            await page.mouse.click(click_x, click_y)
+            
+            # Wait for completion
+            await asyncio.sleep(random.uniform(5, 10))
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Turnstile handling failed: {e}")
+            return False
 
-class ForexNewsScraper:
-    """Enhanced ForexFactory scraper with anti-bot detection bypass."""
-
-    def __init__(self, config: Config, analyzer: ChatGPTAnalyzer):
-        self.config = config
-        self.analyzer = analyzer
-        self.base_url = "https://www.forexfactory.com/calendar"
-        self.last_seen_time = "N/A"
-        self.max_retries = 5
-        self.base_delay = 2
-
-    async def scrape_news(self, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> List[Dict[str, Any]]:
-        if target_date is None:
-            target_date = datetime.now(timezone(self.config.timezone))
-        url = self._build_url(target_date)
-        logger.info("Fetching URL: %s", url)
+    def _is_blocked_content(self, content: str) -> bool:
+        """Check if content indicates blocking."""
+        if len(content) < 1000:
+            return True
         
-        for attempt in range(self.max_retries):
-            try:
-                async with get_browser_page() as page:
-                    html = await self._fetch_page_content_with_retry(page, url, attempt)
-                    if html:
-                        news_items = self._parse_news_from_html(html, impact_level)
-                        for item in news_items:
-                            item["analysis"] = self.analyzer.analyze_news(item)
-                        logger.info("Collected %s news items", len(news_items))
-                        return news_items
-            except Exception as e:
-                logger.error("Attempt %d failed: %s", attempt + 1, e)
-                if attempt < self.max_retries - 1:
-                    delay = self.base_delay * (2 ** attempt) + random.uniform(1, 3)
-                    logger.info("Retrying in %.2f seconds...", delay)
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error("All attempts failed. Returning empty list.")
-                    return []
+        content_lower = content.lower()
+        
+        # Check for blocking patterns
+        blocking_patterns = [
+            ('cloudflare', 'just a moment'),
+            ('cloudflare', 'checking your browser'),
+            ('access denied', ''),
+            ('forbidden', ''),
+            ('rate limit', ''),
+            ('suspicious activity', '')
+        ]
+        
+        for pattern1, pattern2 in blocking_patterns:
+            if pattern1 in content_lower and (not pattern2 or pattern2 in content_lower):
+                return True
+        
+        return False
 
     def _build_url(self, target_date: datetime) -> str:
+        """Build ForexFactory URL for the target date."""
         date_str = target_date.strftime("%b%d.%Y").lower()
         return f"{self.base_url}?day={date_str}"
 
-    async def _fetch_page_content_with_retry(self, page, url: str, attempt: int) -> Optional[str]:
-        """Enhanced page fetching with multiple fallback strategies."""
-        try:
-            # Add random delay to mimic human behavior
-            await asyncio.sleep(random.uniform(1, 3))
-            
-            # Navigate to page with extended timeout
-            await page.goto(url, timeout=60000, wait_until='domcontentloaded')
-            
-            # Wait for page to stabilize
-            await asyncio.sleep(random.uniform(2, 4))
-            
-            # Try multiple selector strategies with dynamic waiting
-            selectors_to_try = [
-                'table.calendar__table',
-                'table.calendar',
-                '.calendar__table',
-                '.calendar',
-                'table[class*="calendar"]',
-                'div[class*="calendar"]'
-            ]
-            
-            content = None
-            for selector in selectors_to_try:
-                try:
-                    logger.info("Trying selector: %s", selector)
-                    await page.wait_for_selector(selector, timeout=15000)
-                    content = await page.content()
-                    logger.info("Successfully loaded content with selector: %s", selector)
-                    break
-                except Exception as selector_error:
-                    logger.warning("Selector %s failed: %s", selector, selector_error)
-                    continue
-            
-            if not content:
-                # Fallback: try to get content without waiting for specific selectors
-                logger.info("All selectors failed, attempting to get page content directly")
-                await asyncio.sleep(5)  # Give page more time to load
-                content = await page.content()
-                
-                # Check if we got a meaningful page
-                if len(content) < 1000:
-                    raise Exception("Page content too short, likely blocked or failed to load")
-            
-            # Check for common anti-bot indicators
-            if self._detect_bot_blocking(content):
-                raise Exception("Bot detection triggered")
-            
-            return content
-            
-        except Exception as e:
-            logger.error("Failed to fetch page content (attempt %d): %s", attempt + 1, e)
-            
-            # Take screenshot for debugging on final attempt
-            if attempt == self.max_retries - 1:
-                try:
-                    await page.screenshot(path=f'/tmp/forex_scraper_error_{int(time.time())}.png')
-                    logger.info("Screenshot saved for debugging")
-                except:
-                    pass
-            
-            raise
-
-    def _detect_bot_blocking(self, content: str) -> bool:
-        """Detect common bot blocking patterns."""
-        blocking_indicators = [
-            'blocked',
-            'captcha',
-            'cloudflare',
-            'access denied',
-            'forbidden',
-            'rate limit',
-            'too many requests',
-            'suspicious activity',
-            'verify you are human'
-        ]
-        
-        content_lower = content.lower()
-        for indicator in blocking_indicators:
-            if indicator in content_lower:
-                logger.warning("Bot blocking detected: %s", indicator)
-                return True
-        return False
-
     def _parse_news_from_html(self, html: str, impact_level: str) -> List[Dict[str, str]]:
+        """Parse news from HTML content with enhanced selectors."""
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Try multiple row selectors for different ForexFactory layouts
+        # Enhanced row selectors
         row_selectors = [
-            'table.calendar__table tr.calendar__row[data-event-id]',
-            'table.calendar tr.event',
+            'table.calendar__table tr.calendar__row',
+            'table.calendar tr.calendar__row',
             'tr.calendar__row',
-            'tr[data-event-id]',
             '.calendar__row',
-            'tr.event'
+            'tr[data-event-id]',
+            'table tr',
+            'tr'
         ]
         
         rows = []
         for selector in row_selectors:
             rows = soup.select(selector)
             if rows:
-                logger.info("Found %s rows with selector: %s", len(rows), selector)
+                logger.info(f"Found {len(rows)} rows with selector: {selector}")
                 break
         
         if not rows:
-            logger.warning("No news rows found with any selector")
+            logger.warning("No news rows found")
+            # Save for debugging
+            with open('/tmp/forex_debug.html', 'w', encoding='utf-8') as f:
+                f.write(html)
             return []
         
         news_items: List[Dict[str, str]] = []
@@ -340,13 +582,14 @@ class ForexNewsScraper:
         return news_items
 
     def _should_include_news(self, row, impact_level: str) -> bool:
-        # Try multiple impact selectors
+        """Check if news item should be included based on impact level."""
         impact_selectors = [
             '.calendar__impact span.icon',
             '.impact span.icon',
             '.calendar__impact .icon',
             '.impact .icon',
-            'span.icon'
+            'span.icon',
+            '.icon'
         ]
         
         impact_element = None
@@ -356,12 +599,18 @@ class ForexNewsScraper:
                 break
         
         if not impact_element:
-            return False
+            # Fallback: check for meaningful content
+            text_content = row.get_text(strip=True)
+            if len(text_content) < 10:
+                return False
+            return any(keyword in text_content.lower() for keyword in ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud', 'nzd', 'chf'])
         
         classes = impact_element.get('class', [])
-        is_high = 'icon--ff-impact-red' in classes or 'red' in ' '.join(classes).lower()
-        is_medium = 'icon--ff-impact-orange' in classes or 'orange' in ' '.join(classes).lower()
-        is_low = 'icon--ff-impact-yellow' in classes or 'yellow' in ' '.join(classes).lower()
+        class_str = ' '.join(classes).lower()
+        
+        is_high = 'icon--ff-impact-red' in classes or 'red' in class_str
+        is_medium = 'icon--ff-impact-orange' in classes or 'orange' in class_str
+        is_low = 'icon--ff-impact-yellow' in classes or 'yellow' in class_str
         
         if impact_level == 'all':
             return is_high or is_medium or is_low
@@ -375,7 +624,7 @@ class ForexNewsScraper:
         return False
 
     def _extract_news_data(self, row) -> Dict[str, str]:
-        # Enhanced data extraction with multiple selector fallbacks
+        """Extract news data from a table row with enhanced fallbacks."""
         def get_text_with_fallbacks(selectors: List[str]) -> str:
             for selector in selectors:
                 elem = row.select_one(selector)
@@ -385,42 +634,38 @@ class ForexNewsScraper:
                         return text
             return "N/A"
         
+        # Get all cell texts as fallback
+        cells = row.find_all(['td', 'th'])
+        cell_texts = [cell.get_text(strip=True) for cell in cells if cell.get_text(strip=True)]
+        
         time = get_text_with_fallbacks([
-            '.calendar__time',
-            '.time',
-            '[class*="time"]'
+            '.calendar__time', '.time', '[class*="time"]'
         ])
+        if time == "N/A" and cell_texts:
+            time = cell_texts[0] if len(cell_texts) > 0 else "N/A"
         
         currency = get_text_with_fallbacks([
-            '.calendar__currency',
-            '.currency',
-            '[class*="currency"]'
+            '.calendar__currency', '.currency', '[class*="currency"]'
         ])
+        if currency == "N/A" and len(cell_texts) > 1:
+            currency = cell_texts[1]
         
         event = get_text_with_fallbacks([
-            '.calendar__event-title',
-            '.event-title',
-            '.calendar__event',
-            '.event',
-            '[class*="event"]'
+            '.calendar__event-title', '.event-title', '.calendar__event', '.event', '[class*="event"]'
         ])
+        if event == "N/A" and cell_texts:
+            event = max(cell_texts, key=len) if cell_texts else "N/A"
         
         actual = get_text_with_fallbacks([
-            '.calendar__actual',
-            '.actual',
-            '[class*="actual"]'
+            '.calendar__actual', '.actual', '[class*="actual"]'
         ])
         
         forecast = get_text_with_fallbacks([
-            '.calendar__forecast',
-            '.forecast',
-            '[class*="forecast"]'
+            '.calendar__forecast', '.forecast', '[class*="forecast"]'
         ])
         
         previous = get_text_with_fallbacks([
-            '.calendar__previous',
-            '.previous',
-            '[class*="previous"]'
+            '.calendar__previous', '.previous', '[class*="previous"]'
         ])
         
         return {
@@ -432,11 +677,6 @@ class ForexNewsScraper:
             "previous": escape_markdown_v2(previous),
         }
 
-    @staticmethod
-    def _get_text_or_na(row, selector: str) -> str:
-        element = row.select_one(selector)
-        return element.text.strip() if element else 'N/A'
-
 
 class MessageFormatter:
     """Handles formatting of news messages for Telegram with grouping."""
@@ -445,13 +685,13 @@ class MessageFormatter:
     def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str) -> str:
         date_str = target_date.strftime("%d.%m.%Y")
         date_escaped = escape_markdown_v2(date_str)
-        header = f"🗓️ Forex News for {date_escaped} \\\\(CET\\\\):\n\n"
+        header = f"🗓️ Forex News for {date_escaped} \\\\(CET\\\\):\\n\\n"
         
         if not news_items:
             impact_escaped = escape_markdown_v2(impact_level)
             return (
                 header
-                + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\n"
+                + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\\n"
                 + "Please check the website for updates."
             )
 
@@ -462,20 +702,20 @@ class MessageFormatter:
         
         for (currency, time), events in grouped_events.items():
             # Currency and time header
-            currency_header = f"💰 **{currency}** \\\\- {time}\n"
+            currency_header = f"💰 **{currency}** \\\\- {time}\\n"
             message_parts.append(currency_header)
             
             for event in events:
                 part = (
-                    f"📰 Event: {event['event']}\n"
-                    f"📊 Actual: {event['actual']}\n"
-                    f"📈 Forecast: {event['forecast']}\n"
-                    f"📉 Previous: {event['previous']}\n"
-                    f"🔍 Analysis: {event['analysis']}\n\n"
+                    f"📰 Event: {event['event']}\\n"
+                    f"📊 Actual: {event['actual']}\\n"
+                    f"📈 Forecast: {event['forecast']}\\n"
+                    f"📉 Previous: {event['previous']}\\n"
+                    f"🔍 Analysis: {event['analysis']}\\n\\n"
                 )
                 message_parts.append(part)
             
-            message_parts.append(f"{'-' * 30}\n\n")
+            message_parts.append(f"{'-' * 30}\\n\\n")
         
         return "".join(message_parts)
 
@@ -486,8 +726,8 @@ class MessageFormatter:
         
         for item in news_items:
             # Remove escape characters for grouping key
-            currency = item['currency'].replace('\\\\', '')
-            time = item['time'].replace('\\\\', '')
+            currency = item['currency'].replace('\\\\\\\\', '')
+            time = item['time'].replace('\\\\\\\\', '')
             key = (currency, time)
             grouped[key].append(item)
         
