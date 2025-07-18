@@ -1,19 +1,10 @@
-# Core dependencies (existing)
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-playwright>=1.40.0
-pytz>=2023.3
-python-telegram-bot>=20.0
-flask>=2.3.0
-gunicorn>=21.2.0
-
-# Additional dependencies for enhanced anti-bot detection
+flask==2.3.3
+pyTelegramBotAPI==4.14.0
+beautifulsoup4==4.12.2
+playwright==1.47.0
+pytz==2023.3
+gunicorn==21.2.0
+apscheduler==3.10.4
+requests==2.32.3
 fake-useragent>=1.4.0
 tenacity>=8.2.0
-
-# Optional: For even better stealth (uncomment if needed)
-# playwright-stealth>=1.0.6
-# undetected-playwright>=0.2.0
-
-# Development/debugging (optional)
-# Pillow>=10.0.0  # For screenshot debugging
