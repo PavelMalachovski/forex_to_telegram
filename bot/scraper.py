@@ -445,13 +445,13 @@ class MessageFormatter:
     def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str) -> str:
         date_str = target_date.strftime("%d.%m.%Y")
         date_escaped = escape_markdown_v2(date_str)
-        header = f"🗓️ Forex News for {date_escaped} \\\\(CET\\\\):\\n\\n"
+        header = f"🗓️ Forex News for {date_escaped} \\\\(CET\\\\):\n\n"
         
         if not news_items:
             impact_escaped = escape_markdown_v2(impact_level)
             return (
                 header
-                + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\\n"
+                + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\n"
                 + "Please check the website for updates."
             )
 
@@ -462,20 +462,20 @@ class MessageFormatter:
         
         for (currency, time), events in grouped_events.items():
             # Currency and time header
-            currency_header = f"💰 **{currency}** \\\\- {time}\\n"
+            currency_header = f"💰 **{currency}** \\\\- {time}\n"
             message_parts.append(currency_header)
             
             for event in events:
                 part = (
-                    f"📰 Event: {event['event']}\\n"
-                    f"📊 Actual: {event['actual']}\\n"
-                    f"📈 Forecast: {event['forecast']}\\n"
-                    f"📉 Previous: {event['previous']}\\n"
-                    f"🔍 Analysis: {event['analysis']}\\n\\n"
+                    f"📰 Event: {event['event']}\n"
+                    f"📊 Actual: {event['actual']}\n"
+                    f"📈 Forecast: {event['forecast']}\n"
+                    f"📉 Previous: {event['previous']}\n"
+                    f"🔍 Analysis: {event['analysis']}\n\n"
                 )
                 message_parts.append(part)
             
-            message_parts.append(f"{'-' * 30}\\n\\n")
+            message_parts.append(f"{'-' * 30}\n\n")
         
         return "".join(message_parts)
 
@@ -509,3 +509,42 @@ class MessageFormatter:
                 return (50, 0, currency)  # Fallback for unparseable times
         
         return dict(sorted(grouped.items(), key=sort_key))
+
+
+async def process_forex_news(scraper: ForexNewsScraper, bot, config: Config, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> Optional[List[Dict[str, Any]]]:
+    if not bot or not config.telegram_chat_id:
+        logger.error("Cannot process news: Bot or CHAT_ID not configured")
+        return [] if debug else None
+    try:
+        if target_date is None:
+            target_date = datetime.now(timezone(config.timezone))
+        news_items = await scraper.scrape_news(target_date, impact_level, debug)
+        if debug:
+            return news_items
+        message = MessageFormatter.format_news_message(news_items, target_date, impact_level)
+        if message.strip():
+            send_long_message(bot, config.telegram_chat_id, message)
+        else:
+            logger.error("Generated message is empty")
+        return news_items
+    except Exception as e:
+        logger.exception("Unexpected error in process_forex_news: %s", e)
+        try:
+            error_msg = escape_markdown_v2(f"⚠️ Error in Forex news scraping: {str(e)}")
+            bot.send_message(config.telegram_chat_id, error_msg, parse_mode='MarkdownV2')
+        except Exception:
+            logger.exception("Failed to send error notification")
+        return [] if debug else None
+
+
+def run_forex_news_sync(scraper: ForexNewsScraper, bot, config: Config):
+    return asyncio.run(process_forex_news(scraper, bot, config))
+
+
+def run_forex_news_for_date(scraper: ForexNewsScraper, bot, config: Config, date_str: Optional[str] = None, impact_level: str = "high", debug: bool = False):
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d") if date_str else None
+        return asyncio.run(process_forex_news(scraper, bot, config, target_date, impact_level, debug))
+    except Exception as e:
+        logger.exception("Error parsing date: %s", e)
+        return []
