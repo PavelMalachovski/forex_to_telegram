@@ -4,7 +4,7 @@ import logging
 # Database configuration
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://forex_user:0VGr0I02HDKaiVUVT21Z3ORnEiCBAYtC@dpg-d1mkim2li9vc73c7toi0-a:5432/forex_db_0myg?sslmode=require"
+    "postgresql://forex_user:0VGr0I02HDKaiVUVT21Z3ORnEiCBAYtC@dpg-d1mkim2li9vc73c7toi0-a.frankfurt-postgres.render.com:5432/forex_db_0myg?sslmode=require"
 )
 
 class Config:

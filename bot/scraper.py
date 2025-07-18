@@ -67,97 +67,265 @@ class ChatGPTAnalyzer:
 
 @asynccontextmanager
 async def get_browser_page():
+    """Production-ready browser context manager with enhanced Cloudflare bypass."""
     async with async_playwright() as playwright:
         browser = None
         context = None
         
-        # Try different browser configurations
-        browser_configs = [
-            {
-                'headless': True,  # Start with headless for server environments
-                'args': [
-                    '--no-sandbox',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--disable-extensions',
-                    '--disable-plugins',
-                    '--disable-javascript-harmony-shipping',
-                    '--disable-background-timer-throttling',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-renderer-backgrounding',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                ]
-            },
-            {
-                'headless': False,  # Fallback to non-headless if available
-                'args': [
-                    '--no-sandbox',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--disable-web-security',
-                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                ]
-            }
-        ]
-        
-        for config in browser_configs:
-            try:
-                logger.info(f"Trying browser config: headless={config['headless']}")
+        try:
+            logger.info("Launching browser in headless production mode")
+            
+            # Advanced stealth browser configuration for Cloudflare bypass
+            browser_args = [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-features=TranslateUI',
+                '--disable-ipc-flooding-protection',
+                '--disable-hang-monitor',
+                '--disable-prompt-on-repost',
+                '--disable-sync',
+                '--disable-extensions',
+                '--disable-plugins',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--force-color-profile=srgb',
+                '--metrics-recording-only',
+                '--safebrowsing-disable-auto-update',
+                '--password-store=basic',
+                '--use-mock-keychain',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-component-extensions-with-background-pages',
+                '--disable-default-apps',
+                '--disable-domain-reliability',
+                '--disable-background-networking',
+                '--disable-client-side-phishing-detection',
+                '--disable-features=VizDisplayCompositor,VizHitTestSurfaceLayer',
+                '--disable-background-media-suspend',
+                '--disable-low-res-tiling',
+                '--disable-default-apps',
+                '--disable-extensions-http-throttling',
+                '--disable-features=Translate',
+                '--hide-scrollbars',
+                '--mute-audio',
+                '--no-default-browser-check',
+                '--no-pings',
+                '--disable-logging',
+                '--disable-permissions-api',
+                '--ignore-certificate-errors',
+                '--ignore-ssl-errors',
+                '--ignore-certificate-errors-spki-list',
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            ]
+            
+            browser = await playwright.chromium.launch(
+                headless=True,  # ALWAYS headless for production
+                args=browser_args,
+                slow_mo=100  # Add slight delay to appear more human
+            )
+            
+            # Advanced stealth context configuration
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},  # Full HD resolution
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+                java_script_enabled=True,
+                bypass_csp=True,
+                ignore_https_errors=True,
+                extra_http_headers={
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Cache-Control': 'max-age=0',
+                    'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+                    'Sec-Ch-Ua-Mobile': '?0',
+                    'Sec-Ch-Ua-Platform': '"Windows"',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Connection': 'keep-alive',
+                }
+            )
+            
+            page = await context.new_page()
+            
+            # Advanced stealth and anti-detection scripts
+            await page.add_init_script("""
+                // Comprehensive webdriver removal
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
                 
-                browser = await playwright.chromium.launch(**config)
+                // Enhanced plugin mocking
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => {
+                        return [
+                            {
+                                0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format", enabledPlugin: Plugin},
+                                description: "Portable Document Format",
+                                filename: "internal-pdf-viewer",
+                                length: 1,
+                                name: "Chrome PDF Plugin"
+                            },
+                            {
+                                0: {type: "application/pdf", suffixes: "pdf", description: "", enabledPlugin: Plugin},
+                                description: "",
+                                filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                                length: 1,
+                                name: "Chrome PDF Viewer"
+                            }
+                        ];
+                    },
+                });
                 
-                # Create context with realistic settings
-                context = await browser.new_context(
-                    viewport={'width': 1920, 'height': 1080},
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    extra_http_headers={
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'DNT': '1',
-                        'Connection': 'keep-alive',
-                        'Upgrade-Insecure-Requests': '1',
+                // Enhanced language mocking
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                // Mock platform
+                Object.defineProperty(navigator, 'platform', {
+                    get: () => 'Win32',
+                });
+                
+                // Mock hardware concurrency
+                Object.defineProperty(navigator, 'hardwareConcurrency', {
+                    get: () => 4,
+                });
+                
+                // Mock device memory
+                Object.defineProperty(navigator, 'deviceMemory', {
+                    get: () => 8,
+                });
+                
+                // Enhanced permissions mocking
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+                
+                // Comprehensive Chrome runtime mocking
+                window.chrome = {
+                    runtime: {
+                        onConnect: undefined,
+                        onMessage: undefined
+                    },
+                    loadTimes: function() {
+                        return {
+                            requestTime: Date.now() * 0.001,
+                            startLoadTime: Date.now() * 0.001,
+                            commitLoadTime: Date.now() * 0.001,
+                            finishDocumentLoadTime: Date.now() * 0.001,
+                            finishLoadTime: Date.now() * 0.001,
+                            firstPaintTime: Date.now() * 0.001,
+                            firstPaintAfterLoadTime: 0,
+                            navigationType: 'Other',
+                            wasFetchedViaSpdy: false,
+                            wasNpnNegotiated: false,
+                            npnNegotiatedProtocol: 'unknown',
+                            wasAlternateProtocolAvailable: false,
+                            connectionInfo: 'unknown'
+                        };
+                    },
+                    csi: function() {
+                        return {
+                            startE: Date.now(),
+                            onloadT: Date.now(),
+                            pageT: Date.now(),
+                            tran: 15
+                        };
+                    },
+                    app: {
+                        isInstalled: false,
+                        InstallState: {
+                            DISABLED: 'disabled',
+                            INSTALLED: 'installed',
+                            NOT_INSTALLED: 'not_installed'
+                        },
+                        RunningState: {
+                            CANNOT_RUN: 'cannot_run',
+                            READY_TO_RUN: 'ready_to_run',
+                            RUNNING: 'running'
+                        }
                     }
-                )
+                };
                 
-                page = await context.new_page()
+                // Mock notification permission
+                Object.defineProperty(Notification, 'permission', {
+                    get: () => 'default'
+                });
                 
-                # Add script to remove webdriver property
-                await page.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined,
-                    });
-                """)
+                // Remove all automation indicators
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_JSON;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Object;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Proxy;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Reflect;
                 
-                logger.info("Browser launched successfully")
+                // Mock screen properties
+                Object.defineProperty(screen, 'availHeight', {get: () => 1040});
+                Object.defineProperty(screen, 'availWidth', {get: () => 1920});
+                Object.defineProperty(screen, 'colorDepth', {get: () => 24});
+                Object.defineProperty(screen, 'height', {get: () => 1080});
+                Object.defineProperty(screen, 'pixelDepth', {get: () => 24});
+                Object.defineProperty(screen, 'width', {get: () => 1920});
                 
-                try:
-                    yield page
-                finally:
-                    if context:
-                        await context.close()
-                    if browser:
-                        await browser.close()
-                return
+                // Mock connection
+                Object.defineProperty(navigator, 'connection', {
+                    get: () => ({
+                        effectiveType: '4g',
+                        rtt: 100,
+                        downlink: 2.0
+                    })
+                });
                 
-            except Exception as e:
-                logger.warning(f"Browser config failed: {e}")
+                // Override toString methods to hide automation
+                const originalToString = Function.prototype.toString;
+                Function.prototype.toString = function() {
+                    if (this === navigator.webdriver) {
+                        return 'function webdriver() { [native code] }';
+                    }
+                    return originalToString.apply(this, arguments);
+                };
+            """)
+            
+            logger.info("Browser launched successfully in production headless mode")
+            
+            try:
+                yield page
+            finally:
                 if context:
-                    try:
-                        await context.close()
-                    except:
-                        pass
+                    await context.close()
                 if browser:
-                    try:
-                        await browser.close()
-                    except:
-                        pass
-                continue
-        
-        # If all configs failed
-        raise Exception("Failed to launch browser with any configuration")
+                    await browser.close()
+                    
+        except Exception as e:
+            logger.error(f"Failed to launch browser in production environment: {e}")
+            if context:
+                try:
+                    await context.close()
+                except:
+                    pass
+            if browser:
+                try:
+                    await browser.close()
+                except:
+                    pass
+            raise Exception(f"Production browser launch failed: {e}")
 
 
 class ForexNewsScraper:
@@ -191,183 +359,594 @@ class ForexNewsScraper:
         return f"{self.base_url}?day={date_str}"
 
     async def _fetch_page_content(self, page, url: str) -> str:
-        """Fetch page content with improved error handling and Cloudflare bypass."""
-        max_attempts = 5
-        base_delay = 2
+        """Fetch page content with enhanced Cloudflare bypass and robust error handling."""
+        max_attempts = 5  # Increased attempts
+        base_delay = 3
         
         for attempt in range(max_attempts):
             try:
                 logger.info(f"Attempt {attempt + 1}/{max_attempts} to load {url}")
                 
-                # Navigate to the page with extended timeout
-                await page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                # Set additional page settings for better compatibility
+                await page.set_extra_http_headers({
+                    'Referer': 'https://www.google.com/',
+                    'Origin': 'https://www.forexfactory.com',
+                    'X-Forwarded-For': '8.8.8.8',  # Use Google DNS IP
+                    'X-Real-IP': '8.8.8.8'
+                })
                 
-                # Add human-like delay
+                # Add longer initial delay to avoid rate limiting
+                if attempt > 0:
+                    delay_time = 10 + (attempt * 5)  # Progressive delay
+                    logger.info(f"Adding {delay_time}s delay before attempt {attempt + 1}")
+                    await asyncio.sleep(delay_time)
+                
+                # Navigate with extended timeout and wait for network idle
+                logger.info(f"Navigating to {url}...")
+                response = await page.goto(
+                    url, 
+                    timeout=180000,  # 3 minutes timeout
+                    wait_until='domcontentloaded'  # Changed from networkidle for faster loading
+                )
+                
+                if response and response.status >= 400:
+                    logger.warning(f"HTTP {response.status} response received")
+                    if response.status == 403:
+                        raise Exception(f"Access forbidden (403) - likely blocked by Cloudflare")
+                    elif response.status >= 500:
+                        raise Exception(f"Server error ({response.status})")
+                
+                # Initial human-like delay
                 await asyncio.sleep(3)
                 
-                # Wait for Cloudflare challenge to complete (if present)
-                try:
-                    # Check if we're on a Cloudflare challenge page
-                    challenge_present = await page.locator('title:has-text("Just a moment")').count() > 0
-                    if challenge_present:
-                        logger.info("Cloudflare challenge detected, waiting for completion...")
-                        # Wait for the challenge to complete (up to 45 seconds)
-                        await page.wait_for_function(
-                            "document.title !== 'Just a moment...'",
-                            timeout=45000
-                        )
-                        logger.info("Cloudflare challenge completed")
-                        # Additional wait after challenge completion
-                        await asyncio.sleep(5)
-                except Exception as cf_e:
-                    logger.warning(f"Cloudflare challenge handling failed: {cf_e}")
+                # Enhanced Cloudflare detection and handling
+                await self._handle_cloudflare_challenge(page)
                 
-                # Simulate human behavior - scroll and move mouse
-                try:
-                    await page.mouse.move(100, 100)
-                    await page.mouse.move(200, 200)
-                    await asyncio.sleep(1)
-                except Exception:
-                    pass
+                # Simulate realistic human browsing behavior
+                await self._simulate_human_behavior(page)
                 
-                # Try multiple selectors with different timeouts
-                selectors_to_try = [
+                # Modern ForexFactory selectors (updated for 2024/2025 structure)
+                calendar_selectors = [
+                    # Primary modern selectors
+                    ('.calendar-container', 25000),
+                    ('.calendar-wrapper', 25000),
+                    ('.calendar', 20000),
+                    
+                    # Table-based selectors
+                    ('table[class*="calendar"]', 20000),
                     ('table.calendar__table', 15000),
-                    ('table.calendar', 10000),
-                    ('table', 5000),
-                    ('.calendar__table', 5000)
+                    ('.calendar__table', 15000),
+                    
+                    # Event container selectors
+                    ('.calendar-events', 15000),
+                    ('.events-container', 15000),
+                    ('[data-calendar]', 15000),
+                    
+                    # Fallback selectors
+                    ('table[data-table="calendar"]', 10000),
+                    ('[data-testid*="calendar"]', 10000),
+                    ('table', 8000),
+                    
+                    # Last resort selectors
+                    ('.fc-event-container', 5000),
+                    ('[class*="event"]', 5000)
                 ]
                 
-                table_found = False
-                for selector, timeout in selectors_to_try:
+                calendar_found = False
+                successful_selector = None
+                
+                # Try each selector with proper error handling
+                for selector, timeout in calendar_selectors:
                     try:
-                        logger.info(f"Trying selector: {selector}")
+                        logger.info(f"Trying calendar selector: {selector} (timeout: {timeout}ms)")
+                        
+                        # Wait for selector with timeout
                         await page.wait_for_selector(selector, timeout=timeout)
-                        logger.info(f"Successfully found selector: {selector}")
-                        table_found = True
-                        break
+                        
+                        # Verify the element actually contains content
+                        element_count = await page.locator(selector).count()
+                        if element_count > 0:
+                            logger.info(f"✅ Found calendar with selector: {selector} ({element_count} elements)")
+                            calendar_found = True
+                            successful_selector = selector
+                            break
+                        else:
+                            logger.warning(f"Selector {selector} found but no elements")
+                            
                     except Exception as selector_e:
-                        logger.warning(f"Selector {selector} failed: {selector_e}")
+                        logger.debug(f"Selector {selector} failed: {selector_e}")
                         continue
                 
-                if not table_found:
-                    raise Exception("No calendar table found with any selector")
+                # Additional wait for dynamic content loading
+                if calendar_found:
+                    logger.info("Calendar found, waiting for content to load...")
+                    await asyncio.sleep(5)
+                    
+                    # Wait for actual event rows to load
+                    try:
+                        await page.wait_for_function(
+                            """() => {
+                                const rows = document.querySelectorAll('tr[data-event-id], tr.calendar__row, .event-row, tr[class*="event"]');
+                                return rows.length > 0;
+                            }""",
+                            timeout=15000
+                        )
+                        logger.info("Event rows detected and loaded")
+                    except:
+                        logger.warning("No event rows detected, but proceeding anyway")
                 
-                # Additional wait to ensure dynamic content is loaded
-                await asyncio.sleep(2)
-                
-                # Verify we have actual content
+                # Get page content and validate
                 content = await page.content()
-                if len(content) < 1000:  # Too small, likely an error page
-                    raise Exception("Page content too small, likely blocked or error page")
+                page_title = await page.title()
+                current_url = page.url
                 
-                # Check if we have actual calendar data
-                table_count = await page.locator('table').count()
-                if table_count == 0:
-                    raise Exception("No tables found in page content")
+                logger.info(f"Page loaded - Title: '{page_title}', URL: {current_url}, Content size: {len(content)} chars")
                 
-                logger.info(f"Successfully loaded page with {len(content)} characters")
+                # Enhanced content validation
+                if len(content) < 5000:
+                    raise Exception(f"Page content too small ({len(content)} chars) - likely error or blocked")
+                
+                # Check for Cloudflare block indicators
+                content_lower = content.lower()
+                if any(indicator in content_lower for indicator in [
+                    'just a moment', 'checking your browser', 'cloudflare', 'ray id',
+                    'enable javascript', 'browser check', 'ddos protection'
+                ]):
+                    raise Exception("Still on Cloudflare challenge/block page")
+                
+                # Validate we're on the correct ForexFactory page
+                if not any(indicator in content_lower for indicator in [
+                    'forex factory', 'forexfactory', 'calendar', 'economic events'
+                ]):
+                    logger.warning(f"Unexpected page content - Title: {page_title}")
+                    # Don't fail here, might still be valid content
+                
+                # Check for actual forex event content
+                event_indicators = [
+                    'usd', 'eur', 'gbp', 'jpy', 'aud', 'cad', 'chf', 'nzd',
+                    'impact', 'forecast', 'actual', 'previous', 'event'
+                ]
+                
+                has_forex_content = any(indicator in content_lower for indicator in event_indicators)
+                if not has_forex_content and not calendar_found:
+                    logger.warning("No forex event content detected")
+                
+                logger.info(f"✅ Successfully loaded ForexFactory page using selector: {successful_selector}")
+                logger.info(f"Content validation: Calendar found={calendar_found}, Forex content={has_forex_content}")
+                
                 return content
                 
             except Exception as e:
                 delay = base_delay * (2 ** attempt)  # Exponential backoff
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                logger.warning(f"❌ Attempt {attempt + 1}/{max_attempts} failed: {e}")
                 
                 if attempt == max_attempts - 1:
-                    logger.error(f"Failed to load page {url} after {max_attempts} attempts: {e}")
-                    raise
+                    logger.error(f"🚨 Failed to load ForexFactory after {max_attempts} attempts")
+                    logger.error(f"Final error: {e}")
+                    raise Exception(f"ForexFactory scraping failed after {max_attempts} attempts: {e}")
                 
-                logger.info(f"Waiting {delay} seconds before retry...")
+                logger.info(f"⏳ Waiting {delay} seconds before retry {attempt + 2}...")
                 await asyncio.sleep(delay)
+    
+    async def _handle_cloudflare_challenge(self, page):
+        """Enhanced Cloudflare challenge detection and handling."""
+        try:
+            # Check for various Cloudflare indicators
+            cf_indicators = [
+                'title:has-text("Just a moment")',
+                'title:has-text("Checking your browser")',
+                'title:has-text("Please wait")',
+                '[data-ray]',
+                '.cf-browser-verification',
+                '#challenge-form',
+                '.cf-wrapper',
+                '.cf-error-overview'
+            ]
+            
+            challenge_detected = False
+            for indicator in cf_indicators:
+                try:
+                    if await page.locator(indicator).count() > 0:
+                        challenge_detected = True
+                        logger.info(f"🛡️ Cloudflare challenge detected: {indicator}")
+                        break
+                except:
+                    continue
+            
+            if challenge_detected:
+                logger.info("⏳ Waiting for Cloudflare challenge completion...")
+                
+                # Wait for challenge to complete with multiple strategies
+                try:
+                    # Strategy 1: Wait for title change
+                    await page.wait_for_function(
+                        """() => {
+                            const title = document.title.toLowerCase();
+                            return !title.includes('just a moment') && 
+                                   !title.includes('checking your browser') &&
+                                   !title.includes('please wait');
+                        }""",
+                        timeout=45000
+                    )
+                    logger.info("✅ Cloudflare challenge completed (title changed)")
+                    
+                except:
+                    try:
+                        # Strategy 2: Wait for challenge elements to disappear
+                        await page.wait_for_function(
+                            """() => {
+                                return !document.querySelector('[data-ray]') &&
+                                       !document.querySelector('.cf-browser-verification') &&
+                                       !document.querySelector('#challenge-form');
+                            }""",
+                            timeout=30000
+                        )
+                        logger.info("✅ Cloudflare challenge completed (elements removed)")
+                        
+                    except:
+                        # Strategy 3: Fixed wait as fallback
+                        logger.warning("⚠️ Using fallback wait for Cloudflare challenge")
+                        await asyncio.sleep(15)
+                
+                # Additional wait after challenge completion
+                await asyncio.sleep(5)
+                logger.info("✅ Cloudflare challenge handling completed")
+                
+        except Exception as cf_e:
+            logger.warning(f"⚠️ Cloudflare challenge handling error: {cf_e}")
+    
+    async def _simulate_human_behavior(self, page):
+        """Simulate realistic human browsing behavior."""
+        try:
+            # Random mouse movements
+            import random
+            
+            # Move mouse to random positions
+            for _ in range(2):
+                x = random.randint(100, 800)
+                y = random.randint(100, 600)
+                await page.mouse.move(x, y)
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+            
+            # Simulate scrolling behavior
+            scroll_positions = [200, 400, 600, 300, 0]
+            for pos in scroll_positions:
+                await page.evaluate(f"window.scrollTo(0, {pos})")
+                await asyncio.sleep(random.uniform(0.5, 1.2))
+            
+            # Random delay to appear more human
+            await asyncio.sleep(random.uniform(1, 3))
+            
+        except Exception as e:
+            logger.debug(f"Human behavior simulation failed: {e}")
+            # Don't fail the whole process for this
 
     def _parse_news_from_html(self, html: str, impact_level: str) -> List[Dict[str, str]]:
+        """Parse HTML content to extract forex news events with enhanced selectors."""
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Try multiple selector combinations for finding event rows
+        # Modern ForexFactory row selectors (updated for 2024/2025)
         row_selectors = [
-            'table.calendar__table tr.calendar__row[data-event-id]',
+            # Primary modern selectors with data attributes
+            'tr[data-event-id]',
+            'tr[data-event]',
+            '.calendar tr[data-event-id]',
+            '.calendar-container tr[data-event-id]',
+            '.calendar-wrapper tr[data-event-id]',
+            
+            # Table-based selectors
+            'table.calendar__table tr.calendar__row',
             'table.calendar__table tr[data-event-id]',
-            'table.calendar tr.event',
-            'table tr[data-event-id]',
+            'table[class*="calendar"] tr[data-event-id]',
             '.calendar__table tr.calendar__row',
-            '.calendar__table tr[data-event-id]'
+            '.calendar__table tr[data-event-id]',
+            
+            # Event row selectors
+            '.event-row',
+            'tr.event-row',
+            'tr[class*="event"]',
+            'tr[class*="calendar"]',
+            
+            # Generic fallback selectors
+            '.calendar tr',
+            'table tr[data-event-id]',
+            '[class*="calendar"] tr',
+            '[data-calendar] tr'
         ]
         
         rows = []
+        successful_selector = None
+        
+        # Try each selector in order of preference
         for selector in row_selectors:
-            rows = soup.select(selector)
-            if rows:
-                logger.info(f"Found {len(rows)} rows using selector: {selector}")
-                break
-        
-        if not rows:
-            logger.warning("No event rows found with any selector")
-            # Fallback: try to find any table rows that might contain events
-            tables = soup.select('table')
-            for table in tables:
-                potential_rows = table.select('tr')
-                for row in potential_rows:
-                    # Check if row has event-like content
-                    if (row.select('.calendar__currency') or 
-                        row.select('.calendar__event-title') or
-                        row.get('data-event-id')):
-                        rows.append(row)
-            logger.info(f"Fallback found {len(rows)} potential event rows")
-        
-        news_items: List[Dict[str, str]] = []
-        
-        for row in rows:
             try:
-                if self._should_include_news(row, impact_level):
-                    news_item = self._extract_news_data(row)
-                    if news_item["time"] != "N/A":
-                        self.last_seen_time = news_item["time"]
-                    elif self.last_seen_time != "N/A":
-                        # Use last seen time if current row doesn't have time
-                        news_item["time"] = self.last_seen_time
-                    news_items.append(news_item)
+                found_rows = soup.select(selector)
+                if found_rows:
+                    # Filter out header rows and empty rows
+                    valid_rows = []
+                    for row in found_rows:
+                        # Skip header rows
+                        if row.find('th'):
+                            continue
+                        # Skip rows with no meaningful content
+                        if not row.find('td'):
+                            continue
+                        # Check if row has at least some forex-related content
+                        row_text = row.get_text().strip().lower()
+                        if len(row_text) > 10:  # Has some content
+                            valid_rows.append(row)
+                    
+                    if valid_rows:
+                        rows = valid_rows
+                        successful_selector = selector
+                        logger.info(f"✅ Found {len(rows)} valid event rows using selector: {selector}")
+                        break
+                        
             except Exception as e:
-                logger.warning(f"Error processing row: {e}")
+                logger.debug(f"Selector {selector} failed: {e}")
                 continue
         
-        logger.info(f"Successfully parsed {len(news_items)} news items")
+        # Enhanced fallback methods if no rows found
+        if not rows:
+            logger.warning("🔍 No event rows found with primary selectors, trying enhanced fallback methods")
+            
+            # Method 1: Look for tables with forex-like content
+            tables = soup.select('table')
+            for table in tables:
+                table_text = table.get_text().lower()
+                # Check if table contains forex indicators
+                if any(indicator in table_text for indicator in [
+                    'usd', 'eur', 'gbp', 'jpy', 'impact', 'forecast', 'actual', 'previous'
+                ]):
+                    potential_rows = table.select('tr')
+                    for row in potential_rows:
+                        # Skip header rows
+                        if row.find('th'):
+                            continue
+                        
+                        # Check if row has event-like content
+                        has_event_content = (
+                            # Look for specific forex factory classes
+                            row.select('.calendar__currency') or 
+                            row.select('.calendar__event-title') or
+                            row.select('.calendar__impact') or
+                            row.select('[class*="currency"]') or
+                            row.select('[class*="event"]') or
+                            row.select('[class*="impact"]') or
+                            # Look for data attributes
+                            row.get('data-event-id') or
+                            row.get('data-event') or
+                            # Check for minimum column count
+                            (len(row.find_all('td')) >= 4)
+                        )
+                        
+                        if has_event_content:
+                            rows.append(row)
+            
+            logger.info(f"📊 Table-based fallback found {len(rows)} potential event rows")
+            
+            # Method 2: More aggressive content-based search
+            if not rows:
+                logger.warning("🔍 Trying aggressive content-based fallback")
+                all_rows = soup.select('tr')
+                
+                for row in all_rows:
+                    # Skip header rows
+                    if row.find('th'):
+                        continue
+                    
+                    cells = row.find_all('td')
+                    if len(cells) >= 3:  # Minimum columns for potential forex event
+                        row_text = row.get_text().strip().lower()
+                        
+                        # Check for forex indicators
+                        has_forex_indicators = any(currency in row_text for currency in [
+                            'usd', 'eur', 'gbp', 'jpy', 'aud', 'cad', 'chf', 'nzd'
+                        ])
+                        
+                        # Check for time patterns (HH:MM format)
+                        import re
+                        has_time_pattern = bool(re.search(r'\d{1,2}:\d{2}', row_text))
+                        
+                        # Check for economic event keywords
+                        has_event_keywords = any(keyword in row_text for keyword in [
+                            'rate', 'gdp', 'inflation', 'employment', 'cpi', 'pmi', 
+                            'retail', 'manufacturing', 'services', 'trade', 'balance'
+                        ])
+                        
+                        if has_forex_indicators or (has_time_pattern and has_event_keywords):
+                            rows.append(row)
+                
+                logger.info(f"🎯 Aggressive fallback found {len(rows)} potential rows")
+        
+        # Process found rows
+        news_items: List[Dict[str, str]] = []
+        processed_count = 0
+        skipped_count = 0
+        
+        for i, row in enumerate(rows):
+            try:
+                # Check if row should be included based on impact level
+                if self._should_include_news(row, impact_level):
+                    news_item = self._extract_news_data(row)
+                    
+                    # Enhanced content validation
+                    has_meaningful_content = (
+                        news_item["event"] != "N/A" or 
+                        news_item["currency"] != "N/A" or 
+                        news_item["time"] != "N/A"
+                    )
+                    
+                    if has_meaningful_content:
+                        # Time tracking logic for rows without explicit time
+                        if news_item["time"] != "N/A":
+                            self.last_seen_time = news_item["time"]
+                        elif self.last_seen_time != "N/A":
+                            news_item["time"] = self.last_seen_time
+                        
+                        news_items.append(news_item)
+                        processed_count += 1
+                    else:
+                        skipped_count += 1
+                        logger.debug(f"Skipped row {i+1}: no meaningful content")
+                else:
+                    skipped_count += 1
+                    logger.debug(f"Skipped row {i+1}: doesn't match impact level {impact_level}")
+                    
+            except Exception as e:
+                logger.warning(f"❌ Error processing row {i+1}: {e}")
+                skipped_count += 1
+                continue
+        
+        logger.info(f"📈 Parsing complete: {len(news_items)} news items extracted")
+        logger.info(f"📊 Processing stats: {processed_count} processed, {skipped_count} skipped, {len(rows)} total rows")
+        logger.info(f"🎯 Successful selector: {successful_selector}")
+        
+        # Enhanced debug information if no news items found
+        if not news_items:
+            logger.warning("⚠️ No news items extracted - Debug information:")
+            logger.warning(f"   Total rows found: {len(rows)}")
+            logger.warning(f"   HTML content size: {len(html)} characters")
+            logger.warning(f"   Impact level filter: {impact_level}")
+            
+            # Sample HTML structure analysis
+            sample_tables = soup.select('table')[:3]  # First 3 tables
+            for i, table in enumerate(sample_tables):
+                table_classes = table.get('class', [])
+                table_id = table.get('id', 'no-id')
+                logger.warning(f"   Table {i+1}: classes={table_classes}, id={table_id}")
+                
+                sample_rows = table.select('tr')[:5]  # First 5 rows
+                for j, row in enumerate(sample_rows):
+                    row_classes = row.get('class', [])
+                    cell_count = len(row.find_all(['td', 'th']))
+                    row_text_sample = row.get_text().strip()[:100]  # First 100 chars
+                    logger.warning(f"     Row {j+1}: classes={row_classes}, cells={cell_count}, text='{row_text_sample}...'")
+            
+            # Check for common ForexFactory elements
+            ff_elements = {
+                'calendar containers': soup.select('[class*="calendar"]'),
+                'event elements': soup.select('[class*="event"]'),
+                'impact elements': soup.select('[class*="impact"]'),
+                'currency elements': soup.select('[class*="currency"]'),
+                'data attributes': soup.select('[data-event-id], [data-event]')
+            }
+            
+            for element_type, elements in ff_elements.items():
+                logger.warning(f"   Found {len(elements)} {element_type}")
+        
         return news_items
 
     def _should_include_news(self, row, impact_level: str) -> bool:
-        # Try multiple selectors for impact element
+        """Determine if a news row should be included based on impact level."""
+        
+        # Enhanced impact selectors for modern ForexFactory
         impact_selectors = [
-            '.calendar__impact span.icon',
-            '.impact span.icon',
+            # Modern impact selectors
             '.calendar__impact .icon',
+            '.calendar__impact span.icon',
             '.impact .icon',
+            '.impact span.icon',
+            
+            # Alternative impact selectors
+            '[class*="impact"] .icon',
+            '[class*="impact"] span',
+            '.event-impact .icon',
+            '.event-impact span',
+            
+            # Generic icon selectors
             'span.icon',
-            '.icon'
+            '.icon',
+            'i.icon',
+            
+            # Fallback selectors
+            '[data-impact]',
+            '[class*="bull"]',  # ForexFactory uses bull icons for impact
+            '.ff-impact'
         ]
         
         impact_element = None
+        impact_selector_used = None
+        
+        # Try each impact selector
         for selector in impact_selectors:
             impact_element = row.select_one(selector)
             if impact_element:
+                impact_selector_used = selector
                 break
         
+        # If no impact element found, use fallback logic
         if not impact_element:
-            # If no impact element found, check if row has event content
-            # and include it for 'all' level
+            logger.debug("No impact element found, using fallback logic")
+            
+            # For 'all' level, include any row with event content
             if impact_level == 'all':
                 has_event_content = (
                     row.select_one('.calendar__event-title') or
                     row.select_one('.calendar__currency') or
-                    row.get('data-event-id')
+                    row.select_one('[class*="event"]') or
+                    row.select_one('[class*="currency"]') or
+                    row.get('data-event-id') or
+                    row.get('data-event') or
+                    (len(row.find_all('td')) >= 4)  # Has enough columns
                 )
                 return bool(has_event_content)
+            
+            # For specific impact levels, be more conservative
             return False
         
+        # Analyze impact element to determine impact level
         classes = impact_element.get('class', [])
-        is_high = any('red' in cls.lower() or 'high' in cls.lower() for cls in classes)
-        is_medium = any('orange' in cls.lower() or 'medium' in cls.lower() for cls in classes)
-        is_low = any('yellow' in cls.lower() or 'low' in cls.lower() for cls in classes)
+        class_str = ' '.join(classes).lower()
         
-        # Handle different impact levels
+        # Check element attributes and content
+        data_impact = impact_element.get('data-impact', '').lower()
+        title = impact_element.get('title', '').lower()
+        text_content = impact_element.get_text().strip().lower()
+        
+        # Enhanced impact detection patterns
+        is_high = any([
+            # Class-based detection
+            any(pattern in class_str for pattern in ['red', 'high', 'bull3', 'impact-high']),
+            # Data attribute detection
+            any(pattern in data_impact for pattern in ['high', '3', 'red']),
+            # Title/tooltip detection
+            any(pattern in title for pattern in ['high', 'red', 'important']),
+            # Content-based detection (some sites use text)
+            any(pattern in text_content for pattern in ['high', 'h', '●●●'])
+        ])
+        
+        is_medium = any([
+            # Class-based detection
+            any(pattern in class_str for pattern in ['orange', 'medium', 'bull2', 'impact-medium', 'yellow']),
+            # Data attribute detection
+            any(pattern in data_impact for pattern in ['medium', '2', 'orange', 'yellow']),
+            # Title/tooltip detection
+            any(pattern in title for pattern in ['medium', 'orange', 'moderate']),
+            # Content-based detection
+            any(pattern in text_content for pattern in ['medium', 'm', '●●'])
+        ])
+        
+        is_low = any([
+            # Class-based detection
+            any(pattern in class_str for pattern in ['gray', 'grey', 'low', 'bull1', 'impact-low']),
+            # Data attribute detection
+            any(pattern in data_impact for pattern in ['low', '1', 'gray', 'grey']),
+            # Title/tooltip detection
+            any(pattern in title for pattern in ['low', 'gray', 'minor']),
+            # Content-based detection
+            any(pattern in text_content for pattern in ['low', 'l', '●'])
+        ])
+        
+        # Log impact detection for debugging
+        if any([is_high, is_medium, is_low]):
+            impact_type = 'high' if is_high else ('medium' if is_medium else 'low')
+            logger.debug(f"Impact detected: {impact_type} using selector {impact_selector_used}")
+            logger.debug(f"  Classes: {classes}")
+            logger.debug(f"  Data-impact: {data_impact}")
+            logger.debug(f"  Title: {title}")
+        
+        # Apply impact level filtering
         if impact_level == 'all':
             return is_high or is_medium or is_low
         elif impact_level == 'low':
@@ -380,29 +959,214 @@ class ForexNewsScraper:
         return False
 
     def _extract_news_data(self, row) -> Dict[str, str]:
-        # Extract time with fallback selectors
-        time_selectors = ['.calendar__time', '.time', 'td:first-child']
+        """Extract news data from a table row with enhanced selectors."""
+        
+        # Enhanced time selectors for modern ForexFactory
+        time_selectors = [
+            # Primary time selectors
+            '.calendar__time',
+            '.time',
+            '.event-time',
+            
+            # Alternative time selectors
+            '[class*="time"]',
+            '[data-time]',
+            '.ff-time',
+            
+            # Positional selectors (time is usually first column)
+            'td:first-child',
+            'td:nth-child(1)',
+            
+            # Generic fallbacks
+            '.col-time',
+            '.time-cell'
+        ]
         time = self._get_text_with_fallback(row, time_selectors)
         
-        # Extract currency with fallback selectors
-        currency_selectors = ['.calendar__currency', '.currency', 'td:nth-child(2)']
+        # Enhanced currency selectors
+        currency_selectors = [
+            # Primary currency selectors
+            '.calendar__currency',
+            '.currency',
+            '.event-currency',
+            
+            # Flag-based selectors (ForexFactory uses flag images)
+            '.flag',
+            '[class*="flag"]',
+            '.currency-flag',
+            
+            # Alternative currency selectors
+            '[class*="currency"]',
+            '[data-currency]',
+            '.ff-currency',
+            
+            # Positional selectors (currency usually second column)
+            'td:nth-child(2)',
+            
+            # Generic fallbacks
+            '.col-currency',
+            '.currency-cell'
+        ]
         currency = self._get_text_with_fallback(row, currency_selectors)
         
-        # Extract event title with fallback selectors
-        event_selectors = ['.calendar__event-title', '.event-title', '.event', 'td:nth-child(3)']
+        # Enhanced event title selectors
+        event_selectors = [
+            # Primary event selectors
+            '.calendar__event-title',
+            '.event-title',
+            '.event-name',
+            '.event',
+            
+            # Alternative event selectors
+            '[class*="event"]',
+            '[data-event-title]',
+            '[data-event-name]',
+            '.ff-event',
+            
+            # Title-based selectors
+            '.title',
+            '[class*="title"]',
+            '.event-description',
+            
+            # Positional selectors (event usually third column)
+            'td:nth-child(3)',
+            
+            # Generic fallbacks
+            '.col-event',
+            '.event-cell'
+        ]
         event = self._get_text_with_fallback(row, event_selectors)
         
-        # Extract actual value with proper handling and fallbacks
-        actual_selectors = ['.calendar__actual', '.actual', 'td:nth-child(4)']
+        # Enhanced actual value selectors
+        actual_selectors = [
+            # Primary actual selectors
+            '.calendar__actual',
+            '.actual',
+            '.event-actual',
+            
+            # Alternative actual selectors
+            '[class*="actual"]',
+            '[data-actual]',
+            '.ff-actual',
+            '.value-actual',
+            '.result',
+            '.released',
+            
+            # Positional selectors (actual usually fourth column)
+            'td:nth-child(4)',
+            
+            # Generic fallbacks
+            '.col-actual',
+            '.actual-cell'
+        ]
         actual = self._get_text_with_fallback(row, actual_selectors)
         
-        # Extract forecast with fallback selectors
-        forecast_selectors = ['.calendar__forecast', '.forecast', 'td:nth-child(5)']
+        # Enhanced forecast selectors
+        forecast_selectors = [
+            # Primary forecast selectors
+            '.calendar__forecast',
+            '.forecast',
+            '.event-forecast',
+            
+            # Alternative forecast selectors
+            '[class*="forecast"]',
+            '[data-forecast]',
+            '.ff-forecast',
+            '.value-forecast',
+            '.expected',
+            '.consensus',
+            
+            # Positional selectors (forecast usually fifth column)
+            'td:nth-child(5)',
+            
+            # Generic fallbacks
+            '.col-forecast',
+            '.forecast-cell'
+        ]
         forecast = self._get_text_with_fallback(row, forecast_selectors)
         
-        # Extract previous with fallback selectors
-        previous_selectors = ['.calendar__previous', '.previous', 'td:nth-child(6)']
+        # Enhanced previous value selectors
+        previous_selectors = [
+            # Primary previous selectors
+            '.calendar__previous',
+            '.previous',
+            '.event-previous',
+            
+            # Alternative previous selectors
+            '[class*="previous"]',
+            '[data-previous]',
+            '.ff-previous',
+            '.value-previous',
+            '.prior',
+            '.last',
+            
+            # Positional selectors (previous usually sixth column)
+            'td:nth-child(6)',
+            
+            # Generic fallbacks
+            '.col-previous',
+            '.previous-cell'
+        ]
         previous = self._get_text_with_fallback(row, previous_selectors)
+        
+        # Enhanced positional extraction fallback
+        if all(val == "N/A" for val in [time, currency, event]):
+            logger.debug("Primary selectors failed, trying positional extraction")
+            cells = row.find_all(['td', 'th'])
+            
+            if len(cells) >= 3:  # Minimum required columns
+                # Try to identify columns by content patterns
+                for i, cell in enumerate(cells):
+                    cell_text = cell.get_text().strip()
+                    
+                    # Time pattern detection (HH:MM format)
+                    if time == "N/A" and self._is_time_format(cell_text):
+                        time = cell_text
+                        logger.debug(f"Found time in column {i+1}: {time}")
+                    
+                    # Currency pattern detection (3-letter codes)
+                    elif currency == "N/A" and self._is_currency_format(cell_text):
+                        currency = cell_text
+                        logger.debug(f"Found currency in column {i+1}: {currency}")
+                    
+                    # Event pattern detection (longer text with economic terms)
+                    elif event == "N/A" and self._is_event_format(cell_text):
+                        event = cell_text
+                        logger.debug(f"Found event in column {i+1}: {event}")
+                    
+                    # Numeric value detection for actual/forecast/previous
+                    elif self._is_numeric_value(cell_text):
+                        if actual == "N/A":
+                            actual = cell_text
+                            logger.debug(f"Found actual in column {i+1}: {actual}")
+                        elif forecast == "N/A":
+                            forecast = cell_text
+                            logger.debug(f"Found forecast in column {i+1}: {forecast}")
+                        elif previous == "N/A":
+                            previous = cell_text
+                            logger.debug(f"Found previous in column {i+1}: {previous}")
+                
+                # Final fallback: use positional extraction
+                if time == "N/A" and len(cells) > 0:
+                    time = cells[0].get_text().strip() or "N/A"
+                if currency == "N/A" and len(cells) > 1:
+                    currency = cells[1].get_text().strip() or "N/A"
+                if event == "N/A" and len(cells) > 2:
+                    event = cells[2].get_text().strip() or "N/A"
+                if actual == "N/A" and len(cells) > 3:
+                    actual = cells[3].get_text().strip() or "N/A"
+                if forecast == "N/A" and len(cells) > 4:
+                    forecast = cells[4].get_text().strip() or "N/A"
+                if previous == "N/A" and len(cells) > 5:
+                    previous = cells[5].get_text().strip() or "N/A"
+        
+        # Clean and validate extracted data
+        time = self._clean_text(time)
+        currency = self._clean_text(currency)
+        event = self._clean_text(event)
+        actual = self._clean_text(actual)
+        forecast = self._clean_text(forecast)
+        previous = self._clean_text(previous)
         
         return {
             "time": escape_markdown_v2(time),
@@ -412,6 +1176,65 @@ class ForexNewsScraper:
             "forecast": escape_markdown_v2(forecast),
             "previous": escape_markdown_v2(previous),
         }
+    
+    def _is_time_format(self, text: str) -> bool:
+        """Check if text matches time format patterns."""
+        import re
+        time_patterns = [
+            r'^\d{1,2}:\d{2}$',  # HH:MM
+            r'^\d{1,2}:\d{2}[ap]m$',  # HH:MMam/pm
+            r'^All Day$',  # All Day events
+            r'^\d{1,2}:\d{2} [AP]M$'  # HH:MM AM/PM
+        ]
+        return any(re.match(pattern, text, re.IGNORECASE) for pattern in time_patterns)
+    
+    def _is_currency_format(self, text: str) -> bool:
+        """Check if text matches currency format patterns."""
+        currencies = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD', 'CNY', 'SEK', 'NOK', 'DKK']
+        return text.upper() in currencies
+    
+    def _is_event_format(self, text: str) -> bool:
+        """Check if text looks like an economic event."""
+        if len(text) < 5:  # Too short to be an event
+            return False
+        
+        event_keywords = [
+            'rate', 'gdp', 'inflation', 'employment', 'cpi', 'pmi', 'retail', 
+            'manufacturing', 'services', 'trade', 'balance', 'index', 'report',
+            'data', 'sales', 'production', 'confidence', 'survey', 'announcement'
+        ]
+        
+        text_lower = text.lower()
+        return any(keyword in text_lower for keyword in event_keywords)
+    
+    def _is_numeric_value(self, text: str) -> bool:
+        """Check if text contains numeric values typical of forex data."""
+        import re
+        # Match patterns like: 1.5%, -0.2, 125.5K, 2.3M, etc.
+        numeric_patterns = [
+            r'^-?\d+\.?\d*%?$',  # Simple numbers with optional % and decimal
+            r'^-?\d+\.?\d*[KMB]$',  # Numbers with K/M/B suffixes
+            r'^-?\d+\.?\d*[kmb]$',  # Numbers with lowercase suffixes
+            r'^\d+\.?\d*$',  # Simple positive numbers
+        ]
+        return any(re.match(pattern, text.strip()) for pattern in numeric_patterns)
+    
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize extracted text."""
+        if not text or text == "N/A":
+            return "N/A"
+        
+        # Remove extra whitespace and newlines
+        text = ' '.join(text.split())
+        
+        # Remove common artifacts
+        text = text.replace('\n', ' ').replace('\t', ' ')
+        
+        # If text is empty after cleaning, return N/A
+        if not text.strip():
+            return "N/A"
+        
+        return text.strip()
 
     def _get_text_with_fallback(self, row, selectors: List[str]) -> str:
         """Try multiple selectors to extract text, return 'N/A' if none found."""
