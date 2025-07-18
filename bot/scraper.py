@@ -68,20 +68,96 @@ class ChatGPTAnalyzer:
 @asynccontextmanager
 async def get_browser_page():
     async with async_playwright() as playwright:
-        try:
-            browser = await playwright.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            })
+        browser = None
+        context = None
+        
+        # Try different browser configurations
+        browser_configs = [
+            {
+                'headless': True,  # Start with headless for server environments
+                'args': [
+                    '--no-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--disable-extensions',
+                    '--disable-plugins',
+                    '--disable-javascript-harmony-shipping',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ]
+            },
+            {
+                'headless': False,  # Fallback to non-headless if available
+                'args': [
+                    '--no-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--disable-web-security',
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ]
+            }
+        ]
+        
+        for config in browser_configs:
             try:
-                yield page
-            finally:
-                await browser.close()
-        except Exception as e:
-            logger.error("Failed to launch browser: %s", e)
-            raise
+                logger.info(f"Trying browser config: headless={config['headless']}")
+                
+                browser = await playwright.chromium.launch(**config)
+                
+                # Create context with realistic settings
+                context = await browser.new_context(
+                    viewport={'width': 1920, 'height': 1080},
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    extra_http_headers={
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
+                )
+                
+                page = await context.new_page()
+                
+                # Add script to remove webdriver property
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined,
+                    });
+                """)
+                
+                logger.info("Browser launched successfully")
+                
+                try:
+                    yield page
+                finally:
+                    if context:
+                        await context.close()
+                    if browser:
+                        await browser.close()
+                return
+                
+            except Exception as e:
+                logger.warning(f"Browser config failed: {e}")
+                if context:
+                    try:
+                        await context.close()
+                    except:
+                        pass
+                if browser:
+                    try:
+                        await browser.close()
+                    except:
+                        pass
+                continue
+        
+        # If all configs failed
+        raise Exception("Failed to launch browser with any configuration")
 
 
 class ForexNewsScraper:
@@ -115,50 +191,181 @@ class ForexNewsScraper:
         return f"{self.base_url}?day={date_str}"
 
     async def _fetch_page_content(self, page, url: str) -> str:
-        for attempt in range(3):
+        """Fetch page content with improved error handling and Cloudflare bypass."""
+        max_attempts = 5
+        base_delay = 2
+        
+        for attempt in range(max_attempts):
             try:
-                await page.goto(url, timeout=120000)
-                await page.wait_for_selector('table.calendar__table', timeout=10000)
-                return await page.content()
-            except Exception as e:
-                if attempt == 2:
-                    logger.error("Failed to load page %s after 3 attempts: %s", url, e)
-                    raise
+                logger.info(f"Attempt {attempt + 1}/{max_attempts} to load {url}")
+                
+                # Navigate to the page with extended timeout
+                await page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                
+                # Add human-like delay
+                await asyncio.sleep(3)
+                
+                # Wait for Cloudflare challenge to complete (if present)
+                try:
+                    # Check if we're on a Cloudflare challenge page
+                    challenge_present = await page.locator('title:has-text("Just a moment")').count() > 0
+                    if challenge_present:
+                        logger.info("Cloudflare challenge detected, waiting for completion...")
+                        # Wait for the challenge to complete (up to 45 seconds)
+                        await page.wait_for_function(
+                            "document.title !== 'Just a moment...'",
+                            timeout=45000
+                        )
+                        logger.info("Cloudflare challenge completed")
+                        # Additional wait after challenge completion
+                        await asyncio.sleep(5)
+                except Exception as cf_e:
+                    logger.warning(f"Cloudflare challenge handling failed: {cf_e}")
+                
+                # Simulate human behavior - scroll and move mouse
+                try:
+                    await page.mouse.move(100, 100)
+                    await page.mouse.move(200, 200)
+                    await asyncio.sleep(1)
+                except Exception:
+                    pass
+                
+                # Try multiple selectors with different timeouts
+                selectors_to_try = [
+                    ('table.calendar__table', 15000),
+                    ('table.calendar', 10000),
+                    ('table', 5000),
+                    ('.calendar__table', 5000)
+                ]
+                
+                table_found = False
+                for selector, timeout in selectors_to_try:
+                    try:
+                        logger.info(f"Trying selector: {selector}")
+                        await page.wait_for_selector(selector, timeout=timeout)
+                        logger.info(f"Successfully found selector: {selector}")
+                        table_found = True
+                        break
+                    except Exception as selector_e:
+                        logger.warning(f"Selector {selector} failed: {selector_e}")
+                        continue
+                
+                if not table_found:
+                    raise Exception("No calendar table found with any selector")
+                
+                # Additional wait to ensure dynamic content is loaded
                 await asyncio.sleep(2)
+                
+                # Verify we have actual content
+                content = await page.content()
+                if len(content) < 1000:  # Too small, likely an error page
+                    raise Exception("Page content too small, likely blocked or error page")
+                
+                # Check if we have actual calendar data
+                table_count = await page.locator('table').count()
+                if table_count == 0:
+                    raise Exception("No tables found in page content")
+                
+                logger.info(f"Successfully loaded page with {len(content)} characters")
+                return content
+                
+            except Exception as e:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                
+                if attempt == max_attempts - 1:
+                    logger.error(f"Failed to load page {url} after {max_attempts} attempts: {e}")
+                    raise
+                
+                logger.info(f"Waiting {delay} seconds before retry...")
+                await asyncio.sleep(delay)
 
     def _parse_news_from_html(self, html: str, impact_level: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, 'html.parser')
-        rows = (
-            soup.select('table.calendar__table tr.calendar__row[data-event-id]')
-            or soup.select('table.calendar tr.event')
-        )
-        logger.info("Found %s total rows", len(rows))
+        
+        # Try multiple selector combinations for finding event rows
+        row_selectors = [
+            'table.calendar__table tr.calendar__row[data-event-id]',
+            'table.calendar__table tr[data-event-id]',
+            'table.calendar tr.event',
+            'table tr[data-event-id]',
+            '.calendar__table tr.calendar__row',
+            '.calendar__table tr[data-event-id]'
+        ]
+        
+        rows = []
+        for selector in row_selectors:
+            rows = soup.select(selector)
+            if rows:
+                logger.info(f"Found {len(rows)} rows using selector: {selector}")
+                break
+        
+        if not rows:
+            logger.warning("No event rows found with any selector")
+            # Fallback: try to find any table rows that might contain events
+            tables = soup.select('table')
+            for table in tables:
+                potential_rows = table.select('tr')
+                for row in potential_rows:
+                    # Check if row has event-like content
+                    if (row.select('.calendar__currency') or 
+                        row.select('.calendar__event-title') or
+                        row.get('data-event-id')):
+                        rows.append(row)
+            logger.info(f"Fallback found {len(rows)} potential event rows")
+        
         news_items: List[Dict[str, str]] = []
         
         for row in rows:
-            if self._should_include_news(row, impact_level):
-                news_item = self._extract_news_data(row)
-                if news_item["time"] != "N/A":
-                    self.last_seen_time = news_item["time"]
-                elif self.last_seen_time != "N/A":
-                    # Use last seen time if current row doesn't have time
-                    news_item["time"] = self.last_seen_time
-                news_items.append(news_item)
+            try:
+                if self._should_include_news(row, impact_level):
+                    news_item = self._extract_news_data(row)
+                    if news_item["time"] != "N/A":
+                        self.last_seen_time = news_item["time"]
+                    elif self.last_seen_time != "N/A":
+                        # Use last seen time if current row doesn't have time
+                        news_item["time"] = self.last_seen_time
+                    news_items.append(news_item)
+            except Exception as e:
+                logger.warning(f"Error processing row: {e}")
+                continue
         
+        logger.info(f"Successfully parsed {len(news_items)} news items")
         return news_items
 
     def _should_include_news(self, row, impact_level: str) -> bool:
-        impact_element = (
-            row.select_one('.calendar__impact span.icon')
-            or row.select_one('.impact span.icon')
-        )
+        # Try multiple selectors for impact element
+        impact_selectors = [
+            '.calendar__impact span.icon',
+            '.impact span.icon',
+            '.calendar__impact .icon',
+            '.impact .icon',
+            'span.icon',
+            '.icon'
+        ]
+        
+        impact_element = None
+        for selector in impact_selectors:
+            impact_element = row.select_one(selector)
+            if impact_element:
+                break
+        
         if not impact_element:
+            # If no impact element found, check if row has event content
+            # and include it for 'all' level
+            if impact_level == 'all':
+                has_event_content = (
+                    row.select_one('.calendar__event-title') or
+                    row.select_one('.calendar__currency') or
+                    row.get('data-event-id')
+                )
+                return bool(has_event_content)
             return False
         
         classes = impact_element.get('class', [])
-        is_high = 'icon--ff-impact-red' in classes
-        is_medium = 'icon--ff-impact-orange' in classes
-        is_low = 'icon--ff-impact-yellow' in classes
+        is_high = any('red' in cls.lower() or 'high' in cls.lower() for cls in classes)
+        is_medium = any('orange' in cls.lower() or 'medium' in cls.lower() for cls in classes)
+        is_low = any('yellow' in cls.lower() or 'low' in cls.lower() for cls in classes)
         
         # Handle different impact levels
         if impact_level == 'all':
@@ -173,25 +380,48 @@ class ForexNewsScraper:
         return False
 
     def _extract_news_data(self, row) -> Dict[str, str]:
-        time_elem = row.select_one('.calendar__time')
-        time = time_elem.text.strip() if time_elem else "N/A"
+        # Extract time with fallback selectors
+        time_selectors = ['.calendar__time', '.time', 'td:first-child']
+        time = self._get_text_with_fallback(row, time_selectors)
         
-        # Extract actual value with proper handling
-        actual_elem = row.select_one('.calendar__actual')
-        actual = "N/A"
-        if actual_elem:
-            actual_text = actual_elem.text.strip()
-            if actual_text and actual_text != "":
-                actual = actual_text
+        # Extract currency with fallback selectors
+        currency_selectors = ['.calendar__currency', '.currency', 'td:nth-child(2)']
+        currency = self._get_text_with_fallback(row, currency_selectors)
+        
+        # Extract event title with fallback selectors
+        event_selectors = ['.calendar__event-title', '.event-title', '.event', 'td:nth-child(3)']
+        event = self._get_text_with_fallback(row, event_selectors)
+        
+        # Extract actual value with proper handling and fallbacks
+        actual_selectors = ['.calendar__actual', '.actual', 'td:nth-child(4)']
+        actual = self._get_text_with_fallback(row, actual_selectors)
+        
+        # Extract forecast with fallback selectors
+        forecast_selectors = ['.calendar__forecast', '.forecast', 'td:nth-child(5)']
+        forecast = self._get_text_with_fallback(row, forecast_selectors)
+        
+        # Extract previous with fallback selectors
+        previous_selectors = ['.calendar__previous', '.previous', 'td:nth-child(6)']
+        previous = self._get_text_with_fallback(row, previous_selectors)
         
         return {
             "time": escape_markdown_v2(time),
-            "currency": escape_markdown_v2(self._get_text_or_na(row, '.calendar__currency')),
-            "event": escape_markdown_v2(self._get_text_or_na(row, '.calendar__event-title')),
+            "currency": escape_markdown_v2(currency),
+            "event": escape_markdown_v2(event),
             "actual": escape_markdown_v2(actual),
-            "forecast": escape_markdown_v2(self._get_text_or_na(row, '.calendar__forecast')),
-            "previous": escape_markdown_v2(self._get_text_or_na(row, '.calendar__previous')),
+            "forecast": escape_markdown_v2(forecast),
+            "previous": escape_markdown_v2(previous),
         }
+
+    def _get_text_with_fallback(self, row, selectors: List[str]) -> str:
+        """Try multiple selectors to extract text, return 'N/A' if none found."""
+        for selector in selectors:
+            element = row.select_one(selector)
+            if element:
+                text = element.text.strip()
+                if text and text != "":
+                    return text
+        return "N/A"
 
     @staticmethod
     def _get_text_or_na(row, selector: str) -> str:
