@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import random
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
+import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -66,14 +68,106 @@ class ChatGPTAnalyzer:
 
 @asynccontextmanager
 async def get_browser_page():
+    """Enhanced browser context with comprehensive anti-bot detection bypass."""
     async with async_playwright() as playwright:
         try:
-            browser = await playwright.chromium.launch(headless=True)
+            # Enhanced browser launch arguments for stealth
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--single-process',
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-networking',
+                    '--disable-background-timer-throttling',
+                    '--disable-renderer-backgrounding',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-default-apps',
+                    '--disable-extensions',
+                    '--disable-features=TranslateUI',
+                    '--disable-hang-monitor',
+                    '--disable-ipc-flooding-protection',
+                    '--disable-popup-blocking',
+                    '--disable-prompt-on-repost',
+                    '--disable-sync',
+                    '--force-color-profile=srgb',
+                    '--metrics-recording-only',
+                    '--no-default-browser-check',
+                    '--no-pings',
+                    '--password-store=basic',
+                    '--use-mock-keychain',
+                    '--disable-blink-features=AutomationControlled'
+                ]
+            )
+            
+            # Create new page with enhanced stealth configuration
             page = await browser.new_page()
+            
+            # Remove webdriver traces
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                
+                // Remove automation indicators
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                
+                // Mock plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+                
+                // Mock languages
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                // Mock permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+            """)
+            
+            # Set comprehensive headers with randomization
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            ]
+            
             await page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'User-Agent': random.choice(user_agents),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0'
             })
+            
+            # Set viewport to common resolution
+            await page.set_viewport_size({"width": 1366, "height": 768})
+            
             try:
                 yield page
             finally:
@@ -84,54 +178,154 @@ async def get_browser_page():
 
 
 class ForexNewsScraper:
-    """Handles scraping of forex news from ForexFactory."""
+    """Enhanced ForexFactory scraper with anti-bot detection bypass."""
 
     def __init__(self, config: Config, analyzer: ChatGPTAnalyzer):
         self.config = config
         self.analyzer = analyzer
         self.base_url = "https://www.forexfactory.com/calendar"
-        self.last_seen_time = "N/A"  # Keep track of last seen time
+        self.last_seen_time = "N/A"
+        self.max_retries = 5
+        self.base_delay = 2
 
     async def scrape_news(self, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> List[Dict[str, Any]]:
         if target_date is None:
             target_date = datetime.now(timezone(self.config.timezone))
         url = self._build_url(target_date)
         logger.info("Fetching URL: %s", url)
-        try:
-            async with get_browser_page() as page:
-                html = await self._fetch_page_content(page, url)
-                news_items = self._parse_news_from_html(html, impact_level)
-                for item in news_items:
-                    item["analysis"] = self.analyzer.analyze_news(item)
-                logger.info("Collected %s news items", len(news_items))
-                return news_items
-        except Exception as e:
-            logger.error("Error scraping news: %s", e)
-            return []
+        
+        for attempt in range(self.max_retries):
+            try:
+                async with get_browser_page() as page:
+                    html = await self._fetch_page_content_with_retry(page, url, attempt)
+                    if html:
+                        news_items = self._parse_news_from_html(html, impact_level)
+                        for item in news_items:
+                            item["analysis"] = self.analyzer.analyze_news(item)
+                        logger.info("Collected %s news items", len(news_items))
+                        return news_items
+            except Exception as e:
+                logger.error("Attempt %d failed: %s", attempt + 1, e)
+                if attempt < self.max_retries - 1:
+                    delay = self.base_delay * (2 ** attempt) + random.uniform(1, 3)
+                    logger.info("Retrying in %.2f seconds...", delay)
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error("All attempts failed. Returning empty list.")
+                    return []
 
     def _build_url(self, target_date: datetime) -> str:
         date_str = target_date.strftime("%b%d.%Y").lower()
         return f"{self.base_url}?day={date_str}"
 
-    async def _fetch_page_content(self, page, url: str) -> str:
-        for attempt in range(3):
-            try:
-                await page.goto(url, timeout=120000)
-                await page.wait_for_selector('table.calendar__table', timeout=10000)
-                return await page.content()
-            except Exception as e:
-                if attempt == 2:
-                    logger.error("Failed to load page %s after 3 attempts: %s", url, e)
-                    raise
-                await asyncio.sleep(2)
+    async def _fetch_page_content_with_retry(self, page, url: str, attempt: int) -> Optional[str]:
+        """Enhanced page fetching with multiple fallback strategies."""
+        try:
+            # Add random delay to mimic human behavior
+            await asyncio.sleep(random.uniform(1, 3))
+            
+            # Navigate to page with extended timeout
+            await page.goto(url, timeout=60000, wait_until='domcontentloaded')
+            
+            # Wait for page to stabilize
+            await asyncio.sleep(random.uniform(2, 4))
+            
+            # Try multiple selector strategies with dynamic waiting
+            selectors_to_try = [
+                'table.calendar__table',
+                'table.calendar',
+                '.calendar__table',
+                '.calendar',
+                'table[class*="calendar"]',
+                'div[class*="calendar"]'
+            ]
+            
+            content = None
+            for selector in selectors_to_try:
+                try:
+                    logger.info("Trying selector: %s", selector)
+                    await page.wait_for_selector(selector, timeout=15000)
+                    content = await page.content()
+                    logger.info("Successfully loaded content with selector: %s", selector)
+                    break
+                except Exception as selector_error:
+                    logger.warning("Selector %s failed: %s", selector, selector_error)
+                    continue
+            
+            if not content:
+                # Fallback: try to get content without waiting for specific selectors
+                logger.info("All selectors failed, attempting to get page content directly")
+                await asyncio.sleep(5)  # Give page more time to load
+                content = await page.content()
+                
+                # Check if we got a meaningful page
+                if len(content) < 1000:
+                    raise Exception("Page content too short, likely blocked or failed to load")
+            
+            # Check for common anti-bot indicators
+            if self._detect_bot_blocking(content):
+                raise Exception("Bot detection triggered")
+            
+            return content
+            
+        except Exception as e:
+            logger.error("Failed to fetch page content (attempt %d): %s", attempt + 1, e)
+            
+            # Take screenshot for debugging on final attempt
+            if attempt == self.max_retries - 1:
+                try:
+                    await page.screenshot(path=f'/tmp/forex_scraper_error_{int(time.time())}.png')
+                    logger.info("Screenshot saved for debugging")
+                except:
+                    pass
+            
+            raise
+
+    def _detect_bot_blocking(self, content: str) -> bool:
+        """Detect common bot blocking patterns."""
+        blocking_indicators = [
+            'blocked',
+            'captcha',
+            'cloudflare',
+            'access denied',
+            'forbidden',
+            'rate limit',
+            'too many requests',
+            'suspicious activity',
+            'verify you are human'
+        ]
+        
+        content_lower = content.lower()
+        for indicator in blocking_indicators:
+            if indicator in content_lower:
+                logger.warning("Bot blocking detected: %s", indicator)
+                return True
+        return False
 
     def _parse_news_from_html(self, html: str, impact_level: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, 'html.parser')
-        rows = (
-            soup.select('table.calendar__table tr.calendar__row[data-event-id]')
-            or soup.select('table.calendar tr.event')
-        )
-        logger.info("Found %s total rows", len(rows))
+        
+        # Try multiple row selectors for different ForexFactory layouts
+        row_selectors = [
+            'table.calendar__table tr.calendar__row[data-event-id]',
+            'table.calendar tr.event',
+            'tr.calendar__row',
+            'tr[data-event-id]',
+            '.calendar__row',
+            'tr.event'
+        ]
+        
+        rows = []
+        for selector in row_selectors:
+            rows = soup.select(selector)
+            if rows:
+                logger.info("Found %s rows with selector: %s", len(rows), selector)
+                break
+        
+        if not rows:
+            logger.warning("No news rows found with any selector")
+            return []
+        
         news_items: List[Dict[str, str]] = []
         
         for row in rows:
@@ -140,26 +334,35 @@ class ForexNewsScraper:
                 if news_item["time"] != "N/A":
                     self.last_seen_time = news_item["time"]
                 elif self.last_seen_time != "N/A":
-                    # Use last seen time if current row doesn't have time
                     news_item["time"] = self.last_seen_time
                 news_items.append(news_item)
         
         return news_items
 
     def _should_include_news(self, row, impact_level: str) -> bool:
-        impact_element = (
-            row.select_one('.calendar__impact span.icon')
-            or row.select_one('.impact span.icon')
-        )
+        # Try multiple impact selectors
+        impact_selectors = [
+            '.calendar__impact span.icon',
+            '.impact span.icon',
+            '.calendar__impact .icon',
+            '.impact .icon',
+            'span.icon'
+        ]
+        
+        impact_element = None
+        for selector in impact_selectors:
+            impact_element = row.select_one(selector)
+            if impact_element:
+                break
+        
         if not impact_element:
             return False
         
         classes = impact_element.get('class', [])
-        is_high = 'icon--ff-impact-red' in classes
-        is_medium = 'icon--ff-impact-orange' in classes
-        is_low = 'icon--ff-impact-yellow' in classes
+        is_high = 'icon--ff-impact-red' in classes or 'red' in ' '.join(classes).lower()
+        is_medium = 'icon--ff-impact-orange' in classes or 'orange' in ' '.join(classes).lower()
+        is_low = 'icon--ff-impact-yellow' in classes or 'yellow' in ' '.join(classes).lower()
         
-        # Handle different impact levels
         if impact_level == 'all':
             return is_high or is_medium or is_low
         elif impact_level == 'low':
@@ -172,24 +375,61 @@ class ForexNewsScraper:
         return False
 
     def _extract_news_data(self, row) -> Dict[str, str]:
-        time_elem = row.select_one('.calendar__time')
-        time = time_elem.text.strip() if time_elem else "N/A"
+        # Enhanced data extraction with multiple selector fallbacks
+        def get_text_with_fallbacks(selectors: List[str]) -> str:
+            for selector in selectors:
+                elem = row.select_one(selector)
+                if elem:
+                    text = elem.text.strip()
+                    if text:
+                        return text
+            return "N/A"
         
-        # Extract actual value with proper handling
-        actual_elem = row.select_one('.calendar__actual')
-        actual = "N/A"
-        if actual_elem:
-            actual_text = actual_elem.text.strip()
-            if actual_text and actual_text != "":
-                actual = actual_text
+        time = get_text_with_fallbacks([
+            '.calendar__time',
+            '.time',
+            '[class*="time"]'
+        ])
+        
+        currency = get_text_with_fallbacks([
+            '.calendar__currency',
+            '.currency',
+            '[class*="currency"]'
+        ])
+        
+        event = get_text_with_fallbacks([
+            '.calendar__event-title',
+            '.event-title',
+            '.calendar__event',
+            '.event',
+            '[class*="event"]'
+        ])
+        
+        actual = get_text_with_fallbacks([
+            '.calendar__actual',
+            '.actual',
+            '[class*="actual"]'
+        ])
+        
+        forecast = get_text_with_fallbacks([
+            '.calendar__forecast',
+            '.forecast',
+            '[class*="forecast"]'
+        ])
+        
+        previous = get_text_with_fallbacks([
+            '.calendar__previous',
+            '.previous',
+            '[class*="previous"]'
+        ])
         
         return {
             "time": escape_markdown_v2(time),
-            "currency": escape_markdown_v2(self._get_text_or_na(row, '.calendar__currency')),
-            "event": escape_markdown_v2(self._get_text_or_na(row, '.calendar__event-title')),
+            "currency": escape_markdown_v2(currency),
+            "event": escape_markdown_v2(event),
             "actual": escape_markdown_v2(actual),
-            "forecast": escape_markdown_v2(self._get_text_or_na(row, '.calendar__forecast')),
-            "previous": escape_markdown_v2(self._get_text_or_na(row, '.calendar__previous')),
+            "forecast": escape_markdown_v2(forecast),
+            "previous": escape_markdown_v2(previous),
         }
 
     @staticmethod
@@ -205,13 +445,13 @@ class MessageFormatter:
     def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str) -> str:
         date_str = target_date.strftime("%d.%m.%Y")
         date_escaped = escape_markdown_v2(date_str)
-        header = f"🗓️ Forex News for {date_escaped} \\(CET\\):\n\n"
+        header = f"🗓️ Forex News for {date_escaped} \\\\(CET\\\\):\\n\\n"
         
         if not news_items:
             impact_escaped = escape_markdown_v2(impact_level)
             return (
                 header
-                + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\n"
+                + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\\n"
                 + "Please check the website for updates."
             )
 
@@ -222,20 +462,20 @@ class MessageFormatter:
         
         for (currency, time), events in grouped_events.items():
             # Currency and time header
-            currency_header = f"💰 **{currency}** \\- {time}\n"
+            currency_header = f"💰 **{currency}** \\\\- {time}\\n"
             message_parts.append(currency_header)
             
             for event in events:
                 part = (
-                    f"📰 Event: {event['event']}\n"
-                    f"📊 Actual: {event['actual']}\n"
-                    f"📈 Forecast: {event['forecast']}\n"
-                    f"📉 Previous: {event['previous']}\n"
-                    f"🔍 Analysis: {event['analysis']}\n\n"
+                    f"📰 Event: {event['event']}\\n"
+                    f"📊 Actual: {event['actual']}\\n"
+                    f"📈 Forecast: {event['forecast']}\\n"
+                    f"📉 Previous: {event['previous']}\\n"
+                    f"🔍 Analysis: {event['analysis']}\\n\\n"
                 )
                 message_parts.append(part)
             
-            message_parts.append(f"{'-' * 30}\n\n")
+            message_parts.append(f"{'-' * 30}\\n\\n")
         
         return "".join(message_parts)
 
@@ -246,8 +486,8 @@ class MessageFormatter:
         
         for item in news_items:
             # Remove escape characters for grouping key
-            currency = item['currency'].replace('\\', '')
-            time = item['time'].replace('\\', '')
+            currency = item['currency'].replace('\\\\', '')
+            time = item['time'].replace('\\\\', '')
             key = (currency, time)
             grouped[key].append(item)
         
@@ -256,56 +496,16 @@ class MessageFormatter:
             currency, time = item[0]
             # Convert time to sortable format (handle "All Day" and other formats)
             if time == "N/A" or "All Day" in time:
-                return (99, currency)  # Put "All Day" events at the end
+                return (99, currency)  # Put "All Day" events last
+            
+            # Try to parse time for proper sorting
             try:
-                # Try to parse time in various formats
-                if ":" in time:
-                    if "am" in time.lower() or "pm" in time.lower():
-                        time_obj = datetime.strptime(time, "%I:%M%p")
-                    else:
-                        time_obj = datetime.strptime(time, "%H:%M")
-                    return (time_obj.hour * 60 + time_obj.minute, currency)
-            except:
-                pass
-            return (50, currency)  # Default sorting for unparseable times
+                if ':' in time:
+                    hour, minute = time.split(':')
+                    return (int(hour), int(minute), currency)
+                else:
+                    return (50, 0, currency)  # Unknown time format
+            except (ValueError, IndexError):
+                return (50, 0, currency)  # Fallback for unparseable times
         
         return dict(sorted(grouped.items(), key=sort_key))
-
-
-async def process_forex_news(scraper: ForexNewsScraper, bot, config: Config, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> Optional[List[Dict[str, Any]]]:
-    if not bot or not config.telegram_chat_id:
-        logger.error("Cannot process news: Bot or CHAT_ID not configured")
-        return [] if debug else None
-    try:
-        if target_date is None:
-            target_date = datetime.now(timezone(config.timezone))
-        news_items = await scraper.scrape_news(target_date, impact_level, debug)
-        if debug:
-            return news_items
-        message = MessageFormatter.format_news_message(news_items, target_date, impact_level)
-        if message.strip():
-            send_long_message(bot, config.telegram_chat_id, message)
-        else:
-            logger.error("Generated message is empty")
-        return news_items
-    except Exception as e:
-        logger.exception("Unexpected error in process_forex_news: %s", e)
-        try:
-            error_msg = escape_markdown_v2(f"⚠️ Error in Forex news scraping: {str(e)}")
-            bot.send_message(config.telegram_chat_id, error_msg, parse_mode='MarkdownV2')
-        except Exception:
-            logger.exception("Failed to send error notification")
-        return [] if debug else None
-
-
-def run_forex_news_sync(scraper: ForexNewsScraper, bot, config: Config):
-    return asyncio.run(process_forex_news(scraper, bot, config))
-
-
-def run_forex_news_for_date(scraper: ForexNewsScraper, bot, config: Config, date_str: Optional[str] = None, impact_level: str = "high", debug: bool = False):
-    try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d") if date_str else None
-        return asyncio.run(process_forex_news(scraper, bot, config, target_date, impact_level, debug))
-    except Exception as e:
-        logger.exception("Error parsing date: %s", e)
-        return []
