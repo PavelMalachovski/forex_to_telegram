@@ -17,3 +17,5 @@ selenium==4.16.0
 fake-useragent==1.4.0
 cloudscraper==1.2.71
 python-anticaptcha==0.7.1
+gunicorn==21.2.0
+flask==3.0.0
