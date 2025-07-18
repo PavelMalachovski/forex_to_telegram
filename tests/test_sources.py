@@ -14,12 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bot.config import Config
 from bot.sources import get_source_manager, SourceManager, NewsSource
-from bot.sources.forex_factory import ForexFactorySource
-from bot.sources.alpha_vantage import AlphaVantageSource
-from bot.sources.fmp import FMPSource
-from bot.sources.newsapi import NewsAPISource
-from bot.sources.rss import RSSSource
-from bot.multi_source_scraper import MultiSourceForexScraper
 from bot.utils.normalizer import NewsNormalizer
 
 

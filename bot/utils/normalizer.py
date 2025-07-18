@@ -14,7 +14,6 @@ class NewsNormalizer:
     
     @staticmethod
     def normalize_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Normalize events from different sources."""
         normalized_events = []
         
         for event in events:

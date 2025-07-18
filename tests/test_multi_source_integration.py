@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 # Add the parent directory to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bot.multi_source_scraper import MultiSourceForexScraper
 from bot.config import Config
 
 # Set up logging
