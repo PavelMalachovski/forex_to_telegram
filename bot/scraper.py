@@ -26,6 +26,10 @@ from .utils import escape_markdown_v2, send_long_message
 logger = logging.getLogger(__name__)
 
 
+class CloudflareBypassError(Exception):
+    pass
+
+
 class ChatGPTAnalyzer:
     """Handles ChatGPT API integration for news analysis."""
 
@@ -76,14 +80,22 @@ class ChatGPTAnalyzer:
 
 @asynccontextmanager
 async def get_browser_page():
+    from pathlib import Path
     async with async_playwright() as playwright:
         try:
-            browser = await playwright.chromium.launch(headless=True, args=[
-                '--disable-blink-features=AutomationControlled',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-            ])
-            page = await browser.new_page()
+            # Use a persistent user profile directory
+            user_data_dir = os.path.join(os.path.expanduser("~"), ".forex_factory_profile")
+            Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+            browser_context = await playwright.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=False,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                ]
+            )
+            page = await browser_context.new_page()
             await page.set_extra_http_headers({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -91,10 +103,12 @@ async def get_browser_page():
             # Apply stealth if available
             if HAS_STEALTH:
                 await stealth_async(page)
+            # Remove webdriver property
+            await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             try:
                 yield page
             finally:
-                await browser.close()
+                await browser_context.close()
         except Exception as e:
             logger.error("Failed to launch browser: %s", e)
             raise
@@ -569,13 +583,24 @@ class ForexNewsScraper:
     async def _fetch_page_content(self, page, url: str) -> str:
         for attempt in range(3):
             try:
-                await page.goto(url, timeout=120000)
+                await page.goto(url, timeout=180000)  # Increased timeout
+                # Human-like actions after navigation
+                import random
+                await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+                await page.wait_for_timeout(random.randint(500, 1500))
+                await page.mouse.wheel(0, random.randint(100, 500))
+                await page.wait_for_timeout(random.randint(500, 1500))
+                await page.click('body')
+                await page.wait_for_timeout(random.randint(500, 1500))
                 # Wait for Cloudflare challenge if present
                 if await page.query_selector('div#cf-spinner-please-wait'):
                     logger.info("Cloudflare challenge detected, waiting...")
-                    await page.wait_for_selector('table.calendar__table', timeout=30000)
+                    await page.wait_for_selector('table.calendar__table', timeout=60000)  # Increased timeout
                 else:
-                    await page.wait_for_selector('table.calendar__table', timeout=10000)
+                    await page.wait_for_selector('table.calendar__table', timeout=30000)  # Increased timeout
+                # Export cookies for use in other strategies
+                cookies = await page.context.cookies()
+                self._export_cookies_for_requests(cookies)
                 return await page.content()
             except PlaywrightTimeoutError as e:
                 logger.warning(f"Timeout on attempt {attempt+1}: {e}")
@@ -704,6 +729,17 @@ class ForexNewsScraper:
             "forecast": escape_markdown_v2(forecast),
             "previous": escape_markdown_v2(previous),
         }
+
+    def _export_cookies_for_requests(self, cookies):
+        """Export cookies from Playwright to a file for use in curl/requests strategies."""
+        import json, tempfile
+        cookie_path = os.path.join(tempfile.gettempdir(), "forex_factory_cookies.json")
+        try:
+            with open(cookie_path, 'w', encoding='utf-8') as f:
+                json.dump(cookies, f)
+            logger.info(f"Exported cookies to {cookie_path}")
+        except Exception as e:
+            logger.warning(f"Failed to export cookies: {e}")
 
 
 class MessageFormatter:
