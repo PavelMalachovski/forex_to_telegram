@@ -614,9 +614,14 @@ class ForexNewsScraper:
 
         if not rows:
             logger.warning("No news rows found")
-            # Save for debugging
-            with open('/tmp/forex_debug.html', 'w', encoding='utf-8') as f:
-                f.write(html)
+            # Save for debugging only if possible
+            try:
+                import tempfile, os
+                debug_path = os.path.join(tempfile.gettempdir(), "forex_debug.html")
+                with open(debug_path, 'w', encoding='utf-8') as f:
+                    f.write(html)
+            except Exception:
+                pass
             return []
 
         news_items: List[Dict[str, str]] = []
@@ -680,6 +685,16 @@ class ForexNewsScraper:
             actual_text = actual_elem.text.strip()
             if actual_text and actual_text != "":
                 actual = actual_text
+
+        # Extract other fields safely
+        currency_elem = row.select_one('.calendar__currency')
+        currency = currency_elem.text.strip() if currency_elem else "N/A"
+        event_elem = row.select_one('.calendar__event-title')
+        event = event_elem.text.strip() if event_elem else "N/A"
+        forecast_elem = row.select_one('.calendar__forecast')
+        forecast = forecast_elem.text.strip() if forecast_elem else "N/A"
+        previous_elem = row.select_one('.calendar__previous')
+        previous = previous_elem.text.strip() if previous_elem else "N/A"
 
         return {
             "time": escape_markdown_v2(time),

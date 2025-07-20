@@ -20,3 +20,8 @@ def test_escape_markdown_v2_comprehensive():
     text = "Test_*[]()~`>#+-=|{}.!\\"
     expected = "Test\\_\\*\\[\\]\\(\\)\\~\\`\\>\\#\\+\\-\\=\\|\\{\\}\\.\\!\\\\"
     assert escape_markdown_v2(text) == expected
+
+
+def test_escape_markdown_v2_empty():
+    assert escape_markdown_v2("") == "N/A"
+    assert escape_markdown_v2(None) == "N/A"
