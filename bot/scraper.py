@@ -7,7 +7,13 @@ from collections import defaultdict
 
 import requests
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+# Try to import stealth plugin if available
+try:
+    from playwright_stealth import stealth_async
+    HAS_STEALTH = True
+except ImportError:
+    HAS_STEALTH = False
 from pytz import timezone
 
 from .config import Config
@@ -68,12 +74,19 @@ class ChatGPTAnalyzer:
 async def get_browser_page():
     async with async_playwright() as playwright:
         try:
-            browser = await playwright.chromium.launch(headless=True)
+            browser = await playwright.chromium.launch(headless=True, args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ])
             page = await browser.new_page()
             await page.set_extra_http_headers({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             })
+            # Apply stealth if available
+            if HAS_STEALTH:
+                await stealth_async(page)
             try:
                 yield page
             finally:
@@ -117,13 +130,25 @@ class ForexNewsScraper:
         for attempt in range(3):
             try:
                 await page.goto(url, timeout=120000)
-                await page.wait_for_selector('table.calendar__table', timeout=10000)
+                # Wait for Cloudflare challenge if present
+                if await page.query_selector('div#cf-spinner-please-wait'):
+                    logger.info("Cloudflare challenge detected, waiting...")
+                    await page.wait_for_selector('table.calendar__table', timeout=30000)
+                else:
+                    await page.wait_for_selector('table.calendar__table', timeout=10000)
                 return await page.content()
-            except Exception as e:
+            except PlaywrightTimeoutError as e:
+                logger.warning(f"Timeout on attempt {attempt+1}: {e}")
                 if attempt == 2:
                     logger.error("Failed to load page %s after 3 attempts: %s", url, e)
                     raise
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
+            except Exception as e:
+                logger.warning(f"Error on attempt {attempt+1}: {e}")
+                if attempt == 2:
+                    logger.error("Failed to load page %s after 3 attempts: %s", url, e)
+                    raise
+                await asyncio.sleep(3)
 
     def _parse_news_from_html(self, html: str, impact_level: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, 'html.parser')
@@ -133,7 +158,7 @@ class ForexNewsScraper:
         )
         logger.info("Found %s total rows", len(rows))
         news_items: List[Dict[str, str]] = []
-        
+
         for row in rows:
             if self._should_include_news(row, impact_level):
                 news_item = self._extract_news_data(row)
@@ -143,7 +168,7 @@ class ForexNewsScraper:
                     # Use last seen time if current row doesn't have time
                     news_item["time"] = self.last_seen_time
                 news_items.append(news_item)
-        
+
         return news_items
 
     def _should_include_news(self, row, impact_level: str) -> bool:
@@ -153,12 +178,12 @@ class ForexNewsScraper:
         )
         if not impact_element:
             return False
-        
+
         classes = impact_element.get('class', [])
         is_high = 'icon--ff-impact-red' in classes
         is_medium = 'icon--ff-impact-orange' in classes
         is_low = 'icon--ff-impact-yellow' in classes
-        
+
         # Handle different impact levels
         if impact_level == 'all':
             return is_high or is_medium or is_low
@@ -168,13 +193,13 @@ class ForexNewsScraper:
             return is_high or is_medium
         elif impact_level == 'high':
             return is_high
-        
+
         return False
 
     def _extract_news_data(self, row) -> Dict[str, str]:
         time_elem = row.select_one('.calendar__time')
         time = time_elem.text.strip() if time_elem else "N/A"
-        
+
         # Extract actual value with proper handling
         actual_elem = row.select_one('.calendar__actual')
         actual = "N/A"
@@ -182,7 +207,7 @@ class ForexNewsScraper:
             actual_text = actual_elem.text.strip()
             if actual_text and actual_text != "":
                 actual = actual_text
-        
+
         return {
             "time": escape_markdown_v2(time),
             "currency": escape_markdown_v2(self._get_text_or_na(row, '.calendar__currency')),
@@ -206,7 +231,7 @@ class MessageFormatter:
         date_str = target_date.strftime("%d.%m.%Y")
         date_escaped = escape_markdown_v2(date_str)
         header = f"🗓️ Forex News for {date_escaped} \\(CET\\):\n\n"
-        
+
         if not news_items:
             impact_escaped = escape_markdown_v2(impact_level)
             return (
@@ -217,14 +242,14 @@ class MessageFormatter:
 
         # Group events by currency and time
         grouped_events = MessageFormatter._group_events_by_currency_and_time(news_items)
-        
+
         message_parts = [header]
-        
+
         for (currency, time), events in grouped_events.items():
             # Currency and time header
             currency_header = f"💰 **{currency}** \\- {time}\n"
             message_parts.append(currency_header)
-            
+
             for event in events:
                 part = (
                     f"📰 Event: {event['event']}\n"
@@ -234,23 +259,23 @@ class MessageFormatter:
                     f"🔍 Analysis: {event['analysis']}\n\n"
                 )
                 message_parts.append(part)
-            
+
             message_parts.append(f"{'-' * 30}\n\n")
-        
+
         return "".join(message_parts)
 
     @staticmethod
     def _group_events_by_currency_and_time(news_items: List[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
         """Group events by currency and time for better presentation."""
         grouped = defaultdict(list)
-        
+
         for item in news_items:
             # Remove escape characters for grouping key
             currency = item['currency'].replace('\\', '')
             time = item['time'].replace('\\', '')
             key = (currency, time)
             grouped[key].append(item)
-        
+
         # Sort by time, then by currency
         def sort_key(item):
             currency, time = item[0]
@@ -268,7 +293,7 @@ class MessageFormatter:
             except:
                 pass
             return (50, currency)  # Default sorting for unparseable times
-        
+
         return dict(sorted(grouped.items(), key=sort_key))
 
 
