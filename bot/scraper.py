@@ -101,10 +101,13 @@ class ForexNewsScraper:
         options.add_argument("--disable-infobars")
         options.add_argument("--disable-extensions")
         options.add_argument("--start-maximized")
+        options.add_argument("--headless=new")  # Always headless in Docker/cloud
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-setuid-sandbox")
+        options.add_argument("--remote-debugging-port=9222")
         # Set Chrome binary location for Docker/Render.com
         chrome_path = os.environ.get("CHROME_BINARY", "/usr/bin/google-chrome")
         options.binary_location = chrome_path
-        # options.add_argument("--headless=new")  # Try headless if you want, but non-headless is more reliable
         driver = uc.Chrome(options=options, use_subprocess=True)
         try:
             driver.get(url)
