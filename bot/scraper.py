@@ -154,11 +154,31 @@ class ForexNewsScraper:
 
     def _parse_news_from_html(self, html: str, impact_level: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, 'html.parser')
-        rows = (
-            soup.select('table.calendar__table tr.calendar__row[data-event-id]')
-            or soup.select('table.calendar tr.event')
-        )
-        logger.info("Found %s total rows", len(rows))
+        # Cloudflare/fallback detection
+        if "cloudflare" in html.lower() or "just a moment" in html.lower() or "attention required" in html.lower():
+            logger.warning("Cloudflare or fallback content detected in page source!")
+        # Try multiple selectors for event rows
+        selectors = [
+            'table.calendar__table tr.calendar__row[data-event-id]',
+            'table.calendar__table tr.calendar__row',
+            'tr.calendar__row[data-event-id]',
+            'tr.calendar__row',
+            'table.calendar tr.event',
+            'tr.event',
+        ]
+        rows = []
+        for selector in selectors:
+            rows = soup.select(selector)
+            if rows:
+                logger.info(f"Found {len(rows)} rows with selector: {selector}")
+                break
+        if not rows:
+            logger.warning("No news rows found with any selector. Saving HTML to /tmp/forex_debug.html for inspection.")
+            try:
+                with open("/tmp/forex_debug.html", "w", encoding="utf-8") as f:
+                    f.write(html)
+            except Exception as e:
+                logger.warning(f"Failed to save debug HTML: {e}")
         news_items: List[Dict[str, str]] = []
         for row in rows:
             if self._should_include_news(row, impact_level):
