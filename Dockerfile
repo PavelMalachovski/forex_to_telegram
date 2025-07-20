@@ -7,17 +7,13 @@ WORKDIR /app
 # Copy only dependencies first for better Docker caching
 COPY requirements.txt .
 
-# Install system libraries and Google Chrome
+# Install system libraries and Chromium
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       wget gnupg2 ca-certificates fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
       libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
       libgbm1 libasound2 libpango-1.0-0 libcairo2 libfontconfig1 \
-      libx11-xcb1 libxrender1 libglib2.0-0 libsm6 libice6 && \
-    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends google-chrome-stable && \
+      libx11-xcb1 libxrender1 libglib2.0-0 libsm6 libice6 chromium chromium-driver && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

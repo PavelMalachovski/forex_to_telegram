@@ -105,10 +105,13 @@ class ForexNewsScraper:
         options.add_argument("--disable-software-rasterizer")
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--remote-debugging-port=9222")
-        # Set Chrome binary location for Docker/Render.com
-        chrome_path = os.environ.get("CHROME_BINARY", "/usr/bin/google-chrome")
-        options.binary_location = chrome_path
-        driver = uc.Chrome(options=options, use_subprocess=True)
+        # Set Chromium binary location for Docker/Render.com
+        chromium_path = os.environ.get("CHROME_BINARY", "/usr/bin/chromium")
+        options.binary_location = chromium_path
+        logger.info(f"Launching Chromium with binary: {options.binary_location}")
+        logger.info(f"ChromeOptions: {options.arguments}")
+        logger.info("use_subprocess set to False for compatibility")
+        driver = uc.Chrome(options=options, use_subprocess=False)
         try:
             driver.get(url)
             actions = ActionChains(driver)
