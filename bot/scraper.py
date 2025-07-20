@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from collections import defaultdict
+
 from bs4 import BeautifulSoup
 from pytz import timezone
 from .config import Config
@@ -77,7 +77,6 @@ class ForexNewsScraper:
         self.config = config
         self.analyzer = analyzer
         self.base_url = "https://www.forexfactory.com/calendar"
-        self.last_seen_time = "N/A"
 
     async def scrape_news(self, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> List[Dict[str, Any]]:
         if target_date is None:
@@ -331,15 +330,78 @@ class ForexNewsScraper:
                     f.write(html)
             except Exception as e:
                 logger.warning(f"Failed to save debug HTML: {e}")
+
+        # First pass: collect all news items and track times
         news_items: List[Dict[str, str]] = []
+        current_time = "N/A"
+
         for row in rows:
             if self._should_include_news(row, impact_level):
                 news_item = self._extract_news_data(row)
-                if news_item["time"] != "N/A":
-                    self.last_seen_time = news_item["time"]
-                elif self.last_seen_time != "N/A":
-                    news_item["time"] = self.last_seen_time
+
+                # Update current time if this item has a valid time
+                if news_item["time"] != "N/A" and news_item["time"].strip():
+                    current_time = news_item["time"]
+                # If no time available, use the previous time
+                elif current_time != "N/A":
+                    news_item["time"] = current_time
+
                 news_items.append(news_item)
+
+        # Second pass: ensure all items have times and sort properly
+        news_items = self._ensure_all_times_and_sort(news_items)
+
+        return news_items
+
+    def _ensure_all_times_and_sort(self, news_items: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Ensure all news items have proper times and sort by currency and time."""
+        if not news_items:
+            return news_items
+
+        # Find the first valid time if any items are missing times
+        first_valid_time = None
+        for item in news_items:
+            if item["time"] != "N/A" and item["time"].strip():
+                first_valid_time = item["time"]
+                break
+
+        # If no valid time found, use a default
+        if not first_valid_time:
+            first_valid_time = "09:00"
+
+        # Ensure all items have a time
+        for item in news_items:
+            if item["time"] == "N/A" or not item["time"].strip():
+                item["time"] = first_valid_time
+
+        # Sort by currency first, then by time
+        def sort_key(item):
+            currency = item['currency']
+            time_str = item['time']
+
+            # Convert time to sortable format
+            try:
+                # Handle various time formats
+                if ":" in time_str:
+                    if "am" in time_str.lower() or "pm" in time_str.lower():
+                        # Handle 12-hour format
+                        time_obj = datetime.strptime(time_str.lower().replace("am", " AM").replace("pm", " PM"), "%I:%M %p")
+                    else:
+                        # Handle 24-hour format
+                        time_obj = datetime.strptime(time_str, "%H:%M")
+                    time_minutes = time_obj.hour * 60 + time_obj.minute
+                else:
+                    # For non-standard time formats, use a default value
+                    time_minutes = 0
+            except:
+                # If time parsing fails, use a default value
+                time_minutes = 0
+
+            return (currency, time_minutes)
+
+        # Sort the items
+        news_items.sort(key=sort_key)
+
         return news_items
 
     def _should_include_news(self, row, impact_level: str) -> bool:
@@ -405,77 +467,35 @@ class MessageFormatter:
                 + "Please check the website for updates."
             )
 
-        # Group events by currency first, then by time
-        grouped_by_currency = {}
+        # Since data is already sorted by currency and time, we can format directly
+        message_parts = [header]
+        current_currency = None
+
         for item in news_items:
             currency = item['currency']
-            if currency not in grouped_by_currency:
-                grouped_by_currency[currency] = []
-            grouped_by_currency[currency].append(item)
 
-        # Sort events within each currency by time
-        for currency in grouped_by_currency:
-            grouped_by_currency[currency].sort(key=lambda x: x['time'])
+            # Add currency header when currency changes
+            if currency != current_currency:
+                if current_currency is not None:
+                    message_parts.append("\n")  # Add space between currency groups
+                message_parts.append(f"💰 <b>{currency}</b>\n")
+                current_currency = currency
 
-        message_parts = [header]
-
-        # Sort currencies alphabetically
-        for currency in sorted(grouped_by_currency.keys()):
-            currency_events = grouped_by_currency[currency]
-
-            # Add currency header
-            message_parts.append(f"💰 <b>{currency}</b>\n")
-
-            for item in currency_events:
-                part = (
-                    f"⏰ <b>{item['time']}</b>\n"
-                    f"📰 <b>Event:</b> {item['event']}\n"
-                    f"📊 <b>Actual:</b> {item['actual']}\n"
-                    f"📈 <b>Forecast:</b> {item['forecast']}\n"
-                    f"📉 <b>Previous:</b> {item['previous']}\n"
-                    f"🔍 <b>Analysis:</b> {item['analysis']}\n"
-                    "------------------------------\n"
-                )
-                message_parts.append(part)
-
-            # Add space between currency groups
-            message_parts.append("\n")
+            # Format the news item
+            part = (
+                f"⏰ <b>{item['time']}</b>\n"
+                f"📰 <b>Event:</b> {item['event']}\n"
+                f"📊 <b>Actual:</b> {item['actual']}\n"
+                f"📈 <b>Forecast:</b> {item['forecast']}\n"
+                f"📉 <b>Previous:</b> {item['previous']}\n"
+                f"🔍 <b>Analysis:</b> {item['analysis']}\n"
+                "------------------------------\n"
+            )
+            message_parts.append(part)
 
         return "".join(message_parts)
 
-    @staticmethod
-    def _group_events_by_currency_and_time(news_items: List[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
-        """Group events by currency and time for better presentation."""
-        grouped = defaultdict(list)
 
-        for item in news_items:
-            # Remove escape characters for grouping key
-            currency = item['currency'].replace('\\\\\\\\', '')
-            time = item['time'].replace('\\\\\\\\', '')
-            key = (currency, time)
-            grouped[key].append(item)
-
-        # Sort by time, then by currency
-        def sort_key(item):
-            currency, time = item[0]
-            # Convert time to sortable format (handle "All Day" and other formats)
-            if time == "N/A" or "All Day" in time:
-                return (99, currency)  # Put "All Day" events last
-
-            # Try to parse time for proper sorting
-            try:
-                # Try to parse time in various formats
-                if ":" in time:
-                    if "am" in time.lower() or "pm" in time.lower():
-                        time_obj = datetime.strptime(time, "%I:%M%p")
-                    else:
-                        time_obj = datetime.strptime(time, "%H:%M")
-                    return (time_obj.hour * 60 + time_obj.minute, currency)
-            except:
-                pass
-            return (50, currency)  # Default sorting for unparseable times
-
-        return dict(sorted(grouped.items(), key=sort_key))
 
 
 async def process_forex_news(scraper: ForexNewsScraper, bot, config: Config, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> Optional[List[Dict[str, Any]]]:
