@@ -3,6 +3,9 @@ import sys
 from datetime import datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import pytest
+from unittest.mock import patch
+
 from bot.config import Config
 from bot.scraper import ForexNewsScraper, ChatGPTAnalyzer, MessageFormatter
 
@@ -43,3 +46,47 @@ def test_message_formatter():
     msg = MessageFormatter.format_news_message(news, datetime(2024, 1, 1), "high")
     assert "Forex News for" in msg
     assert "USD" in msg
+
+
+def test_is_blocked_content():
+    config = Config()
+    analyzer = ChatGPTAnalyzer(None)
+    scraper = ForexNewsScraper(config, analyzer)
+    blocked_cases = [
+        "<html>Cloudflare - Just a moment...</html>",
+        "Access Denied", "Forbidden", "Rate limit exceeded", "Suspicious activity detected"
+    ]
+    for html in blocked_cases:
+        assert scraper._is_blocked_content(html)
+    assert not scraper._is_blocked_content("<html><body>Normal content with enough length" + ("a"*1000) + "</body></html>")
+
+def test_parse_news_from_html_empty():
+    config = Config()
+    analyzer = ChatGPTAnalyzer(None)
+    scraper = ForexNewsScraper(config, analyzer)
+    assert scraper._parse_news_from_html("", "high") == []
+
+def test_parse_news_from_html_malformed():
+    config = Config()
+    analyzer = ChatGPTAnalyzer(None)
+    scraper = ForexNewsScraper(config, analyzer)
+    html = "<html><body><div>No table here</div></body></html>"
+    assert scraper._parse_news_from_html(html, "high") == []
+
+def test_message_formatter_empty():
+    msg = MessageFormatter.format_news_message([], datetime(2024, 1, 1), "high")
+    assert "No news found" in msg
+
+def test_chatgpt_analyzer_no_key():
+    analyzer = ChatGPTAnalyzer(None)
+    result = analyzer.analyze_news({"time": "", "currency": "", "event": "", "forecast": "", "previous": ""})
+    assert "skipped" in result
+
+def test_chatgpt_analyzer_with_key():
+    analyzer = ChatGPTAnalyzer("fake-key")
+    news_item = {"time": "", "currency": "", "event": "", "forecast": "", "previous": ""}
+    with patch("requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {"choices": [{"message": {"content": "Test analysis"}}]}
+        mock_post.return_value.raise_for_status = lambda: None
+        result = analyzer.analyze_news(news_item)
+        assert "Test analysis" in result

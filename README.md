@@ -1,207 +1,345 @@
-# Forex News Telegram Bot
+# Forex Factory to Telegram Bot
 
-A Telegram bot that scrapes forex news from ForexFactory and sends high-impact news to a specified Telegram chat. The bot uses OpenAI's GPT to analyze and summarize news events.
+An advanced Telegram bot that scrapes Forex Factory economic calendar and sends high-impact news updates to Telegram channels with intelligent time handling and sorting.
 
-## Features
+## 🚀 Latest Features
 
-- **Automated News Scraping**: Fetches forex news from ForexFactory
-- **AI-Powered Analysis**: Uses OpenAI GPT to analyze and summarize news
-- **Telegram Integration**: Sends formatted news updates to Telegram
-- **Impact Filtering**: Filters news by impact level (high, medium, low)
-- **Scheduled Updates**: Can be configured to run at specific times
-- **Web Interface**: Provides REST API endpoints for manual triggering and status checks
-- **Render.com Ready**: Configured for easy deployment on Render.com
+- **Enhanced Time Management**: All news items now have proper times with intelligent fallback to previous available times
+- **Smart Sorting**: News sorted by currency alphabetically, then chronologically by time
+- **Advanced Anti-Bot Bypass**: Multiple strategies to bypass Cloudflare and other anti-bot protections
+- **Multi-Strategy Scraping**:
+  - Advanced curl-based scraping with browser simulation
+  - Enhanced HTTP requests with session management
+  - Playwright with comprehensive stealth and Turnstile bypass
+  - Undetected-chromedriver with human-like behavior
+- **Intelligent Fallbacks**: Automatic fallback to alternative methods if primary fails
+- **ChatGPT Integration**: Optional AI-powered analysis of news events
+- **Flexible Scheduling**: Configurable news fetching intervals
+- **Impact Level Filtering**: Filter news by impact level (high, medium, low, all)
+- **Telegram Integration**: Clean, formatted messages sent to Telegram channels
+- **Robust Error Handling**: Comprehensive timeout mechanisms and graceful degradation
 
-## Setup
+## ✨ Recent Major Improvements
+
+### Enhanced Time Handling & Sorting (Latest)
+- **Complete Time Assignment**: All news items now have valid times - no more "N/A" times
+- **Intelligent Time Fallback**: Missing times automatically use the previous available time
+- **Smart Sorting**: News sorted by currency first, then by time within each currency
+- **Robust Time Parsing**: Handles various time formats (12-hour, 24-hour, AM/PM)
+- **Clean Output**: Better organized messages with clear currency sections
+
+### Advanced Anti-Bot Detection Bypass
+
+The scraper now implements sophisticated techniques to bypass ForexFactory's Cloudflare protection:
+
+1. **Multiple Curl Strategies**:
+   - Browser simulation with full headers
+   - Mobile browser emulation
+   - Minimal headers approach
+
+2. **Enhanced Playwright Integration**:
+   - Comprehensive stealth mode with fingerprint masking
+   - Automatic Cloudflare Turnstile detection and bypass
+   - Human-like behavior simulation
+   - Advanced WebDriver detection removal
+
+3. **Undetected-Chromedriver Support**:
+   - Human-like mouse movements and scrolling
+   - Random delays and behavior patterns
+   - Advanced browser fingerprint masking
+   - Automatic Cloudflare challenge handling
+
+4. **Session Management**:
+   - Intelligent session establishment
+   - Cookie management and persistence
+   - Rate limiting and delay mechanisms
+
+5. **Robust Error Handling**:
+   - Timeout mechanisms to prevent hanging
+   - Detailed logging and debugging
+   - Automatic retry with different strategies
+
+### Fixed Telegram MarkdownV2 Escaping
+- **Corrected double escaping issue** in `escape_markdown_v2()` function
+- **Proper character escaping order** (backslash first to prevent double escaping)
+- **Comprehensive error handling** with fallback to plain text
+- **Validation functions** for MarkdownV2 format
+- **Safe fallback mechanisms** for problematic text
+
+## 🛠️ Installation
 
 ### Prerequisites
-
 - Python 3.11+
-- Telegram Bot Token (from @BotFather)
-- OpenAI API Key
-- Render.com account (for deployment)
+- Google Chrome (for undetected-chromedriver)
+- Telegram Bot Token
+- Optional: OpenAI API Key for ChatGPT analysis
 
-### Environment Variables
-
-Create a `.env` file or set the following environment variables:
-
-```bash
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-OPENAI_API_KEY=your_openai_api_key
-API_KEY=your_custom_api_key_for_manual_endpoints
-RENDER_EXTERNAL_HOSTNAME=your-app-name.onrender.com  # For webhook setup
-PORT=10000  # Default port for the web server
-```
-
-### Local Development
+### Quick Start
 
 1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/PavelMalachovski/forex_to_telegram.git
-   cd forex_to_telegram
-   ```
+```bash
+git clone https://github.com/PavelMalachovski/forex_to_telegram.git
+cd forex_to_telegram
+```
 
 2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   playwright install chromium
-   ```
-
-3. **Set environment variables** (create `.env` file or export them)
-
-4. **Run the application**:
-   ```bash
-   python app.py
-   ```
-
-5. **Test the bot**:
-   - Send `/start` to your bot in Telegram
-   - Use `/news` to get today's high-impact news
-   - Use `/news_all` to get all news regardless of impact
-
-## API Endpoints
-
-### Health Check
 ```bash
-GET /ping
-```
-Returns basic health status and timestamp.
-
-### Application Status
-```bash
-GET /status
-```
-Returns detailed application status including configuration and missing environment variables.
-
-### Manual News Scraping
-```bash
-POST /manual_scrape
-Content-Type: application/json
-X-API-Key: your_api_key
-
-{
-  "date": "2024-01-15",  # Optional: specific date (YYYY-MM-DD)
-  "impact_level": "high", # Optional: high, medium, low, all
-  "debug": false          # Optional: return news data instead of sending to Telegram
-}
+pip install -r requirements.txt
 ```
 
-### Telegram Webhook
+3. **Install Playwright browsers** (optional, for enhanced scraping):
 ```bash
-POST /webhook
+playwright install chromium
 ```
-Endpoint for Telegram webhook (automatically configured).
 
-## Usage
+4. **Set up environment variables**:
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
 
-### Telegram Commands
+## ⚙️ Configuration
 
-- `/start` - Initialize the bot and get welcome message
-- `/news` - Get today's high-impact forex news
-- `/news_all` - Get all today's forex news regardless of impact
-- `/help` - Show available commands
+Create a `.env` file with the following variables:
 
-### Manual Testing
+```env
+# Required
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
 
-Run the application locally:
+# Optional
+CHATGPT_API_KEY=your_openai_api_key_here  # For AI analysis
+TIMEZONE=Europe/Prague  # Your preferred timezone
+```
+
+### Environment Variables Explained
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Yes | Your Telegram bot token from @BotFather |
+| `TELEGRAM_CHAT_ID` | Yes | Target chat/channel ID for news messages |
+| `CHATGPT_API_KEY` | No | OpenAI API key for AI-powered news analysis |
+| `TIMEZONE` | No | Timezone for date handling (default: Europe/Prague) |
+
+## 🚀 Usage
+
+### Running the Bot
 
 ```bash
 python app.py
 ```
 
-Open `http://0.0.0.0:10000` to check the bot's heartbeat.
+### Manual News Fetching
 
-## Deployment on Render.com
+```python
+from bot.scraper import ForexNewsScraper, ChatGPTAnalyzer
+from bot.config import Config
+from datetime import datetime
 
-1. **New Web Service** → Link GitHub repo → Branch: `main` (or your feature branch).
-2. **Build Command**
-   ```bash
-   pip install -r requirements.txt && playwright install chromium
-   ```
-3. **Start Command**: Leave empty (uses Procfile)
-4. **Environment Variables**: Add all required variables listed above
-5. **Auto-Deploy**: Enable for automatic deployments on git push
+config = Config()
+analyzer = ChatGPTAnalyzer(config.chatgpt_api_key)
+scraper = ForexNewsScraper(config, analyzer)
 
-### Render.com Configuration
+# Fetch news for today (high impact)
+news = await scraper.scrape_news(impact_level="high")
 
-- **Runtime**: Python 3.11
-- **Build Command**: `pip install -r requirements.txt && playwright install chromium`
-- **Start Command**: (empty - uses Procfile)
-- **Health Check Path**: `/ping`
-- **Port**: 10000 (automatically configured)
+# Fetch news for specific date
+target_date = datetime(2025, 7, 17)
+news = await scraper.scrape_news(target_date, impact_level="high")
 
-## Project Structure
-
-```
-forex_to_telegram/
-├── app.py                 # Main Flask application
-├── bot/
-│   ├── __init__.py
-│   ├── config.py          # Configuration management
-│   ├── scraper.py         # ForexFactory scraping logic
-│   ├── telegram_handlers.py # Telegram bot handlers
-│   └── utils.py           # Utility functions
-├── tests/
-│   ├── test_scraper.py    # Scraper tests
-│   └── test_utils.py      # Utility tests
-├── Dockerfile             # Docker configuration
-├── Procfile              # Render.com process configuration
-├── requirements.txt      # Python dependencies
-└── README.md            # This file
+# Fetch all impact levels
+news = await scraper.scrape_news(impact_level="all")
 ```
 
-## Key Components
+### Impact Levels
 
-### ForexNewsScraper
-Handles web scraping of ForexFactory using Playwright with Chromium browser.
+- `"high"`: Only high-impact (red) news events
+- `"medium"`: High and medium-impact events
+- `"low"`: Only low-impact (yellow) events
+- `"all"`: All impact levels
 
-### ChatGPTAnalyzer
-Integrates with OpenAI API to analyze and summarize forex news events.
+## 🌐 API Endpoints
 
-### TelegramBotManager
-Manages Telegram bot initialization, webhook setup, and message handling.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Health check |
+| `/webhook` | POST | Telegram webhook endpoint |
+| `/fetch-news` | GET | Manual news fetch trigger |
+| `/fetch-news/<date>` | GET | Fetch news for specific date (YYYY-MM-DD) |
 
-### RenderKeepAlive
-Prevents Render.com free tier from sleeping by sending periodic requests.
+## 🐳 Deployment
 
-## Troubleshooting
+### Docker Deployment
 
-### Common Issues
+The project includes a comprehensive Dockerfile with Google Chrome support:
 
-1. **Bot not responding**: Check `TELEGRAM_BOT_TOKEN` and ensure bot is started with `/start`
-2. **No news received**: Verify `TELEGRAM_CHAT_ID` and check `/status` endpoint
-3. **OpenAI errors**: Ensure `OPENAI_API_KEY` is valid and has sufficient credits
-4. **Scraping failures**: ForexFactory might be blocking requests; check logs
-5. **Webhook issues**: Ensure `RENDER_EXTERNAL_HOSTNAME` matches your Render app URL
+```bash
+# Build the Docker image
+docker build -t forex-telegram-bot .
 
-### Debugging
+# Run with environment variables
+docker run -d \
+  --env-file .env \
+  -p 10000:10000 \
+  forex-telegram-bot
+```
 
-- Check application logs in Render.com dashboard
-- Use `/status` endpoint to verify configuration
-- Test manual scraping with `debug: true` parameter
-- Monitor `scraper.log` file for detailed scraping logs
+### Render.com Deployment
 
-### Environment Variables Validation
+The bot is optimized for Render.com deployment:
 
-The application validates required environment variables on startup:
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID` 
-- `API_KEY`
+1. **Connect your GitHub repository**
+2. **Set environment variables** in Render dashboard
+3. **Deploy using the provided `Dockerfile`**
 
-Optional variables:
-- `OPENAI_API_KEY` (required for AI analysis)
-- `RENDER_EXTERNAL_HOSTNAME` (required for webhook setup)
-- `PORT` (defaults to 10000)
+#### Render.com Configuration
 
-## Contributing
+```yaml
+services:
+  - type: web
+    name: forex-scraper
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --threads 2
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+```
+
+### Other Platforms
+
+The bot can be deployed on any platform that supports Python 3.11+ and Docker:
+
+- **Heroku**: Use the provided `Procfile`
+- **Railway**: Direct deployment from GitHub
+- **DigitalOcean App Platform**: Docker deployment
+- **AWS ECS**: Container deployment
+- **Google Cloud Run**: Serverless container deployment
+
+## 🔧 Technical Details
+
+### Enhanced Time Handling
+
+The scraper now ensures all news items have proper times:
+
+```python
+# Before: Some items had "N/A" times
+# After: All items have valid times with intelligent fallback
+```
+
+**Features:**
+- Automatic time assignment for missing times
+- Fallback to previous available time
+- Default time (09:00) if no times available
+- Robust time parsing for various formats
+
+### Smart Sorting Algorithm
+
+News is sorted by:
+1. **Currency** (alphabetically)
+2. **Time** (chronologically within each currency)
+
+```python
+# Sort key: (currency, time_minutes)
+# Example: ("EUR", 540) for 09:00, ("USD", 630) for 10:30
+```
+
+### Anti-Bot Bypass Strategies
+
+1. **Curl-based Scraping**:
+   - Uses system curl with various header configurations
+   - Simulates different browser types and mobile devices
+   - Handles compressed responses and redirects
+
+2. **HTTP Session Management**:
+   - Establishes sessions with main site before accessing calendar
+   - Manages cookies and maintains session state
+   - Implements realistic delays between requests
+
+3. **Playwright Stealth Mode**:
+   - Removes WebDriver detection signatures
+   - Masks automation indicators
+   - Simulates human-like mouse movements and interactions
+   - Handles Cloudflare Turnstile challenges automatically
+
+4. **Undetected-Chromedriver**:
+   - Human-like behavior simulation
+   - Random delays and mouse movements
+   - Advanced browser fingerprint masking
+   - Automatic Cloudflare challenge handling
+
+### Error Handling
+
+- **Comprehensive timeout mechanisms**
+- **Automatic fallback between strategies**
+- **Detailed logging for debugging**
+- **Graceful degradation when services are unavailable**
+- **Exponential backoff for retry attempts**
+
+### Message Formatting
+
+The bot sends well-formatted messages with:
+- **Currency grouping** with clear headers
+- **Time-based sorting** within each currency
+- **Comprehensive news details** (actual, forecast, previous)
+- **AI analysis** (if ChatGPT API is configured)
+- **Proper MarkdownV2 escaping** with fallback to HTML/plain text
+
+## 📊 Monitoring and Debugging
+
+### Key Log Messages
+
+| Message | Meaning |
+|---------|---------|
+| `"Successfully loaded content"` | Page loaded successfully |
+| `"Bot blocking detected"` | Anti-bot measures triggered |
+| `"MarkdownV2 validation failed"` | Formatting issues detected |
+| `"Successfully sent after fixing"` | Recovery successful |
+
+### Common Issues and Solutions
+
+#### Issue: Still getting selector timeouts
+**Solution**: The improved version tries multiple selectors and has longer timeouts. Check logs for which selectors are being attempted.
+
+#### Issue: MarkdownV2 errors persist
+**Solution**: The new version has comprehensive fallback to plain text. Check the `validate_markdown_v2` function output in logs.
+
+#### Issue: Rate limiting or blocking
+**Solution**: The improved version has randomized delays and better stealth. Consider increasing the base delay in `ForexNewsScraper.base_delay`.
+
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
 4. Add tests if applicable
-5. Submit a pull request
+5. Commit your changes (`git commit -m 'Add amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
 
-## License
+## 📝 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## ⚠️ Disclaimer
+
+This bot is for educational and personal use only. Please respect ForexFactory's terms of service and implement appropriate rate limiting. The authors are not responsible for any misuse of this software.
+
+## 🆘 Support
+
+If you encounter issues or have questions:
+
+1. **Check the logs** for specific error messages
+2. **Look for improved logging output** to identify the failure point
+3. **Test locally first** using the same environment variables
+4. **Open an issue** on GitHub with detailed information
+
+### Getting Help
+
+- **GitHub Issues**: For bug reports and feature requests
+- **Documentation**: Check the code comments and docstrings
+- **Community**: Join our discussions in GitHub Discussions
+
+---
+
+**Made with ❤️ for the Forex trading community**
