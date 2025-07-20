@@ -466,15 +466,15 @@ async def process_forex_news(scraper: ForexNewsScraper, bot, config: Config, tar
             return news_items
         message = MessageFormatter.format_news_message(news_items, target_date, impact_level)
         if message.strip():
-            send_long_message(bot, config.telegram_chat_id, message)
+            send_long_message(bot, config.telegram_chat_id, message, parse_mode="HTML")
         else:
             logger.error("Generated message is empty")
         return news_items
     except Exception as e:
         logger.exception("Unexpected error in process_forex_news: %s", e)
         try:
-            error_msg = escape_markdown_v2(f"⚠️ Error in Forex news scraping: {str(e)}")
-            bot.send_message(config.telegram_chat_id, error_msg, parse_mode='MarkdownV2')
+            error_msg = f"⚠️ Error in Forex news scraping: {str(e)}"
+            bot.send_message(config.telegram_chat_id, error_msg)
         except Exception:
             logger.exception("Failed to send error notification")
         return [] if debug else None
