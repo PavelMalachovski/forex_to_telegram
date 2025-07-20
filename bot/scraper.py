@@ -17,6 +17,11 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import random
 import time
+import os
+
+class CloudflareBypassError(Exception):
+    """Custom exception for Cloudflare challenge detection."""
+    pass
 
 class ChatGPTAnalyzer:
     """Handles ChatGPT API integration for news analysis."""
@@ -79,8 +84,15 @@ class ForexNewsScraper:
             target_date = datetime.now(timezone(self.config.timezone))
         url = self._build_url(target_date)
         logger.info(f"Fetching URL: {url}")
-        # Run the sync Selenium code in a thread
-        html = await asyncio.to_thread(self._fetch_with_undetected_chromedriver, url)
+
+        # Use the new Selenium approach with Cloudflare challenge handling
+        try:
+            html = await self._scrape_with_selenium(url)
+            logger.info("Successfully scraped with Selenium")
+        except Exception as e:
+            logger.error(f"Selenium scraping failed: {e}")
+            raise CloudflareBypassError(f"All scraping methods failed: {e}")
+
         news_items = self._parse_news_from_html(html, impact_level)
         for item in news_items:
             item["analysis"] = self.analyzer.analyze_news(item)
@@ -90,6 +102,133 @@ class ForexNewsScraper:
     def _build_url(self, target_date: datetime) -> str:
         date_str = target_date.strftime("%b%d.%Y").lower()
         return f"{self.base_url}?day={date_str}"
+
+    async def _scrape_with_selenium(self, url: str) -> str:
+        """Scrape using undetected-chromedriver with human-like behavior."""
+        try:
+            # Find Chrome binary
+            chrome_paths = [
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/google-chrome",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium",
+            ]
+            chrome_binary = None
+            for path in chrome_paths:
+                if os.path.exists(path):
+                    chrome_binary = path
+                    break
+
+            if not chrome_binary:
+                raise CloudflareBypassError("Chrome binary not found")
+
+            logger.info(f"Using Chrome binary: {chrome_binary}")
+
+            options = uc.ChromeOptions()
+            options.binary_location = chrome_binary
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--disable-web-security")
+            options.add_argument("--disable-features=VizDisplayCompositor")
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-plugins")
+            options.add_argument("--disable-images")
+            options.add_argument("--disable-javascript")
+            options.add_argument("--disable-default-apps")
+            options.add_argument("--disable-sync")
+            options.add_argument("--disable-translate")
+            options.add_argument("--disable-background-timer-throttling")
+            options.add_argument("--disable-backgrounding-occluded-windows")
+            options.add_argument("--disable-renderer-backgrounding")
+            options.add_argument("--disable-field-trial-config")
+            options.add_argument("--disable-ipc-flooding-protection")
+            options.add_argument("--no-first-run")
+            options.add_argument("--no-default-browser-check")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+
+            driver = uc.Chrome(options=options)
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+            try:
+                logger.info(f"Navigating to {url}")
+                driver.get(url)
+
+                # Wait for page to load and check for Cloudflare challenge
+                max_wait = 30
+                wait_time = 0
+                while wait_time < max_wait:
+                    page_source = driver.page_source
+
+                    # Check if we're still on Cloudflare challenge page
+                    if "just a moment" in page_source.lower() or "verifying you are human" in page_source.lower():
+                        logger.info("Cloudflare challenge detected, waiting...")
+                        await asyncio.sleep(2)
+                        wait_time += 2
+                        continue
+
+                    # Check if we have actual content
+                    if "calendar" in page_source.lower() and ("forexfactory" in page_source.lower() or "forex factory" in page_source.lower()):
+                        logger.info("Page loaded successfully")
+                        break
+
+                    logger.info("Waiting for page to load...")
+                    await asyncio.sleep(1)
+                    wait_time += 1
+
+                if wait_time >= max_wait:
+                    logger.warning("Timeout waiting for page to load")
+
+                # Add human-like behavior
+                await self._add_human_behavior(driver)
+
+                # Get final page source
+                page_source = driver.page_source
+
+                # Final check for Cloudflare challenge
+                if "just a moment" in page_source.lower() or "verifying you are human" in page_source.lower():
+                    logger.warning("Still on Cloudflare challenge page after waiting")
+                    return page_source
+
+                logger.info("Scraping completed successfully")
+                return page_source
+
+            finally:
+                driver.quit()
+
+        except Exception as e:
+            logger.error(f"Selenium scraping failed: {e}")
+            raise CloudflareBypassError(f"Selenium error: {e}")
+
+    async def _add_human_behavior(self, driver):
+        """Add human-like behavior to avoid detection."""
+        try:
+            # Random mouse movements
+            for _ in range(random.randint(2, 5)):
+                x = random.randint(100, 800)
+                y = random.randint(100, 600)
+                action = ActionChains(driver)
+                action.move_by_offset(x, y).perform()
+                await asyncio.sleep(random.uniform(0.1, 0.3))
+
+            # Scroll down and up
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+            await asyncio.sleep(random.uniform(0.5, 1.0))
+            driver.execute_script("window.scrollTo(0, 0);")
+            await asyncio.sleep(random.uniform(0.3, 0.7))
+
+            # Random key presses
+            body = driver.find_element(By.TAG_NAME, "body")
+            for _ in range(random.randint(1, 3)):
+                body.send_keys(Keys.PAGE_DOWN)
+                await asyncio.sleep(random.uniform(0.2, 0.5))
+                body.send_keys(Keys.PAGE_UP)
+                await asyncio.sleep(random.uniform(0.2, 0.5))
+
+        except Exception as e:
+            logger.warning(f"Human behavior simulation failed: {e}")
 
     def _fetch_with_undetected_chromedriver(self, url: str) -> str:
         import os
