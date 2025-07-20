@@ -92,6 +92,7 @@ class ForexNewsScraper:
         return f"{self.base_url}?day={date_str}"
 
     def _fetch_with_undetected_chromedriver(self, url: str) -> str:
+        import os
         options = uc.ChromeOptions()
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-blink-features=AutomationControlled")
@@ -100,6 +101,9 @@ class ForexNewsScraper:
         options.add_argument("--disable-infobars")
         options.add_argument("--disable-extensions")
         options.add_argument("--start-maximized")
+        # Set Chrome binary location for Docker/Render.com
+        chrome_path = os.environ.get("CHROME_BINARY", "/usr/bin/google-chrome")
+        options.binary_location = chrome_path
         # options.add_argument("--headless=new")  # Try headless if you want, but non-headless is more reliable
         driver = uc.Chrome(options=options, use_subprocess=True)
         try:
