@@ -396,40 +396,28 @@ class MessageFormatter:
     @staticmethod
     def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str) -> str:
         date_str = target_date.strftime("%d.%m.%Y")
-        date_escaped = escape_markdown_v2(date_str)
-        header = f"🗓️ Forex News for {date_escaped} \\(CET\\):\n\n"
+        header = f"🗓️ Forex News for {date_str} (CET):\n\n"
 
         if not news_items:
-            impact_escaped = escape_markdown_v2(impact_level)
             return (
                 header
-                + f"✅ No news found for {date_escaped} with impact: {impact_escaped}\\n"
+                + f"✅ No news found for {date_str} with impact: {impact_level}\n"
                 + "Please check the website for updates."
             )
 
-        # Group events by currency and time
-        grouped_events = MessageFormatter._group_events_by_currency_and_time(news_items)
-
         message_parts = [header]
-
-        for (currency, time), events in grouped_events.items():
-            # Currency and time header
-            currency_header = f"💰 **{currency}** \\\\- {time}\\n"
-            message_parts.append(currency_header)
-
-            for event in events:
-                part = (
-                    f"📰 Event: {event['event']}\\n"
-                    f"📊 Actual: {event['actual']}\\n"
-                    f"📈 Forecast: {event['forecast']}\\n"
-                    f"📉 Previous: {event['previous']}\\n"
-                    f"🔍 Analysis: {event['analysis']}\\n\\n"
-                )
-                message_parts.append(part)
-
-            message_parts.append(f"{'-' * 30}\\n\\n")
-
-        return "".join(message_parts)
+        for item in news_items:
+            part = (
+                f"💰 <b>{item['currency']}</b> - <b>{item['time']}</b>\n"
+                f"📰 <b>Event:</b> {item['event']}\n"
+                f"📊 <b>Actual:</b> {item['actual']}\n"
+                f"📈 <b>Forecast:</b> {item['forecast']}\n"
+                f"📉 <b>Previous:</b> {item['previous']}\n"
+                f"🔍 <b>Analysis:</b> {item['analysis']}\n"
+                "------------------------------\n"
+            )
+            message_parts.append(part)
+        return "\n".join(message_parts)
 
     @staticmethod
     def _group_events_by_currency_and_time(news_items: List[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
