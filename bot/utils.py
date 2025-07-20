@@ -7,9 +7,18 @@ logger = logging.getLogger(__name__)
 
 def escape_markdown_v2(text: str) -> str:
     """Escape only Telegram MarkdownV2 special characters in user-supplied text."""
-    # Only escape these characters in user input, not in the template
-    escape_chars = r'[_*\[\]()~`>#+\-=|{}.!]'
-    return re.sub(f'([{escape_chars}])', r'\\\1', text)
+    if not text or text.strip() == "":
+        return "N/A"
+
+    # Define the characters that need to be escaped in MarkdownV2
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+
+    # Escape backslashes first, then other special characters
+    escaped_text = text.replace('\\', '\\\\')
+    for char in special_chars:
+        escaped_text = escaped_text.replace(char, f'\\{char}')
+
+    return escaped_text
 
 
 def send_long_message(bot, chat_id, text, parse_mode="MarkdownV2"):

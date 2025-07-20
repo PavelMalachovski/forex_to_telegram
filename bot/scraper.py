@@ -404,6 +404,37 @@ class ForexNewsScraper:
 
         return news_items
 
+    def _is_blocked_content(self, html: str) -> bool:
+        """Check if the HTML content indicates blocked/bot detection."""
+        if not html:
+            return True
+
+        html_lower = html.lower()
+
+        # Check for common blocking indicators
+        blocked_indicators = [
+            "cloudflare",
+            "just a moment",
+            "access denied",
+            "forbidden",
+            "rate limit exceeded",
+            "suspicious activity detected",
+            "bot detection",
+            "captcha",
+            "challenge",
+            "verifying you are human"
+        ]
+
+        for indicator in blocked_indicators:
+            if indicator in html_lower:
+                return True
+
+        # Check if content is too short (likely blocked)
+        if len(html.strip()) < 1000:
+            return True
+
+        return False
+
     def _should_include_news(self, row, impact_level: str) -> bool:
         impact_element = (
             row.select_one('.calendar__impact span.icon')
