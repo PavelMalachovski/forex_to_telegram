@@ -6,10 +6,4 @@ pytz==2023.3
 gunicorn==21.2.0
 apscheduler==3.10.4
 requests==2.32.3
-<<<<<<< HEAD
 playwright-stealth>=1.0.6  # Optional, for stealth mode in Playwright
-=======
-fake-useragent>=1.4.0
-tenacity>=8.2.0
-undetected-playwright>=0.2.0
->>>>>>> 6dcd4ab582115852787f9eea11fed6d0e1c219cd
