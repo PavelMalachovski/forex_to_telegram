@@ -85,13 +85,20 @@ class ForexNewsScraper:
         url = self._build_url(target_date)
         logger.info(f"Fetching URL: {url}")
 
-        # Use the new Selenium approach with Cloudflare challenge handling
+        # Try the new Selenium approach with Cloudflare challenge handling
         try:
             html = await self._scrape_with_selenium(url)
             logger.info("Successfully scraped with Selenium")
         except Exception as e:
             logger.error(f"Selenium scraping failed: {e}")
-            raise CloudflareBypassError(f"All scraping methods failed: {e}")
+            # Fallback to the old method if Selenium fails
+            try:
+                logger.info("Trying fallback method...")
+                html = await asyncio.to_thread(self._fetch_with_undetected_chromedriver, url)
+                logger.info("Successfully scraped with fallback method")
+            except Exception as fallback_e:
+                logger.error(f"Fallback method also failed: {fallback_e}")
+                raise CloudflareBypassError(f"All scraping methods failed: {e}, fallback: {fallback_e}")
 
         news_items = self._parse_news_from_html(html, impact_level)
         for item in news_items:
@@ -133,8 +140,9 @@ class ForexNewsScraper:
             options.add_argument("--disable-features=VizDisplayCompositor")
             options.add_argument("--disable-extensions")
             options.add_argument("--disable-plugins")
-            options.add_argument("--disable-images")
-            options.add_argument("--disable-javascript")
+            # Don't disable images and JavaScript for Cloudflare challenge
+            # options.add_argument("--disable-images")
+            # options.add_argument("--disable-javascript")
             options.add_argument("--disable-default-apps")
             options.add_argument("--disable-sync")
             options.add_argument("--disable-translate")
@@ -146,8 +154,13 @@ class ForexNewsScraper:
             options.add_argument("--no-first-run")
             options.add_argument("--no-default-browser-check")
             options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
+            # Add headless mode
+            options.add_argument("--headless")
+            # Add user agent
+            options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            # Remove problematic experimental options
+            # options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            # options.add_experimental_option("useAutomationExtension", False)
 
             driver = uc.Chrome(options=options)
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -182,7 +195,7 @@ class ForexNewsScraper:
                     logger.warning("Timeout waiting for page to load")
 
                 # Add human-like behavior
-                await self._add_human_behavior(driver)
+                self._add_human_behavior(driver)
 
                 # Get final page source
                 page_source = driver.page_source
@@ -202,7 +215,7 @@ class ForexNewsScraper:
             logger.error(f"Selenium scraping failed: {e}")
             raise CloudflareBypassError(f"Selenium error: {e}")
 
-    async def _add_human_behavior(self, driver):
+    def _add_human_behavior(self, driver):
         """Add human-like behavior to avoid detection."""
         try:
             # Random mouse movements
@@ -211,21 +224,21 @@ class ForexNewsScraper:
                 y = random.randint(100, 600)
                 action = ActionChains(driver)
                 action.move_by_offset(x, y).perform()
-                await asyncio.sleep(random.uniform(0.1, 0.3))
+                time.sleep(random.uniform(0.1, 0.3))
 
             # Scroll down and up
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-            await asyncio.sleep(random.uniform(0.5, 1.0))
+            time.sleep(random.uniform(0.5, 1.0))
             driver.execute_script("window.scrollTo(0, 0);")
-            await asyncio.sleep(random.uniform(0.3, 0.7))
+            time.sleep(random.uniform(0.3, 0.7))
 
             # Random key presses
             body = driver.find_element(By.TAG_NAME, "body")
             for _ in range(random.randint(1, 3)):
                 body.send_keys(Keys.PAGE_DOWN)
-                await asyncio.sleep(random.uniform(0.2, 0.5))
+                time.sleep(random.uniform(0.2, 0.5))
                 body.send_keys(Keys.PAGE_UP)
-                await asyncio.sleep(random.uniform(0.2, 0.5))
+                time.sleep(random.uniform(0.2, 0.5))
 
         except Exception as e:
             logger.warning(f"Human behavior simulation failed: {e}")
