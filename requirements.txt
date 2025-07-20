@@ -1,9 +1,20 @@
+# Web server and scheduling
 flask==2.3.3
-pyTelegramBotAPI==4.14.0
-beautifulsoup4==4.12.2
-playwright==1.47.0
-pytz==2023.3
-gunicorn==21.2.0
 apscheduler==3.10.4
-requests==2.32.3
-playwright-stealth>=1.0.6  # Optional, for stealth mode in Playwright
+# Production WSGI server
+gunicorn==21.2.0
+
+# Telegram bot
+pyTelegramBotAPI==4.14.0
+
+# Scraper dependencies
+beautifulsoup4==4.12.2  # HTML parsing
+undetected-chromedriver==3.5.5  # Selenium-based stealth browser automation
+selenium==4.21.0  # Required by undetected-chromedriver
+requests==2.32.3         # HTTP requests
+pytz==2023.3             # Timezone handling
+
+# Optional: for faster BeautifulSoup parsing
+# lxml
+
+# Note: Google Chrome must be installed on the system for undetected-chromedriver to work.
