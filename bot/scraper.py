@@ -405,19 +405,43 @@ class MessageFormatter:
                 + "Please check the website for updates."
             )
 
-        message_parts = [header]
+        # Group events by currency first, then by time
+        grouped_by_currency = {}
         for item in news_items:
-            part = (
-                f"💰 <b>{item['currency']}</b> - <b>{item['time']}</b>\n"
-                f"📰 <b>Event:</b> {item['event']}\n"
-                f"📊 <b>Actual:</b> {item['actual']}\n"
-                f"📈 <b>Forecast:</b> {item['forecast']}\n"
-                f"📉 <b>Previous:</b> {item['previous']}\n"
-                f"🔍 <b>Analysis:</b> {item['analysis']}\n"
-                "------------------------------\n"
-            )
-            message_parts.append(part)
-        return "\n".join(message_parts)
+            currency = item['currency']
+            if currency not in grouped_by_currency:
+                grouped_by_currency[currency] = []
+            grouped_by_currency[currency].append(item)
+
+        # Sort events within each currency by time
+        for currency in grouped_by_currency:
+            grouped_by_currency[currency].sort(key=lambda x: x['time'])
+
+        message_parts = [header]
+
+        # Sort currencies alphabetically
+        for currency in sorted(grouped_by_currency.keys()):
+            currency_events = grouped_by_currency[currency]
+
+            # Add currency header
+            message_parts.append(f"💰 <b>{currency}</b>\n")
+
+            for item in currency_events:
+                part = (
+                    f"⏰ <b>{item['time']}</b>\n"
+                    f"📰 <b>Event:</b> {item['event']}\n"
+                    f"📊 <b>Actual:</b> {item['actual']}\n"
+                    f"📈 <b>Forecast:</b> {item['forecast']}\n"
+                    f"📉 <b>Previous:</b> {item['previous']}\n"
+                    f"🔍 <b>Analysis:</b> {item['analysis']}\n"
+                    "------------------------------\n"
+                )
+                message_parts.append(part)
+
+            # Add space between currency groups
+            message_parts.append("\n")
+
+        return "".join(message_parts)
 
     @staticmethod
     def _group_events_by_currency_and_time(news_items: List[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
