@@ -4,22 +4,24 @@ This guide will help you set up the PostgreSQL database for the Forex News Teleg
 
 ## 🗄️ Database Configuration
 
-### Render.com PostgreSQL Database
+### PostgreSQL Database
 
-The bot is configured to work with a PostgreSQL database on Render.com with the following settings:
+The bot is configured to work with a PostgreSQL database. Example settings:
 
 ```
-Hostname: dpg-d1mkim2li9vc73c7toi0-a
+Hostname: your-db-hostname
 Port: 5432
-Database: forex_db_0myg
-Username: forex_user
-Password: ******
-Internal Database URL: postgresql://forex_user:******@dpg-d1mkim2li9vc73c7toi0-a/forex_db_0myg
+Database: your_db_name
+Username: your_db_user
+Password: your_db_password
+Internal Database URL: postgresql://your_db_user:your_db_password@your-db-hostname/your_db_name
 ```
+
+> **Never share your real database credentials. Use environment variables for all secrets.**
 
 ## 🔧 Environment Variables
 
-Add these environment variables to your Render.com deployment:
+Add these environment variables to your deployment:
 
 ### Required Variables
 ```env
@@ -28,7 +30,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
 
 # Database
-DATABASE_URL=postgresql://forex_user:*****@dpg-d1mkim2li9vc73c7toi0-a/forex_db_0myg
+DATABASE_URL=postgresql://your_db_user:your_db_password@your-db-hostname/your_db_name
 
 # API Security
 API_KEY=your_secure_api_key_here
@@ -54,7 +56,7 @@ The bot now implements the following database logic:
 
 ### 2. Data Storage
 - All scraped news is automatically stored in the database
-- Data is organized by date, impact level, and currency
+- Data is organized by date, impact (per item), and currency
 - Duplicate data is prevented with smart checking
 
 ### 3. Bulk Import
@@ -75,7 +77,7 @@ CREATE TABLE forex_news (
     actual VARCHAR(100),
     forecast VARCHAR(100),
     previous VARCHAR(100),
-    impact_level VARCHAR(20) NOT NULL,
+    impact_level VARCHAR(20) NOT NULL, -- high, medium, low, tentative, none
     analysis TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -95,7 +97,7 @@ CREATE INDEX idx_date_impact ON forex_news(date, impact_level);
 pip install -r requirements.txt
 
 # Set up environment variables
-export DATABASE_URL="postgresql://forex_user:0VGr0I02HDKaiVUVT21Z3ORnEiCBAYtC@dpg-d1mkim2li9vc73c7toi0-a/forex_db_0myg"
+export DATABASE_URL="postgresql://your_db_user:your_db_password@your-db-hostname/your_db_name"
 export TELEGRAM_BOT_TOKEN="your_bot_token"
 export TELEGRAM_CHAT_ID="your_chat_id"
 export API_KEY="your_api_key"
@@ -104,10 +106,10 @@ export API_KEY="your_api_key"
 python setup_database.py
 ```
 
-### 2. Render.com Deployment
+### 2. Deployment
 
-1. **Connect your GitHub repository** to Render.com
-2. **Set environment variables** in the Render dashboard
+1. **Connect your GitHub repository** to your cloud provider
+2. **Set environment variables** in the dashboard
 3. **Deploy** using the provided Dockerfile
 4. **Monitor logs** for database connection status
 
@@ -140,16 +142,16 @@ python bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-lev
 
 ```bash
 # Check database health
-curl https://your-app.onrender.com/health
+curl https://your-app-url/health
 
 # Get database statistics
-curl https://your-app.onrender.com/db/stats
+curl https://your-app-url/db/stats
 
 # Check data for specific date
-curl https://your-app.onrender.com/db/check/2025-01-01
+curl https://your-app-url/db/check/2025-01-01
 
 # Import data via API
-curl -X POST https://your-app.onrender.com/db/import \
+curl -X POST https://your-app-url/db/import \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your_api_key" \
   -d '{
@@ -164,11 +166,11 @@ curl -X POST https://your-app.onrender.com/db/import \
 The bot provides comprehensive statistics:
 
 - **Total news count** by date range
-- **Impact level distribution** (high, medium, low)
+- **Impact level distribution** (high, medium, low, tentative, none)
 - **Currency distribution**
 - **Database health status**
 
-## 🔧 Troubleshooting
+## 🛠️ Troubleshooting
 
 ### Common Issues
 
@@ -190,10 +192,10 @@ The bot provides comprehensive statistics:
 
 ```bash
 # Check application health
-curl https://your-app.onrender.com/health
+curl https://your-app-url/health
 
 # Check database specifically
-curl https://your-app.onrender.com/db/stats
+curl https://your-app-url/db/stats
 ```
 
 ## 🚀 Performance Optimization
@@ -208,21 +210,7 @@ curl https://your-app.onrender.com/db/stats
 - Smart duplicate detection prevents redundant scraping
 - Rate limiting built into bulk import
 
-## 📝 Monitoring
-
-### Key Metrics to Monitor
-- Database connection status
-- Scraping success rate
-- Data import completion
-- API response times
-
-### Log Messages to Watch
-- `"Database service initialized successfully"`
-- `"Found existing data in database"`
-- `"Successfully stored X news items in database"`
-- `"Bulk import completed. Total imported: X"`
-
-## 🔐 Security
+## 🛡️ Security
 
 ### API Key Protection
 - All database operations require API key authentication
@@ -236,7 +224,7 @@ curl https://your-app.onrender.com/db/stats
 
 ## 📚 Next Steps
 
-1. **Deploy to Render.com** with the updated environment variables
+1. **Deploy with the updated environment variables**
 2. **Run the bulk import** for historical data from 1.1.2025
 3. **Test the API endpoints** to verify functionality
 4. **Monitor the application** for any issues
