@@ -472,11 +472,33 @@ def register_handlers(bot, process_news_func, config):
             bot.answer_callback_query(call.id, "Please start with /today, /tomorrow, or /calendar.")
             return
         label = IMPACT_LABELS[call.data]
+        # Store the impact level in user_state
+        user_state[call.message.chat.id]['impact_level'] = impact_level
+        # Show the AI analysis prompt
+        ask_analysis_required(call.message.chat.id)
         bot.edit_message_text(
-            f"Fetching news for {date_obj.strftime('%Y-%m-%d')} with impact: {label}",
+            f"Impact level set to: {label}. Do you want AI analysis for news?",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id
         )
+        bot.answer_callback_query(call.id)
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["ANALYSIS_YES", "ANALYSIS_NO"])
+    def analysis_choice_callback(call):
+        chat_id = call.message.chat.id
+        analysis_required = (call.data == "ANALYSIS_YES")
+        state = user_state.get(chat_id, {})
+        date_obj = state.get('date')
+        impact_level = state.get('impact_level', 'high')
+        if not date_obj:
+            bot.send_message(chat_id, "Please start with /today, /tomorrow, or /calendar.")
+            return
+        bot.edit_message_text(
+            f"Fetching news for {date_obj.strftime('%Y-%m-%d')} with impact: {impact_level.capitalize()} (AI analysis: {'Yes' if analysis_required else 'No'})...",
+            chat_id=chat_id,
+            message_id=call.message.message_id
+        )
         import asyncio
-        asyncio.run(process_news_func(datetime.combine(date_obj, datetime.min.time()), impact_level, False))
-        user_state.pop(call.message.chat.id, None)
+        asyncio.run(process_news_func(datetime.combine(date_obj, datetime.min.time()), impact_level, analysis_required))
+        user_state.pop(chat_id, None)
+        bot.answer_callback_query(call.id)
