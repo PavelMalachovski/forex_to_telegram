@@ -236,15 +236,9 @@ def register_handlers(bot, process_news: Callable, config: Config):
             elif data.startswith("IMPACT_"):
                 impact_level = data[7:]
                 user_selected_impact[user_id] = impact_level
-                impact_text_map = {
-                    "high": "🔴 High Impact",
-                    "medium": "🟠 Medium+ Impact",
-                    "low": "🟡 Low Impact",
-                    "all": "🌈 All Impact"
-                }
-                impact_text = impact_text_map.get(impact_level, "🔴 High Impact")
+                ask_analysis_required(call.message.chat.id)
                 bot.edit_message_text(
-                    f"✅ Impact level set to: {impact_text}\n\nUse /calendar to select a date, /today for current news, or /tomorrow for next day.",
+                    f"✅ Impact level set to: {impact_level.capitalize()}.\n\nDo you want AI analysis for news?",
                     call.message.chat.id,
                     call.message.message_id,
                 )
