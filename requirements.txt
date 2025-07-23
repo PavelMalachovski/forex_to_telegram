@@ -7,6 +7,11 @@ gunicorn==21.2.0
 # Telegram bot
 pyTelegramBotAPI==4.14.0
 
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.13.1
+
 # Scraper dependencies
 beautifulsoup4==4.12.2  # HTML parsing
 undetected-chromedriver==3.5.5  # Selenium-based stealth browser automation

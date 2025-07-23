@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from pytz import timezone
 from .config import Config
 from .utils import escape_markdown_v2, send_long_message
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ class ChatGPTAnalyzer:
     def __init__(self, api_key: Optional[str]):
         self.api_key = api_key
         self.api_url = "https://api.openai.com/v1/chat/completions"
+        if not self.api_key:
+            logger.warning("ChatGPT API key not configured. Analysis will be skipped.")
 
     def analyze_news(self, news_item: Dict[str, str]) -> str:
         if not self.api_key:
@@ -61,7 +64,7 @@ class ChatGPTAnalyzer:
 
     def _create_analysis_prompt(self, news_item: Dict[str, str]) -> str:
         return (
-            f"Analyze the following Forex news and predict its potential market impact:\n"
+            f"Analyze the following Forex news and predict its potential market :\n"
             f"Time: {news_item['time']}\n"
             f"Currency: {news_item['currency']}\n"
             f"Event: {news_item['event']}\n"
@@ -73,12 +76,22 @@ class ChatGPTAnalyzer:
 
 class ForexNewsScraper:
     """Handles scraping of forex news from ForexFactory using undetected-chromedriver."""
+    # Centralized impact class mapping (support both '=' and '-')
+    IMPACT_CLASS_MAP = {
+        'icon--ff-impact=red': 'high',    # Red (equals)
+        'icon--ff-impact=ora': 'medium', # Orange (equals)
+        'icon--ff-impact=yel': 'low',    # Yellow (equals)
+        'icon--ff-impact-red': 'high',   # Red (dash, fallback)
+        'icon--ff-impact-ora': 'medium', # Orange (dash, fallback)
+        'icon--ff-impact-yel': 'low',    # Yellow (dash, fallback)
+    }
+
     def __init__(self, config: Config, analyzer: ChatGPTAnalyzer):
         self.config = config
         self.analyzer = analyzer
         self.base_url = "https://www.forexfactory.com/calendar"
 
-    async def scrape_news(self, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False) -> List[Dict[str, Any]]:
+    async def scrape_news(self, target_date: Optional[datetime] = None, debug: bool = False) -> List[Dict[str, Any]]:
         if target_date is None:
             target_date = datetime.now(timezone(self.config.timezone))
         url = self._build_url(target_date)
@@ -99,7 +112,7 @@ class ForexNewsScraper:
                 logger.error(f"Fallback method also failed: {fallback_e}")
                 raise CloudflareBypassError(f"All scraping methods failed: {e}, fallback: {fallback_e}")
 
-        news_items = self._parse_news_from_html(html, impact_level)
+        news_items = self._parse_news_from_html(html)
         for item in news_items:
             item["analysis"] = self.analyzer.analyze_news(item)
         logger.info("Collected %s news items", len(news_items))
@@ -303,7 +316,7 @@ class ForexNewsScraper:
         finally:
             driver.quit()
 
-    def _parse_news_from_html(self, html: str, impact_level: str) -> List[Dict[str, str]]:
+    def _parse_news_from_html(self, html: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, 'html.parser')
         # Cloudflare/fallback detection
         if "cloudflare" in html.lower() or "just a moment" in html.lower() or "attention required" in html.lower():
@@ -323,6 +336,7 @@ class ForexNewsScraper:
             if rows:
                 logger.info(f"Found {len(rows)} rows with selector: {selector}")
                 break
+        logger.debug(f"DEBUG: Found {len(rows)} rows to process for impact extraction.")
         if not rows:
             logger.warning("No news rows found with any selector. Saving HTML to /tmp/forex_debug.html for inspection.")
             try:
@@ -330,27 +344,30 @@ class ForexNewsScraper:
                     f.write(html)
             except Exception as e:
                 logger.warning(f"Failed to save debug HTML: {e}")
-
         # First pass: collect all news items and track times
         news_items: List[Dict[str, str]] = []
         current_time = "N/A"
-
+        all_classes = []
         for row in rows:
-            if self._should_include_news(row, impact_level):
-                news_item = self._extract_news_data(row)
-
-                # Update current time if this item has a valid time
-                if news_item["time"] != "N/A" and news_item["time"].strip():
-                    current_time = news_item["time"]
-                # If no time available, use the previous time
-                elif current_time != "N/A":
-                    news_item["time"] = current_time
-
-                news_items.append(news_item)
-
+            logger.debug(f"EXTRACTING NEWS DATA for row: {str(row)}")
+            # Collect all impact classes for debugging
+            impact_element = (
+                row.select_one('.calendar__impact span.icon')
+                or row.select_one('.impact span.icon')
+            )
+            if impact_element:
+                classes = impact_element.get('class', [])
+                all_classes.append(classes)
+            news_item = self._extract_news_data(row)
+            if news_item["time"] != "N/A" and news_item["time"].strip():
+                current_time = news_item["time"]
+            elif current_time != "N/A":
+                news_item["time"] = current_time
+            news_items.append(news_item)
+        if not news_items:
+            logger.warning(f"No news items collected. Impact classes found: {all_classes}")
         # Second pass: ensure all items have times and sort properly
         news_items = self._ensure_all_times_and_sort(news_items)
-
         return news_items
 
     def _ensure_all_times_and_sort(self, news_items: List[Dict[str, str]]) -> List[Dict[str, str]]:
@@ -436,29 +453,34 @@ class ForexNewsScraper:
         return False
 
     def _should_include_news(self, row, impact_level: str) -> bool:
-        impact_element = (
-            row.select_one('.calendar__impact span.icon')
-            or row.select_one('.impact span.icon')
-        )
-        if not impact_element:
-            return False
-        classes = impact_element.get('class', [])
-        is_high = 'icon--ff-impact-red' in classes
-        is_medium = 'icon--ff-impact-orange' in classes
-        is_low = 'icon--ff-impact-yellow' in classes
-        if impact_level == 'all':
-            return is_high or is_medium or is_low
-        elif impact_level == 'low':
-            return is_low
-        elif impact_level == 'medium':
-            return is_high or is_medium
-        elif impact_level == 'high':
-            return is_high
-        return False
+        # Deprecated: No longer used for filtering during scraping
+        return True
 
     def _extract_news_data(self, row) -> Dict[str, str]:
+        logger.debug(f"EXTRACTING NEWS DATA for row: {str(row)}")
         time_elem = row.select_one('.calendar__time')
         time = time_elem.text.strip() if time_elem else "N/A"
+        # Robust time to 24h
+        time_24 = time
+        try:
+            if time and time != "N/A":
+                t = time.strip().lower().replace(' ', '')
+                # Regex for e.g. 3:30am, 12:05pm, 09:00
+                m = re.match(r'^(\d{1,2}):(\d{2})(am|pm)?$', t)
+                if m:
+                    hour, minute, ampm = m.group(1), m.group(2), m.group(3)
+                    hour = int(hour)
+                    if ampm == 'pm' and hour != 12:
+                        hour += 12
+                    if ampm == 'am' and hour == 12:
+                        hour = 0
+                    time_24 = f"{hour:02d}:{minute}"
+                else:
+                    # Try 24h format fallback
+                    time_24 = datetime.strptime(t, "%H:%M").strftime("%H:%M")
+        except Exception as e:
+            logger.debug(f"Time parse failed for '{time}': {e}")
+            time_24 = time  # fallback
         actual_elem = row.select_one('.calendar__actual')
         actual = "N/A"
         if actual_elem:
@@ -473,13 +495,62 @@ class ForexNewsScraper:
         forecast = forecast_elem.text.strip() if forecast_elem else "N/A"
         previous_elem = row.select_one('.calendar__previous')
         previous = previous_elem.text.strip() if previous_elem else "N/A"
+        # Impact detection (robust)
+        impact = "unknown"
+        impact_element = (
+            row.select_one('.calendar__impact span.icon')
+            or row.select_one('.impact span.icon')
+        )
+        logger.debug(f"DEBUG: impact_element={impact_element}, row={str(row)}")
+        if impact_element:
+            classes = impact_element.get('class', [])
+            if isinstance(classes, str):
+                classes = classes.split()
+            # Normalize to lowercase for robustness
+            classes = [c.lower() for c in classes]
+            logger.debug(f"DEBUG: classes={classes}, mapping_keys={list(self.IMPACT_CLASS_MAP.keys())}")
+            for class_name, level in self.IMPACT_CLASS_MAP.items():
+                # Accept both '-' and '=' in the class name for robustness
+                if class_name in classes:
+                    logger.debug(f"IMPACT MATCH: {class_name} -> {level}")
+                    impact = level
+                    break
+            if impact == "unknown":
+                # Try to match by replacing '-' with '=' and vice versa
+                for c in classes:
+                    c_eq = c.replace('-', '=')
+                    c_dash = c.replace('=', '-')
+                    if c_eq in self.IMPACT_CLASS_MAP:
+                        logger.debug(f"IMPACT ALT MATCH: {c} as {c_eq} -> {self.IMPACT_CLASS_MAP[c_eq]}")
+                        impact = self.IMPACT_CLASS_MAP[c_eq]
+                        break
+                    if c_dash in self.IMPACT_CLASS_MAP:
+                        logger.debug(f"IMPACT ALT MATCH: {c} as {c_dash} -> {self.IMPACT_CLASS_MAP[c_dash]}")
+                        impact = self.IMPACT_CLASS_MAP[c_dash]
+                        break
+            # If only 'icon' or empty, treat as tentative/no-impact
+            if impact == "unknown":
+                if (len(classes) == 1 and classes[0] == 'icon') or not classes:
+                    if time_24.lower() in ['tentative', 'all day'] or time.lower() in ['tentative', 'all day']:
+                        impact = "tentative"
+                    else:
+                        impact = "none"
+        else:
+            # No impact element at all
+            if time_24.lower() in ['tentative', 'all day'] or time.lower() in ['tentative', 'all day']:
+                impact = "tentative"
+            else:
+                impact = "none"
+        if impact == "unknown":
+            logger.warning(f"Impact unknown for row: {str(row)}")
         return {
-            "time": escape_markdown_v2(time),
+            "time": escape_markdown_v2(time_24),
             "currency": escape_markdown_v2(currency),
             "event": escape_markdown_v2(event),
             "actual": escape_markdown_v2(actual),
             "forecast": escape_markdown_v2(forecast),
             "previous": escape_markdown_v2(previous),
+            "impact": impact,
         }
 
 
@@ -498,32 +569,42 @@ class MessageFormatter:
                 + "Please check the website for updates."
             )
 
-        # Since data is already sorted by currency and time, we can format directly
-        message_parts = [header]
-        current_currency = None
-
+        # Group by currency and time for group event detection
+        grouped = {}
         for item in news_items:
-            currency = item['currency']
+            key = (item['currency'], item['time'])
+            grouped.setdefault(key, []).append(item)
 
-            # Add currency header when currency changes
-            if currency != current_currency:
-                if current_currency is not None:
-                    message_parts.append("\n")  # Add space between currency groups
+        message_parts = [header]
+        last_currency = None
+        for (currency, time), items in sorted(grouped.items()):
+            if currency != last_currency:
+                if last_currency is not None:
+                    message_parts.append("\n")
                 message_parts.append(f"💰 <b>{currency}</b>\n")
-                current_currency = currency
-
-            # Format the news item
-            part = (
-                f"⏰ <b>{item['time']}</b>\n"
-                f"📰 <b>Event:</b> {item['event']}\n"
-                f"📊 <b>Actual:</b> {item['actual']}\n"
-                f"📈 <b>Forecast:</b> {item['forecast']}\n"
-                f"📉 <b>Previous:</b> {item['previous']}\n"
-                f"🔍 <b>Analysis:</b> {item['analysis']}\n"
-                "------------------------------\n"
-            )
-            message_parts.append(part)
-
+                last_currency = currency
+            # Group event highlight
+            if len(items) > 1:
+                message_parts.append(f"<b>🚨 GROUP EVENT at {time} ({len(items)} events)</b>\n")
+            for item in items:
+                impact_emoji = {
+                    'high': '🔴',
+                    'medium': '🟠',
+                    'low': '🟡',
+                    'tentative': '⏳',
+                    'none': '⚪️',
+                    'unknown': '❓',
+                }.get(item.get('impact', 'unknown'), '❓')
+                part = (
+                    f"⏰ <b>{item['time']}</b> {impact_emoji} <b>Impact:</b> {item.get('impact', 'unknown').capitalize()}\n"
+                    f"📰 <b>Event:</b> {item['event']}\n"
+                    f"📊 <b>Actual:</b> {item['actual']}\n"
+                    f"📈 <b>Forecast:</b> {item['forecast']}\n"
+                    f"📉 <b>Previous:</b> {item['previous']}\n"
+                    f"🔍 <b>Analysis:</b> {item.get('analysis', '')}\n"
+                    "------------------------------\n"
+                )
+                message_parts.append(part)
         return "".join(message_parts)
 
 
@@ -536,7 +617,7 @@ async def process_forex_news(scraper: ForexNewsScraper, bot, config: Config, tar
     try:
         if target_date is None:
             target_date = datetime.now(timezone(config.timezone))
-        news_items = await scraper.scrape_news(target_date, impact_level, debug)
+        news_items = await scraper.scrape_news(target_date, debug)
         if debug:
             return news_items
         message = MessageFormatter.format_news_message(news_items, target_date, impact_level)

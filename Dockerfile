@@ -26,8 +26,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the code
 COPY . .
 
+# Create migrations directory if it doesn't exist
+RUN mkdir -p migrations/versions
+
 # Expose the app port
 EXPOSE 10000
 
-# Start the application
-CMD ["sh", "-c", "gunicorn app:app --bind 0.0.0.0:${PORT:-10000} --timeout 120 --workers 1 --threads 2"]
+# Start the application with database setup
+CMD ["sh", "-c", "python setup_database.py && gunicorn app:app --bind 0.0.0.0:${PORT:-10000} --timeout 120 --workers 1 --threads 2"]

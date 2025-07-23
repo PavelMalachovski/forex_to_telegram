@@ -2,13 +2,16 @@ import logging
 import asyncio
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as dt_date
 from typing import Callable
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from calendar import monthrange, month_name
 
 from .config import Config
+from bot.utils import escape_markdown_v2
+from .scraper import ForexNewsScraper
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +140,12 @@ class TelegramHandlers:
         )
         return markup
 
+    @staticmethod
+    def filter_news_by_impact(news_items, impact_level):
+        if impact_level == 'all':
+            return news_items
+        return [item for item in news_items if item.get('impact') == impact_level]
+
 
 user_selected_date = {}
 user_selected_impact = {}
@@ -179,7 +188,11 @@ def register_handlers(bot, process_news: Callable, config: Config):
 
             def fetch_and_send():
                 try:
-                    asyncio.run(process_news(None, impact_level, False))
+                    # Fetch all news, then filter for Telegram output
+                    all_news = asyncio.run(process_news(None, debug=True))
+                    filtered_news = TelegramHandlers.filter_news_by_impact(all_news, impact_level)
+                    msg = ForexNewsScraper.MessageFormatter.format_news_message(filtered_news, datetime.now(), impact_level)
+                    bot.send_message(message.chat.id, msg, parse_mode='HTML')
                 except Exception as e:
                     logger.error("Error fetching today's news: %s", e)
                     bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
@@ -199,7 +212,10 @@ def register_handlers(bot, process_news: Callable, config: Config):
             def fetch_and_send():
                 try:
                     tomorrow = datetime.now() + timedelta(days=1)
-                    asyncio.run(process_news(tomorrow, impact_level, False))
+                    all_news = asyncio.run(process_news(tomorrow, debug=True))
+                    filtered_news = TelegramHandlers.filter_news_by_impact(all_news, impact_level)
+                    msg = ForexNewsScraper.MessageFormatter.format_news_message(filtered_news, tomorrow, impact_level)
+                    bot.send_message(message.chat.id, msg, parse_mode='HTML')
                 except Exception as e:
                     logger.error("Error fetching tomorrow's news: %s", e)
                     bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
@@ -257,7 +273,10 @@ def register_handlers(bot, process_news: Callable, config: Config):
                 def fetch_and_send():
                     try:
                         target_date = datetime.strptime(date_str, "%Y-%m-%d")
-                        asyncio.run(process_news(target_date, impact_level, False))
+                        all_news = asyncio.run(process_news(target_date, debug=True))
+                        filtered_news = TelegramHandlers.filter_news_by_impact(all_news, impact_level)
+                        msg = ForexNewsScraper.MessageFormatter.format_news_message(filtered_news, target_date, impact_level)
+                        bot.send_message(call.message.chat.id, msg, parse_mode='HTML')
                     except Exception as e:
                         logger.error("Error fetching news for %s: %s", date_str, e)
                         bot.send_message(call.message.chat.id, "❌ Error fetching news. Please try again.")
@@ -268,7 +287,7 @@ def register_handlers(bot, process_news: Callable, config: Config):
                 user_selected_impact[user_id] = impact_level
                 impact_text_map = {
                     "high": "🔴 High Impact",
-                    "medium": "🟠 Medium+ Impact", 
+                    "medium": "🟠 Medium+ Impact",
                     "low": "🟡 Low Impact",
                     "all": "🌈 All Impact"
                 }
@@ -303,3 +322,190 @@ def register_handlers(bot, process_news: Callable, config: Config):
         except Exception as e:
             logger.error("Error handling callback %s: %s", call.data, e)
             bot.answer_callback_query(call.id)
+
+
+user_state = {}
+
+IMPACT_MAP = {
+    'impact_high': 'high',
+    'impact_medium': 'medium',
+    'impact_low': 'low',
+    'impact_all': 'all',
+}
+
+IMPACT_LABELS = {
+    'impact_high': '🔴 Red',
+    'impact_medium': '🟠 Orange',
+    'impact_low': '🟡 Yellow',
+    'impact_all': '🌈 All',
+}
+
+def impact_keyboard():
+    kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton("🔴 Red", callback_data="impact_high"),
+        InlineKeyboardButton("🟠 Orange", callback_data="impact_medium"),
+    )
+    kb.row(
+        InlineKeyboardButton("🟡 Yellow", callback_data="impact_low"),
+        InlineKeyboardButton("🌈 All", callback_data="impact_all"),
+    )
+    return kb
+
+# --- Calendar UI ---
+def calendar_keyboard(year, month):
+    today = dt_date.today()
+    kb = InlineKeyboardMarkup(row_width=7)
+    # Month/year header
+    kb.add(InlineKeyboardButton(f"{month_name[month]} {year}", callback_data="ignore"))
+    # Weekday header
+    week_days = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+    kb.row(*[InlineKeyboardButton(day, callback_data="ignore") for day in week_days])
+    # Days
+    first_weekday, num_days = monthrange(year, month)
+    days = []
+    for i in range(first_weekday):
+        days.append(InlineKeyboardButton(" ", callback_data="ignore"))
+    for day in range(1, num_days + 1):
+        d = dt_date(year, month, day)
+        if d < today:
+            # Past day: show as ~DD~
+            days.append(InlineKeyboardButton(f"~{str(day).zfill(2)}~", callback_data="ignore"))
+        else:
+            days.append(InlineKeyboardButton(str(day).zfill(2), callback_data=f"pickdate_{year}_{month}_{day}"))
+        if (len(days) % 7) == 0:
+            kb.row(*days)
+            days = []
+    if days:
+        kb.row(*days)
+    # Navigation
+    prev_month = (month - 1) or 12
+    prev_year = year - 1 if month == 1 else year
+    next_month = (month + 1) if month < 12 else 1
+    next_year = year + 1 if month == 12 else year
+    nav_row = []
+    nav_row.append(InlineKeyboardButton("⬅️", callback_data=f"cal_{prev_year}_{prev_month}"))
+    nav_row.append(InlineKeyboardButton("Today", callback_data="pickdate_today"))
+    nav_row.append(InlineKeyboardButton("➡️", callback_data=f"cal_{next_year}_{next_month}"))
+    kb.row(*nav_row)
+    return kb
+
+
+def register_handlers(bot, process_news_func, config):
+    def get_help_text():
+        return (
+            "👋 <b>Welcome to the Forex News Bot!</b>\n\n"
+            "This bot helps you get the latest ForexFactory economic news directly in Telegram, with advanced features:\n\n"
+            "<b>Commands:</b>\n"
+            "• /today — Get today's news (pick impact)\n"
+            "• /tomorrow — Get tomorrow's news (pick impact)\n"
+            "• /calendar — Pick any date from a calendar UI\n"
+            "• /help — Show this help message\n\n"
+            "<b>Features:</b>\n"
+            "• <b>Impact selection:</b> Red (high), Orange (medium), Yellow (low), All\n"
+            "• <b>All news types:</b> High, medium, and low impact events are supported\n"
+            "• <b>Database:</b> All news is stored and deduplicated for fast access\n"
+            "• <b>AI Analysis:</b> Each event can include ChatGPT-powered analysis (if enabled)\n"
+            "• <b>Fast & Reliable:</b> If news is already in the database, it's sent instantly\n"
+            "• <b>Modern UI:</b> Use the calendar and inline buttons for a smooth experience\n\n"
+            "<b>Tip:</b> Use /help at any time to see this info again."
+        )
+
+    @bot.message_handler(commands=['start', 'news'])
+    def start_handler(message):
+        bot.send_message(
+            message.chat.id,
+            get_help_text(),
+            parse_mode="HTML"
+        )
+
+    @bot.message_handler(commands=['help'])
+    def help_handler(message):
+        bot.send_message(
+            message.chat.id,
+            get_help_text(),
+            parse_mode="HTML"
+        )
+
+    @bot.message_handler(commands=['today'])
+    def today_handler(message):
+        user_state[message.chat.id] = {'date': datetime.now().date()}
+        bot.send_message(message.chat.id, "Select impact level:", reply_markup=impact_keyboard())
+
+    @bot.message_handler(commands=['tomorrow'])
+    def tomorrow_handler(message):
+        user_state[message.chat.id] = {'date': (datetime.now() + timedelta(days=1)).date()}
+        bot.send_message(message.chat.id, "Select impact level:", reply_markup=impact_keyboard())
+
+    @bot.message_handler(commands=['calendar'])
+    def calendar_handler(message):
+        today = dt_date.today()
+        user_state[message.chat.id] = {'step': 'calendar'}
+        bot.send_message(
+            message.chat.id,
+            "Please pick a date:",
+            reply_markup=calendar_keyboard(today.year, today.month)
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("cal_"))
+    def calendar_nav(call):
+        _, year, month = call.data.split('_')
+        year, month = int(year), int(month)
+        bot.edit_message_reply_markup(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=calendar_keyboard(year, month)
+        )
+        bot.answer_callback_query(call.id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "pickdate_today")
+    def pick_today(call):
+        today = dt_date.today()
+        user_state[call.message.chat.id] = {'date': today}
+        bot.edit_message_text(
+            f"Selected date: {today.strftime('%Y-%m-%d')}. Now select impact:",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=impact_keyboard()
+        )
+        bot.answer_callback_query(call.id)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("pickdate_"))
+    def pick_date(call):
+        _, year, month, day = call.data.split('_')
+        picked = dt_date(int(year), int(month), int(day))
+        user_state[call.message.chat.id] = {'date': picked}
+        bot.edit_message_text(
+            f"Selected date: {picked.strftime('%Y-%m-%d')}. Now select impact:",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=impact_keyboard()
+        )
+        bot.answer_callback_query(call.id)
+
+    @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get('step') == 'date')
+    def date_input_handler(message):
+        try:
+            date_obj = datetime.strptime(message.text.strip(), "%Y-%m-%d").date()
+            user_state[message.chat.id]['date'] = date_obj
+            bot.send_message(message.chat.id, "Select impact level:", reply_markup=impact_keyboard())
+            user_state[message.chat.id]['step'] = 'impact_keyboard'
+        except Exception:
+            bot.send_message(message.chat.id, "Invalid date format. Please use YYYY-MM-DD.")
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("impact_"))
+    def impact_callback(call):
+        impact_level = IMPACT_MAP[call.data]
+        date_obj = user_state.get(call.message.chat.id, {}).get('date')
+        if not date_obj:
+            bot.answer_callback_query(call.id, "Please start with /today, /tomorrow, or /calendar.")
+            return
+        label = IMPACT_LABELS[call.data]
+        bot.edit_message_text(
+            f"Fetching news for {date_obj.strftime('%Y-%m-%d')} with impact: {label}",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        import asyncio
+        asyncio.run(process_news_func(datetime.combine(date_obj, datetime.min.time()), impact_level, False))
+        user_state.pop(call.message.chat.id, None)

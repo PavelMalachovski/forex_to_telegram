@@ -26,7 +26,7 @@ def test_parse_news_from_html():
       </tr>
     </table>
     '''
-    items = scraper._parse_news_from_html(html, "high")
+    items = scraper._parse_news_from_html(html)
     assert len(items) == 1
     item = items[0]
     assert item["currency"] == "USD"
@@ -64,14 +64,14 @@ def test_parse_news_from_html_empty():
     config = Config()
     analyzer = ChatGPTAnalyzer(None)
     scraper = ForexNewsScraper(config, analyzer)
-    assert scraper._parse_news_from_html("", "high") == []
+    assert scraper._parse_news_from_html("") == []
 
 def test_parse_news_from_html_malformed():
     config = Config()
     analyzer = ChatGPTAnalyzer(None)
     scraper = ForexNewsScraper(config, analyzer)
     html = "<html><body><div>No table here</div></body></html>"
-    assert scraper._parse_news_from_html(html, "high") == []
+    assert scraper._parse_news_from_html(html) == []
 
 def test_message_formatter_empty():
     msg = MessageFormatter.format_news_message([], datetime(2024, 1, 1), "high")
