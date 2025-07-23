@@ -398,6 +398,8 @@ def register_handlers(bot, process_news_func, config):
             parse_mode="HTML"
         )
 
+    # --- Unified date -> impact -> analysis flow ---
+
     @bot.message_handler(commands=['today'])
     def today_handler(message):
         user_state[message.chat.id] = {'date': datetime.now().date()}
@@ -475,11 +477,16 @@ def register_handlers(bot, process_news_func, config):
         # Store the impact level in user_state
         user_state[call.message.chat.id]['impact_level'] = impact_level
         # Show the AI analysis prompt
-        ask_analysis_required(call.message.chat.id)
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("✅ Yes, include analysis", callback_data="ANALYSIS_YES"),
+            InlineKeyboardButton("❌ No analysis", callback_data="ANALYSIS_NO"),
+        )
         bot.edit_message_text(
             f"Impact level set to: {label}. Do you want AI analysis for news?",
             chat_id=call.message.chat.id,
-            message_id=call.message.message_id
+            message_id=call.message.message_id,
+            reply_markup=markup
         )
         bot.answer_callback_query(call.id)
 
