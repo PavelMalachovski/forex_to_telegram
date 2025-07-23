@@ -38,14 +38,53 @@ def test_message_formatter():
         "time": "12:30pm",
         "currency": "USD",
         "event": "NFP",
-        "actual": "105K",  # Added missing actual field
+        "actual": "105K",
         "forecast": "100K",
         "previous": "90K",
-        "analysis": "Test"
+        "analysis": "Test",
+        "group_analysis": False
     }]
-    msg = MessageFormatter.format_news_message(news, datetime(2024, 1, 1), "high")
+    msg = MessageFormatter.format_news_message(news, datetime(2024, 1, 1), "high", analysis_required=True)
     assert "Forex News for" in msg
     assert "USD" in msg
+    assert "Test" in msg
+    # Test without analysis
+    msg_no = MessageFormatter.format_news_message(news, datetime(2024, 1, 1), "high", analysis_required=False)
+    assert "Test" not in msg_no
+
+
+def test_message_formatter_group_event():
+    # Two events, same currency and time (group event)
+    news = [
+        {
+            "time": "12:30pm",
+            "currency": "USD",
+            "event": "NFP",
+            "actual": "105K",
+            "forecast": "100K",
+            "previous": "90K",
+            "analysis": "GroupAnalysis",
+            "group_analysis": True
+        },
+        {
+            "time": "12:30pm",
+            "currency": "USD",
+            "event": "Unemployment",
+            "actual": "4.0%",
+            "forecast": "3.9%",
+            "previous": "3.8%",
+            "analysis": "GroupAnalysis",
+            "group_analysis": True
+        }
+    ]
+    msg = MessageFormatter.format_news_message(news, datetime(2024, 1, 1), "high", analysis_required=True)
+    assert "GROUP EVENT" in msg
+    assert "Group Analysis" in msg
+    # Should only show analysis once
+    assert msg.count("Group Analysis") == 1
+    # Test without analysis
+    msg_no = MessageFormatter.format_news_message(news, datetime(2024, 1, 1), "high", analysis_required=False)
+    assert "Group Analysis" not in msg_no
 
 
 def test_is_blocked_content():

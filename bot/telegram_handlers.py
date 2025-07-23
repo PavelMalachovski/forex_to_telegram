@@ -149,6 +149,7 @@ class TelegramHandlers:
 
 user_selected_date = {}
 user_selected_impact = {}
+user_analysis_required = {}  # NEW: Store per-user analysis preference
 
 
 def register_handlers(bot, process_news: Callable, config: Config):
@@ -179,25 +180,22 @@ def register_handlers(bot, process_news: Callable, config: Config):
             logger.error("Error showing impact selection: %s", e)
             bot.send_message(message.chat.id, "❌ Error showing impact selection. Please try again.")
 
+    def ask_analysis_required(chat_id):
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("✅ Yes, include analysis", callback_data="ANALYSIS_YES"),
+            InlineKeyboardButton("❌ No analysis", callback_data="ANALYSIS_NO"),
+        )
+        bot.send_message(chat_id, "🤖 Require ChatGPT analysis for news?", reply_markup=markup)
+
     @bot.message_handler(commands=["today"])
     def get_today_news(message):
         try:
             user_id = message.from_user.id
             impact_level = user_selected_impact.get(user_id, "high")
-            bot.send_message(message.chat.id, "🔄 Fetching today's forex news...")
-
-            def fetch_and_send():
-                try:
-                    # Fetch all news, then filter for Telegram output
-                    all_news = asyncio.run(process_news(None, debug=True))
-                    filtered_news = TelegramHandlers.filter_news_by_impact(all_news, impact_level)
-                    msg = ForexNewsScraper.MessageFormatter.format_news_message(filtered_news, datetime.now(), impact_level)
-                    bot.send_message(message.chat.id, msg, parse_mode='HTML')
-                except Exception as e:
-                    logger.error("Error fetching today's news: %s", e)
-                    bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
-
-            threading.Thread(target=fetch_and_send, daemon=True).start()
+            # Ask for analysis requirement before fetching news
+            user_selected_date[user_id] = datetime.now().strftime("%Y-%m-%d")
+            ask_analysis_required(message.chat.id)
         except Exception as e:
             logger.error("Error in today command: %s", e)
             bot.send_message(message.chat.id, "❌ Error processing request. Please try again.")
@@ -207,50 +205,13 @@ def register_handlers(bot, process_news: Callable, config: Config):
         try:
             user_id = message.from_user.id
             impact_level = user_selected_impact.get(user_id, "high")
-            bot.send_message(message.chat.id, "🔄 Fetching tomorrow's forex news...")
-
-            def fetch_and_send():
-                try:
-                    tomorrow = datetime.now() + timedelta(days=1)
-                    all_news = asyncio.run(process_news(tomorrow, debug=True))
-                    filtered_news = TelegramHandlers.filter_news_by_impact(all_news, impact_level)
-                    msg = ForexNewsScraper.MessageFormatter.format_news_message(filtered_news, tomorrow, impact_level)
-                    bot.send_message(message.chat.id, msg, parse_mode='HTML')
-                except Exception as e:
-                    logger.error("Error fetching tomorrow's news: %s", e)
-                    bot.send_message(message.chat.id, "❌ Error fetching news. Please try again.")
-
-            threading.Thread(target=fetch_and_send, daemon=True).start()
+            # Ask for analysis requirement before fetching news
+            tomorrow = datetime.now() + timedelta(days=1)
+            user_selected_date[user_id] = tomorrow.strftime("%Y-%m-%d")
+            ask_analysis_required(message.chat.id)
         except Exception as e:
             logger.error("Error in tomorrow command: %s", e)
             bot.send_message(message.chat.id, "❌ Error processing request. Please try again.")
-
-    @bot.message_handler(commands=["help", "start"])
-    def show_help(message):
-        help_text = (
-            "🤖 **Forex News Bot Commands:**\n\n"
-            "📅 /calendar - Select a specific date for news\n"
-            "📊 /impact - Choose impact level (High/Medium+/Low/All)\n"
-            "📰 /today - Get today's forex news\n"
-            "🔜 /tomorrow - Get tomorrow's forex news\n"
-            "❓ /help - Show this help message\n\n"
-            "**How to use:**\n"
-            "1. Use /impact to set your preferred news impact level\n"
-            "2. Use /calendar to select a specific date, /today for current news, or /tomorrow for next day\n"
-            "3. The bot will fetch and analyze forex news from ForexFactory\n\n"
-            "**Impact Levels:**\n"
-            "🔴 High - Only high-impact news\n"
-            "🟠 Medium+ - Medium and high-impact news\n"
-            "🟡 Low - Only low-impact news\n"
-            "🌈 All - All impact levels\n\n"
-            "**Note:** News analysis is powered by ChatGPT for market insights."
-        )
-        try:
-            bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
-        except Exception as e:
-            logger.error("Error sending help message: %s", e)
-            plain_help = help_text.replace('*', '').replace('`', '')
-            bot.send_message(message.chat.id, plain_help)
 
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callback(call: CallbackQuery):
@@ -264,39 +225,49 @@ def register_handlers(bot, process_news: Callable, config: Config):
                 date_str = data[4:]
                 user_selected_date[user_id] = date_str
                 impact_level = user_selected_impact.get(user_id, "high")
+                # Ask for analysis requirement before fetching news
+                ask_analysis_required(call.message.chat.id)
                 bot.edit_message_text(
                     f"🔄 Fetching forex news for {date_str}...",
                     call.message.chat.id,
                     call.message.message_id,
                 )
-
-                def fetch_and_send():
-                    try:
-                        target_date = datetime.strptime(date_str, "%Y-%m-%d")
-                        all_news = asyncio.run(process_news(target_date, debug=True))
-                        filtered_news = TelegramHandlers.filter_news_by_impact(all_news, impact_level)
-                        msg = ForexNewsScraper.MessageFormatter.format_news_message(filtered_news, target_date, impact_level)
-                        bot.send_message(call.message.chat.id, msg, parse_mode='HTML')
-                    except Exception as e:
-                        logger.error("Error fetching news for %s: %s", date_str, e)
-                        bot.send_message(call.message.chat.id, "❌ Error fetching news. Please try again.")
-
-                threading.Thread(target=fetch_and_send, daemon=True).start()
+                return
             elif data.startswith("IMPACT_"):
                 impact_level = data[7:]
                 user_selected_impact[user_id] = impact_level
-                impact_text_map = {
-                    "high": "🔴 High Impact",
-                    "medium": "🟠 Medium+ Impact",
-                    "low": "🟡 Low Impact",
-                    "all": "🌈 All Impact"
-                }
-                impact_text = impact_text_map.get(impact_level, "🔴 High Impact")
+                ask_analysis_required(call.message.chat.id)
                 bot.edit_message_text(
-                    f"✅ Impact level set to: {impact_text}\n\nUse /calendar to select a date, /today for current news, or /tomorrow for next day.",
+                    f"✅ Impact level set to: {impact_level.capitalize()}.\n\nDo you want AI analysis for news?",
                     call.message.chat.id,
                     call.message.message_id,
                 )
+                return
+            elif data == "ANALYSIS_YES" or data == "ANALYSIS_NO":
+                user_analysis_required[user_id] = (data == "ANALYSIS_YES")
+                # Now fetch and send news with the selected options
+                date_str = user_selected_date.get(user_id)
+                impact_level = user_selected_impact.get(user_id, "high")
+                analysis_required = user_analysis_required.get(user_id, True)
+                if date_str:
+                    try:
+                        target_date = datetime.strptime(date_str, "%Y-%m-%d")
+                    except Exception:
+                        target_date = None
+                else:
+                    target_date = None
+                bot.send_message(call.message.chat.id, "🔄 Fetching forex news...")
+                def fetch_and_send():
+                    try:
+                        all_news = asyncio.run(process_news(target_date, impact_level, analysis_required, debug=True))
+                        filtered_news = TelegramHandlers.filter_news_by_impact(all_news, impact_level)
+                        msg = ForexNewsScraper.MessageFormatter.format_news_message(filtered_news, target_date or datetime.now(), impact_level, analysis_required)
+                        bot.send_message(call.message.chat.id, msg, parse_mode='HTML')
+                    except Exception as e:
+                        logger.error("Error fetching news: %s", e)
+                        bot.send_message(call.message.chat.id, "❌ Error fetching news. Please try again.")
+                threading.Thread(target=fetch_and_send, daemon=True).start()
+                return
             elif data.startswith("PREV_") or data.startswith("NEXT_"):
                 direction, date_part = data.split("_", 1)
                 year, month = map(int, date_part.split("-"))
@@ -427,6 +398,8 @@ def register_handlers(bot, process_news_func, config):
             parse_mode="HTML"
         )
 
+    # --- Unified date -> impact -> analysis flow ---
+
     @bot.message_handler(commands=['today'])
     def today_handler(message):
         user_state[message.chat.id] = {'date': datetime.now().date()}
@@ -501,11 +474,38 @@ def register_handlers(bot, process_news_func, config):
             bot.answer_callback_query(call.id, "Please start with /today, /tomorrow, or /calendar.")
             return
         label = IMPACT_LABELS[call.data]
+        # Store the impact level in user_state
+        user_state[call.message.chat.id]['impact_level'] = impact_level
+        # Show the AI analysis prompt
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("✅ Yes, include analysis", callback_data="ANALYSIS_YES"),
+            InlineKeyboardButton("❌ No analysis", callback_data="ANALYSIS_NO"),
+        )
         bot.edit_message_text(
-            f"Fetching news for {date_obj.strftime('%Y-%m-%d')} with impact: {label}",
+            f"Impact level set to: {label}. Do you want AI analysis for news?",
             chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=markup
+        )
+        bot.answer_callback_query(call.id)
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["ANALYSIS_YES", "ANALYSIS_NO"])
+    def analysis_choice_callback(call):
+        chat_id = call.message.chat.id
+        analysis_required = (call.data == "ANALYSIS_YES")
+        state = user_state.get(chat_id, {})
+        date_obj = state.get('date')
+        impact_level = state.get('impact_level', 'high')
+        if not date_obj:
+            bot.send_message(chat_id, "Please start with /today, /tomorrow, or /calendar.")
+            return
+        bot.edit_message_text(
+            f"Fetching news for {date_obj.strftime('%Y-%m-%d')} with impact: {impact_level.capitalize()} (AI analysis: {'Yes' if analysis_required else 'No'})...",
+            chat_id=chat_id,
             message_id=call.message.message_id
         )
         import asyncio
-        asyncio.run(process_news_func(datetime.combine(date_obj, datetime.min.time()), impact_level, False))
-        user_state.pop(call.message.chat.id, None)
+        asyncio.run(process_news_func(datetime.combine(date_obj, datetime.min.time()), impact_level, analysis_required))
+        user_state.pop(chat_id, None)
+        bot.answer_callback_query(call.id)

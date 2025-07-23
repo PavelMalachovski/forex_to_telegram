@@ -50,9 +50,10 @@ class ForexNewsService:
                         "actual": item.actual or "N/A",
                         "forecast": item.forecast or "N/A",
                         "previous": item.previous or "N/A",
-                        "analysis": item.analysis or "No analysis available",
+                        "analysis": item.analysis or None,
                         "impact": item.impact_level,  # Add this line for Telegram output
                         "impact_level": item.impact_level,  # Keep for DB/API compatibility
+                        "group_analysis": False,  # DB does not store this, set default
                     }
                     result.append(news_dict)
 
@@ -114,7 +115,7 @@ class ForexNewsService:
                         forecast=item.get("forecast", "N/A"),
                         previous=item.get("previous", "N/A"),
                         impact_level=item.get("impact", impact_level),  # Use per-item impact if present
-                        analysis=item.get("analysis", "No analysis available")
+                        analysis=item.get("analysis", None)
                     )
                     session.add(news_record)
 

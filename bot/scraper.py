@@ -91,7 +91,7 @@ class ForexNewsScraper:
         self.analyzer = analyzer
         self.base_url = "https://www.forexfactory.com/calendar"
 
-    async def scrape_news(self, target_date: Optional[datetime] = None, debug: bool = False) -> List[Dict[str, Any]]:
+    async def scrape_news(self, target_date: Optional[datetime] = None, analysis_required: bool = True, debug: bool = False) -> List[Dict[str, Any]]:
         if target_date is None:
             target_date = datetime.now(timezone(self.config.timezone))
         url = self._build_url(target_date)
@@ -113,8 +113,34 @@ class ForexNewsScraper:
                 raise CloudflareBypassError(f"All scraping methods failed: {e}, fallback: {fallback_e}")
 
         news_items = self._parse_news_from_html(html)
-        for item in news_items:
-            item["analysis"] = self.analyzer.analyze_news(item)
+        if analysis_required:
+            # Group by (currency, time)
+            grouped = {}
+            for item in news_items:
+                key = (item['currency'], item['time'])
+                grouped.setdefault(key, []).append(item)
+            for group_items in grouped.values():
+                if len(group_items) > 1:
+                    # Group event: create a single group analysis
+                    group_prompt = {
+                        'time': group_items[0]['time'],
+                        'currency': group_items[0]['currency'],
+                        'event': ", ".join([i['event'] for i in group_items]),
+                        'actual': ", ".join([i['actual'] for i in group_items]),
+                        'forecast': ", ".join([i['forecast'] for i in group_items]),
+                        'previous': ", ".join([i['previous'] for i in group_items]),
+                    }
+                    group_analysis = self.analyzer.analyze_news(group_prompt)
+                    for i in group_items:
+                        i['analysis'] = group_analysis
+                        i['group_analysis'] = True
+                else:
+                    group_items[0]['analysis'] = self.analyzer.analyze_news(group_items[0])
+                    group_items[0]['group_analysis'] = False
+        else:
+            for item in news_items:
+                item['analysis'] = None
+                item['group_analysis'] = False
         logger.info("Collected %s news items", len(news_items))
         return news_items
 
@@ -558,7 +584,7 @@ class MessageFormatter:
     """Handles formatting of news messages for Telegram with grouping."""
 
     @staticmethod
-    def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str) -> str:
+    def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str, analysis_required: bool = True) -> str:
         date_str = target_date.strftime("%d.%m.%Y")
         header = f"🗓️ Forex News for {date_str} (CET):\n\n"
 
@@ -586,6 +612,8 @@ class MessageFormatter:
             # Group event highlight
             if len(items) > 1:
                 message_parts.append(f"<b>🚨 GROUP EVENT at {time} ({len(items)} events)</b>\n")
+                if analysis_required and items[0].get('analysis'):
+                    message_parts.append(f"🔍 <b>Group Analysis:</b> {items[0]['analysis']}\n")
             for item in items:
                 impact_emoji = {
                     'high': '🔴',
@@ -601,9 +629,10 @@ class MessageFormatter:
                     f"📊 <b>Actual:</b> {item['actual']}\n"
                     f"📈 <b>Forecast:</b> {item['forecast']}\n"
                     f"📉 <b>Previous:</b> {item['previous']}\n"
-                    f"🔍 <b>Analysis:</b> {item.get('analysis', '')}\n"
-                    "------------------------------\n"
                 )
+                if analysis_required and not item.get('group_analysis', False) and item.get('analysis'):
+                    part += f"🔍 <b>Analysis:</b> {item['analysis']}\n"
+                part += "------------------------------\n"
                 message_parts.append(part)
         return "".join(message_parts)
 
