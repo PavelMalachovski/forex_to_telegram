@@ -37,7 +37,7 @@ if bot:
     register_handlers(bot, lambda date, impact, debug: process_forex_news_with_db(scraper, bot, config, db_service, date, impact, debug), config)
 
 
-async def process_forex_news_with_db(scraper, bot, config, db_service, target_date: Optional[datetime] = None, impact_level: str = "high", debug: bool = False):
+async def process_forex_news_with_db(scraper, bot, config, db_service, target_date: Optional[datetime] = None, impact_level: str = "high", analysis_required: bool = True, debug: bool = False):
     """Process forex news with database integration. Always store all news for the date in the DB."""
     if not bot or not config.telegram_chat_id:
         logger.error("Cannot process news: Bot or CHAT_ID not configured")
@@ -50,7 +50,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
         # Always check/store all news for the date in the DB
         if db_service and not db_service.has_news_for_date(target_date_obj, 'all'):
             logger.info(f"No data in database for {target_date_obj}, scraping all impacts...")
-            all_news_items = await scraper.scrape_news(target_date, debug)
+            all_news_items = await scraper.scrape_news(target_date, analysis_required, debug)
             if all_news_items and db_service:
                 db_service.store_news_items(all_news_items, target_date_obj, 'all')
                 logger.info(f"Stored all news for {target_date_obj} in database.")
@@ -74,7 +74,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 
         # Format and send message
         from bot.scraper import MessageFormatter
-        message = MessageFormatter.format_news_message(news_items, target_date, impact_level)
+        message = MessageFormatter.format_news_message(news_items, target_date, impact_level, analysis_required)
         if message.strip():
             from bot.utils import send_long_message
             send_long_message(bot, config.telegram_chat_id, message, parse_mode="HTML")
