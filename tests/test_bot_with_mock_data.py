@@ -3,6 +3,7 @@
 
 import sys
 import os
+import pytest
 from datetime import datetime, time
 
 # Add the parent directory to the path to find the bot module
@@ -147,13 +148,11 @@ def test_bot_with_mock_data():
         print("- Message formatting works correctly")
         print("- The bot is ready to work when news data is available")
 
-        return True
-
     except Exception as e:
         print(f"❌ Bot test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"Bot test failed: {e}")
 
 if __name__ == "__main__":
     test_bot_with_mock_data()

@@ -3,6 +3,7 @@
 
 import sys
 import os
+import pytest
 from datetime import datetime, time
 
 # Add the parent directory to the path to find the bot module
@@ -24,7 +25,7 @@ def test_user_features():
 
     if not database_url:
         print("❌ DATABASE_URL not configured")
-        return False
+        pytest.skip("DATABASE_URL not configured")
 
     try:
         # Initialize database service
@@ -57,7 +58,7 @@ def test_user_features():
             print("✅ User preferences updated successfully")
         else:
             print("❌ Failed to update user preferences")
-            return False
+            pytest.fail("Failed to update user preferences")
 
         # Verify preferences
         updated_user = db_service.get_or_create_user(test_telegram_id)
@@ -77,7 +78,7 @@ def test_user_features():
             print("✅ Settings keyboard generated successfully")
         else:
             print("❌ Failed to generate settings keyboard")
-            return False
+            pytest.fail("Failed to generate settings keyboard")
 
         # Test currencies keyboard
         currencies_markup = settings_handler.get_currencies_keyboard(test_telegram_id)
@@ -85,7 +86,7 @@ def test_user_features():
             print("✅ Currencies keyboard generated successfully")
         else:
             print("❌ Failed to generate currencies keyboard")
-            return False
+            pytest.fail("Failed to generate currencies keyboard")
 
         # Test impact keyboard
         impact_markup = settings_handler.get_impact_keyboard(test_telegram_id)
@@ -93,7 +94,7 @@ def test_user_features():
             print("✅ Impact keyboard generated successfully")
         else:
             print("❌ Failed to generate impact keyboard")
-            return False
+            pytest.fail("Failed to generate impact keyboard")
 
         # Test digest time keyboard
         digest_markup = settings_handler.get_digest_time_keyboard(test_telegram_id)
@@ -101,7 +102,7 @@ def test_user_features():
             print("✅ Digest time keyboard generated successfully")
         else:
             print("❌ Failed to generate digest time keyboard")
-            return False
+            pytest.fail("Failed to generate digest time keyboard")
 
         # Test getting users for digest
         users_for_digest = db_service.get_users_for_digest(time(8, 0))
@@ -122,13 +123,16 @@ def test_user_features():
                 print("✅ Test user cleaned up")
 
         print("\n🎉 All user features tests passed!")
-        return True
 
     except Exception as e:
         print(f"❌ User features test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        # Skip the test if it's a database connection issue
+        if "could not translate host name" in str(e) or "OperationalError" in str(e):
+            pytest.skip(f"Database connection failed: {e}")
+        else:
+            pytest.fail(f"User features test failed: {e}")
 
 def test_daily_digest_scheduler():
     """Test the daily digest scheduler functionality."""
@@ -140,7 +144,7 @@ def test_daily_digest_scheduler():
 
     if not database_url:
         print("❌ DATABASE_URL not configured")
-        return False
+        pytest.skip("DATABASE_URL not configured")
 
     try:
         # Initialize database service
@@ -187,6 +191,7 @@ def test_daily_digest_scheduler():
             print("✅ Test digest sent successfully")
         else:
             print("❌ Failed to send test digest")
+            pytest.fail("Failed to send test digest")
 
         # Clean up test user
         with db_service.db_manager.get_session() as session:
@@ -199,32 +204,29 @@ def test_daily_digest_scheduler():
                 print("✅ Test user cleaned up")
 
         print("🎉 Daily digest scheduler tests passed!")
-        return True
 
     except Exception as e:
         print(f"❌ Daily digest scheduler test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        # Skip the test if it's a database connection issue
+        if "could not translate host name" in str(e) or "OperationalError" in str(e):
+            pytest.skip(f"Database connection failed: {e}")
+        else:
+            pytest.fail(f"Daily digest scheduler test failed: {e}")
 
 if __name__ == "__main__":
     print("🚀 Testing Forex News Bot User Features")
     print("=" * 60)
 
     # Test user features
-    if test_user_features():
-        # Test daily digest scheduler
-        if test_daily_digest_scheduler():
-            print("\n🎉 All tests passed successfully!")
-            print("\n📝 User features are ready to use:")
-            print("1. Users can use /settings to configure preferences")
-            print("2. Currency filtering is available")
-            print("3. Impact level selection is working")
-            print("4. Daily digest scheduling is functional")
-            print("5. AI analysis preferences are configurable")
-        else:
-            print("\n❌ Daily digest scheduler tests failed!")
-            sys.exit(1)
-    else:
-        print("\n❌ User features tests failed!")
-        sys.exit(1)
+    test_user_features()
+    # Test daily digest scheduler
+    test_daily_digest_scheduler()
+    print("\n🎉 All tests passed successfully!")
+    print("\n📝 User features are ready to use:")
+    print("1. Users can use /settings to configure preferences")
+    print("2. Currency filtering is available")
+    print("3. Impact level selection is working")
+    print("4. Daily digest scheduling is functional")
+    print("5. AI analysis preferences are configurable")

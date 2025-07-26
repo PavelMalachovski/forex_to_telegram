@@ -3,6 +3,7 @@
 
 import sys
 import os
+import pytest
 from datetime import datetime, time
 
 # Add the parent directory to the path to find the bot module
@@ -105,13 +106,11 @@ def test_custom_time_picker():
         print("- Time display formatting works correctly")
         print("- The custom time picker is ready for use!")
 
-        return True
-
     except Exception as e:
         print(f"❌ Custom time picker test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"Custom time picker test failed: {e}")
 
 def test_time_picker_integration():
     """Test the time picker integration with user settings."""
@@ -166,19 +165,13 @@ def test_time_picker_integration():
         print("- Scheduler job creation works correctly")
         print("- Time picker integration is functional")
 
-        return True
-
     except Exception as e:
         print(f"❌ Time picker integration test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"Time picker integration test failed: {e}")
 
 if __name__ == "__main__":
-    success1 = test_custom_time_picker()
-    success2 = test_time_picker_integration()
+    test_custom_time_picker()
+    test_time_picker_integration()
 
-    if success1 and success2:
-        print("\n🎉 All tests passed! The custom time picker is ready to use.")
-    else:
-        print("\n❌ Some tests failed. Please check the implementation.")

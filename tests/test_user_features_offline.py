@@ -3,6 +3,7 @@
 
 import sys
 import os
+import pytest
 from datetime import datetime, time
 from typing import List, Optional
 
@@ -46,13 +47,12 @@ def test_user_model():
         print(f"  - Dictionary representation: {user_dict}")
 
         print("✅ User model tests passed!")
-        return True
 
     except Exception as e:
         print(f"❌ User model test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"User model test failed: {e}")
 
 def test_message_formatter():
     """Test the enhanced MessageFormatter with currency filtering."""
@@ -127,13 +127,12 @@ def test_message_formatter():
         print(f"  - Contains GBP: {'GBP' in message_usd_only}")
 
         print("✅ MessageFormatter tests passed!")
-        return True
 
     except Exception as e:
         print(f"❌ MessageFormatter test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"MessageFormatter test failed: {e}")
 
 def test_user_settings_handler():
     """Test the UserSettingsHandler functionality."""
@@ -141,7 +140,7 @@ def test_user_settings_handler():
     print("=" * 50)
 
     try:
-        from bot.user_settings import UserSettingsHandler, AVAILABLE_CURRENCIES, IMPACT_LEVELS, DIGEST_TIMES
+        from bot.user_settings import UserSettingsHandler, AVAILABLE_CURRENCIES, IMPACT_LEVELS
 
         print("✅ Available currencies:")
         for currency in AVAILABLE_CURRENCIES:
@@ -151,9 +150,10 @@ def test_user_settings_handler():
         for impact in IMPACT_LEVELS:
             print(f"  - {impact}")
 
-        print("\n✅ Available digest times:")
-        for time_str in DIGEST_TIMES:
-            print(f"  - {time_str}")
+        print("\n✅ Available digest times (dynamic):")
+        # Digest times are dynamic based on user preferences
+        print("  - Times are set dynamically based on user preferences")
+        print("  - Default time is 08:00")
 
         # Test keyboard generation (without database)
         print("\n✅ Testing keyboard generation...")
@@ -182,7 +182,7 @@ def test_user_settings_handler():
             print("✅ Settings keyboard generated successfully")
         else:
             print("❌ Failed to generate settings keyboard")
-            return False
+            pytest.fail("Failed to generate settings keyboard")
 
         # Test currencies keyboard
         currencies_markup = settings_handler.get_currencies_keyboard(123456789)
@@ -190,7 +190,7 @@ def test_user_settings_handler():
             print("✅ Currencies keyboard generated successfully")
         else:
             print("❌ Failed to generate currencies keyboard")
-            return False
+            pytest.fail("Failed to generate currencies keyboard")
 
         # Test impact keyboard
         impact_markup = settings_handler.get_impact_keyboard(123456789)
@@ -198,7 +198,7 @@ def test_user_settings_handler():
             print("✅ Impact keyboard generated successfully")
         else:
             print("❌ Failed to generate impact keyboard")
-            return False
+            pytest.fail("Failed to generate impact keyboard")
 
         # Test digest time keyboard
         digest_markup = settings_handler.get_digest_time_keyboard(123456789)
@@ -206,16 +206,15 @@ def test_user_settings_handler():
             print("✅ Digest time keyboard generated successfully")
         else:
             print("❌ Failed to generate digest time keyboard")
-            return False
+            pytest.fail("Failed to generate digest time keyboard")
 
         print("✅ UserSettingsHandler tests passed!")
-        return True
 
     except Exception as e:
         print(f"❌ UserSettingsHandler test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"UserSettingsHandler test failed: {e}")
 
 def test_daily_digest_scheduler():
     """Test the DailyDigestScheduler functionality."""
@@ -261,6 +260,28 @@ def test_daily_digest_scheduler():
                     }
                 ]
 
+            def get_all_users(self):
+                from bot.models import User
+                return [
+                    User(
+                        telegram_id=123456789,
+                        preferred_currencies="USD,EUR",
+                        impact_levels="high",
+                        analysis_required=True,
+                        digest_time=time(8, 0)
+                    )
+                ]
+
+            def get_or_create_user(self, user_id):
+                from bot.models import User
+                return User(
+                    telegram_id=user_id,
+                    preferred_currencies="USD,EUR",
+                    impact_levels="high",
+                    analysis_required=True,
+                    digest_time=time(8, 0)
+                )
+
         mock_bot = MockBot()
         mock_config = MockConfig()
         mock_db_service = MockDatabaseService()
@@ -279,15 +300,15 @@ def test_daily_digest_scheduler():
             print("✅ Test digest sent successfully")
         else:
             print("❌ Failed to send test digest")
+            pytest.fail("Failed to send test digest")
 
         print("✅ DailyDigestScheduler tests passed!")
-        return True
 
     except Exception as e:
         print(f"❌ DailyDigestScheduler test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"DailyDigestScheduler test failed: {e}")
 
 if __name__ == "__main__":
     print("🚀 Testing Forex News Bot User Features (Offline)")
@@ -301,25 +322,15 @@ if __name__ == "__main__":
         test_daily_digest_scheduler
     ]
 
-    passed = 0
-    total = len(tests)
-
     for test in tests:
-        if test():
-            passed += 1
+        test()
         print()
 
     print("=" * 60)
-    print(f"📊 Test Results: {passed}/{total} tests passed")
-
-    if passed == total:
-        print("\n🎉 All offline tests passed successfully!")
-        print("\n📝 User features are ready to use:")
-        print("1. User model with preferences management")
-        print("2. MessageFormatter with currency filtering")
-        print("3. UserSettingsHandler with interactive keyboards")
-        print("4. DailyDigestScheduler for automated delivery")
-        print("5. All components work together seamlessly")
-    else:
-        print(f"\n❌ {total - passed} tests failed!")
-        sys.exit(1)
+    print("\n🎉 All offline tests passed successfully!")
+    print("\n📝 User features are ready to use:")
+    print("1. User model with preferences management")
+    print("2. MessageFormatter with currency filtering")
+    print("3. UserSettingsHandler with interactive keyboards")
+    print("4. DailyDigestScheduler for automated delivery")
+    print("5. All components work together seamlessly")

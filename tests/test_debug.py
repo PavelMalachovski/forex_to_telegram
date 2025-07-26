@@ -4,6 +4,7 @@
 import asyncio
 import sys
 import os
+import pytest
 from datetime import datetime
 
 # Add the parent directory to the path to find the bot module
@@ -13,6 +14,7 @@ from bot.config import Config
 from bot.scraper import ChatGPTAnalyzer, ForexNewsScraper
 from bot.database_service import ForexNewsService
 
+@pytest.mark.asyncio
 async def test_news_fetching():
     """Test the news fetching functionality."""
     print("🧪 Testing News Fetching")
@@ -107,6 +109,7 @@ async def test_news_fetching():
         print(f"❌ Debug test failed: {e}")
         import traceback
         traceback.print_exc()
+        pytest.fail(f"Debug test failed: {e}")
 
 if __name__ == "__main__":
     asyncio.run(test_news_fetching())

@@ -3,6 +3,7 @@
 
 import sys
 import os
+import pytest
 from datetime import datetime
 
 # Add the parent directory to the path to find the bot module
@@ -81,13 +82,11 @@ def test_message_sending():
         print("- Impact filtering works correctly")
         print("- The bot should be able to send messages when news data is available")
 
-        return True
-
     except Exception as e:
         print(f"❌ Message sending test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(f"Message sending test failed: {e}")
 
 if __name__ == "__main__":
     test_message_sending()
