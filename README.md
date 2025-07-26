@@ -278,6 +278,23 @@ python setup_database.py
 3. **Deploy** using the provided Dockerfile
 4. **Monitor logs** for database connection status
 
+### Database Setup Options
+
+#### Option 1: Basic Setup (without notifications)
+```bash
+python setup_database.py
+```
+
+#### Option 2: Complete Setup (with notifications)
+```bash
+python setup_with_notifications.py
+```
+
+#### Option 3: Add notifications to existing database
+```bash
+python add_notification_columns.py
+```
+
 ### Bulk Data Import
 
 To import historical data from 1.1.2025:

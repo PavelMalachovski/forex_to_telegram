@@ -63,9 +63,9 @@ class User(Base):
     digest_time = Column(Time, default=datetime.strptime("08:00", "%H:%M").time())  # Default 8:00 AM
 
     # Notification settings (these may not exist in the database yet)
-    notifications_enabled = Column(Boolean, default=False)  # Whether notifications are enabled
-    notification_minutes = Column(Integer, default=30)  # Minutes before event to notify (15, 30, 60)
-    notification_impact_levels = Column(Text, default="high")  # Comma-separated list of impact levels for notifications
+    notifications_enabled = Column(Boolean, default=False, nullable=True)  # Whether notifications are enabled
+    notification_minutes = Column(Integer, default=30, nullable=True)  # Minutes before event to notify (15, 30, 60)
+    notification_impact_levels = Column(Text, default="high", nullable=True)  # Comma-separated list of impact levels for notifications
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
