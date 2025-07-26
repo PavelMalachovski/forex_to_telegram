@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 import logging
 
-from .models import DatabaseManager, ForexNews
+from .models import DatabaseManager, ForexNews, User
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,61 @@ class ForexNewsService:
     def __init__(self, database_url: Optional[str] = None):
         self.db_manager = DatabaseManager(database_url)
         self.db_manager.create_tables()
+
+    # User management methods
+    def get_or_create_user(self, telegram_id: int) -> User:
+        """Get existing user or create a new one."""
+        try:
+            with self.db_manager.get_session() as session:
+                user = session.query(User).filter(User.telegram_id == telegram_id).first()
+                if not user:
+                    user = User(telegram_id=telegram_id)
+                    session.add(user)
+                    session.commit()
+                    logger.info(f"Created new user with telegram_id: {telegram_id}")
+                return user
+        except Exception as e:
+            logger.error(f"Error getting/creating user {telegram_id}: {e}")
+            raise
+
+    def update_user_preferences(self, telegram_id: int, **kwargs) -> bool:
+        """Update user preferences."""
+        try:
+            with self.db_manager.get_session() as session:
+                user = session.query(User).filter(User.telegram_id == telegram_id).first()
+                if not user:
+                    return False
+
+                for key, value in kwargs.items():
+                    if hasattr(user, key):
+                        setattr(user, key, value)
+
+                session.commit()
+                logger.info(f"Updated preferences for user {telegram_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating user preferences {telegram_id}: {e}")
+            return False
+
+    def get_users_for_digest(self, digest_time: datetime.time) -> List[User]:
+        """Get all users who should receive digest at the specified time."""
+        try:
+            with self.db_manager.get_session() as session:
+                users = session.query(User).filter(User.digest_time == digest_time).all()
+                return users
+        except Exception as e:
+            logger.error(f"Error getting users for digest at {digest_time}: {e}")
+            return []
+
+    def get_all_users(self) -> List[User]:
+        """Get all users."""
+        try:
+            with self.db_manager.get_session() as session:
+                users = session.query(User).all()
+                return users
+        except Exception as e:
+            logger.error(f"Error getting all users: {e}")
+            return []
 
     def get_news_for_date(self, target_date: date, impact_level: str = "high") -> List[Dict[str, Any]]:
         """Get news for a specific date from the database."""

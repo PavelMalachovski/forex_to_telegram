@@ -12,6 +12,7 @@ from bot.config import Config, setup_logging
 from bot.telegram_handlers import TelegramBotManager, RenderKeepAlive, register_handlers
 from bot.scraper import ChatGPTAnalyzer, ForexNewsScraper, process_forex_news, MessageFormatter
 from bot.database_service import ForexNewsService
+from bot.daily_digest import DailyDigestScheduler
 
 config = Config()
 logger = setup_logging()
@@ -33,15 +34,39 @@ except Exception as e:
     logger.error(f"Failed to initialize database service: {e}")
     db_service = None
 
+# Initialize daily digest scheduler
+digest_scheduler = None
+if db_service and bot:
+    try:
+        digest_scheduler = DailyDigestScheduler(db_service, bot, config)
+        logger.info("Daily digest scheduler initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize daily digest scheduler: {e}")
+
 if bot:
-    register_handlers(bot, lambda date, impact, debug: process_forex_news_with_db(scraper, bot, config, db_service, date, impact, debug), config)
+    register_handlers(bot, lambda date, impact, analysis, debug, user_id=None: process_forex_news_with_db(scraper, bot, config, db_service, date, impact, analysis, debug, user_id), config, db_service, digest_scheduler)
 
 
-async def process_forex_news_with_db(scraper, bot, config, db_service, target_date: Optional[datetime] = None, impact_level: str = "high", analysis_required: bool = True, debug: bool = False):
+async def process_forex_news_with_db(scraper, bot, config, db_service, target_date: Optional[datetime] = None, impact_level: str = "high", analysis_required: bool = True, debug: bool = False, user_id: Optional[int] = None):
     """Process forex news with database integration. Always store all news for the date in the DB."""
-    if not bot or not config.telegram_chat_id:
-        logger.error("Cannot process news: Bot or CHAT_ID not configured")
+    if not bot:
+        logger.error("Cannot process news: Bot not configured")
         return [] if debug else None
+
+    # Get user preferences if user_id is provided
+    user_currencies = None
+    user_impact_levels = None
+    user_analysis_required = analysis_required
+
+    if user_id and db_service:
+        try:
+            user = db_service.get_or_create_user(user_id)
+            user_currencies = user.get_currencies_list()
+            user_impact_levels = user.get_impact_levels_list()
+            user_analysis_required = user.analysis_required
+        except Exception as e:
+            logger.error(f"Error getting user preferences for {user_id}: {e}")
+
     try:
         if target_date is None:
             target_date = datetime.now()
@@ -74,10 +99,22 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 
         # Format and send message
         from bot.scraper import MessageFormatter
-        message = MessageFormatter.format_news_message(news_items, target_date, impact_level, analysis_required)
+        message = MessageFormatter.format_news_message(
+            news_items,
+            target_date,
+            impact_level,
+            user_analysis_required,
+            user_currencies if user_currencies else None
+        )
+
         if message.strip():
             from bot.utils import send_long_message
-            send_long_message(bot, config.telegram_chat_id, message, parse_mode="HTML")
+            # Use user_id if provided, otherwise use config.telegram_chat_id
+            chat_id = user_id if user_id else config.telegram_chat_id
+            if chat_id:
+                send_long_message(bot, chat_id, message, parse_mode="HTML")
+            else:
+                logger.error("No chat_id available for sending message")
         else:
             logger.error("Generated message is empty")
         return news_items
@@ -85,7 +122,9 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
         logger.exception("Unexpected error in process_forex_news_with_db: %s", e)
         try:
             error_msg = f"⚠️ Error in Forex news processing: {str(e)}"
-            bot.send_message(config.telegram_chat_id, error_msg)
+            chat_id = user_id if user_id else config.telegram_chat_id
+            if chat_id:
+                bot.send_message(chat_id, error_msg)
         except Exception:
             logger.exception("Failed to send error notification")
         return [] if debug else None
@@ -102,176 +141,213 @@ def webhook():
         bot.process_new_updates([update])
         return jsonify({"status": "ok"})
     except Exception as e:
-        logger.error("Webhook error: %s", e)
+        logger.error(f"Error processing webhook: {e}")
         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/ping', methods=['GET'])
 def ping():
+    """Health check endpoint for Render.com."""
     return jsonify({
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
-        "bot_status": "initialized" if bot else "not_initialized",
+        "bot_initialized": bot is not None,
+        "database_available": db_service is not None,
+        "digest_scheduler_running": digest_scheduler.get_scheduler_status()['running'] if digest_scheduler else False
     })
 
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint for Render deployment."""
-    db_healthy = db_service.health_check() if db_service else False
-    return jsonify({
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "service": "forex-telegram-bot",
-        "database": "connected" if db_healthy else "disconnected",
-        "ready": True
-    }), 200
+    """Detailed health check endpoint."""
+    try:
+        db_healthy = db_service.health_check() if db_service else False
+        scheduler_status = digest_scheduler.get_scheduler_status() if digest_scheduler else {'running': False, 'jobs': []}
+
+        return jsonify({
+            "status": "healthy" if db_healthy else "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "components": {
+                "bot": bot is not None,
+                "database": db_healthy,
+                "digest_scheduler": scheduler_status['running'],
+                "webhook": config.telegram_bot_token is not None
+            },
+            "scheduler": scheduler_status
+        })
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 @app.route('/manual_scrape', methods=['POST'])
 def manual_scrape():
-    provided_key = request.headers.get('X-API-Key') or request.json.get('api_key')
-    if not provided_key or provided_key != config.api_key:
-        return jsonify({"error": "Invalid or missing API key"}), 401
-    data = request.get_json() or {}
-    date_str = data.get('date')
-    impact_level = data.get('impact_level', 'high')
-    debug = data.get('debug', False)
-    target_date = None
-    if date_str:
-        try:
-            target_date = datetime.strptime(date_str, "%Y-%m-%d")
-        except ValueError:
-            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
-    result = asyncio.run(process_forex_news_with_db(scraper, bot, config, db_service, target_date, impact_level, debug))
-    return jsonify({
-        "status": "success",
-        "date": date_str or datetime.now().strftime("%Y-%m-%d"),
-        "impact_level": impact_level,
-        "news_count": len(result),
-        "news_items": result if debug else "News sent to Telegram",
-    })
+    """Manual scraping endpoint for testing."""
+    try:
+        data = request.get_json() or {}
+        date_str = data.get('date')
+        impact_level = data.get('impact_level', 'high')
+        analysis_required = data.get('analysis_required', True)
+
+        target_date = None
+        if date_str:
+            try:
+                target_date = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+        result = asyncio.run(process_forex_news_with_db(
+            scraper, bot, config, db_service,
+            target_date, impact_level, analysis_required, debug=True
+        ))
+
+        return jsonify({
+            "status": "success",
+            "news_count": len(result) if result else 0,
+            "date": date_str or "today"
+        })
+    except Exception as e:
+        logger.error(f"Manual scrape failed: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/db/stats', methods=['GET'])
 def db_stats():
     """Get database statistics."""
     if not db_service:
-        return jsonify({"error": "Database service not available"}), 503
+        return jsonify({"error": "Database service not available"}), 500
 
     try:
-        # Get stats for the last 30 days
+        # Get date range for stats (last 30 days)
         end_date = date.today()
-        start_date = end_date.replace(day=1)  # Start of current month
+        start_date = end_date - timedelta(days=30)
 
         stats = db_service.get_date_range_stats(start_date, end_date)
+
         return jsonify({
             "status": "success",
-            "stats": stats,
-            "database_healthy": db_service.health_check()
+            "date_range": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat()
+            },
+            "stats": stats
         })
     except Exception as e:
-        logger.error(f"Error getting database stats: {e}")
+        logger.error(f"Database stats failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/db/check/<date_str>', methods=['GET'])
 def db_check_date(date_str):
-    """Check if data exists for a specific date."""
+    """Check if news exists for a specific date."""
     if not db_service:
-        return jsonify({"error": "Database service not available"}), 503
+        return jsonify({"error": "Database service not available"}), 500
 
     try:
         target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        impact_level = request.args.get('impact_level', 'high')
 
-        has_data = db_service.has_news_for_date(target_date, impact_level)
-        news_count = len(db_service.get_news_for_date(target_date, impact_level)) if has_data else 0
+        # Check for different impact levels
+        impact_levels = ['high', 'medium', 'low', 'all']
+        results = {}
+
+        for impact in impact_levels:
+            has_news = db_service.has_news_for_date(target_date, impact)
+            if has_news:
+                news_items = db_service.get_news_for_date(target_date, impact)
+                results[impact] = {
+                    "exists": True,
+                    "count": len(news_items)
+                }
+            else:
+                results[impact] = {
+                    "exists": False,
+                    "count": 0
+                }
 
         return jsonify({
+            "status": "success",
             "date": date_str,
-            "impact_level": impact_level,
-            "has_data": has_data,
-            "news_count": news_count
+            "results": results
         })
     except ValueError:
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
     except Exception as e:
-        logger.error(f"Error checking date {date_str}: {e}")
+        logger.error(f"Database check failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/db/import', methods=['POST'])
 def db_import():
-    """Import data for a specific date range."""
-    provided_key = request.headers.get('X-API-Key') or request.json.get('api_key')
-    if not provided_key or provided_key != config.api_key:
-        return jsonify({"error": "Invalid or missing API key"}), 401
-
+    """Bulk import news for a date range."""
     if not db_service:
-        return jsonify({"error": "Database service not available"}), 503
-
-    data = request.get_json() or {}
-    start_date_str = data.get('start_date')
-    end_date_str = data.get('end_date')
-    impact_level = data.get('impact_level', 'high')
-
-    if not start_date_str or not end_date_str:
-        return jsonify({"error": "start_date and end_date are required"}), 400
+        return jsonify({"error": "Database service not available"}), 500
 
     try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        start_date_str = data.get('start_date')
+        end_date_str = data.get('end_date')
+        impact_level = data.get('impact_level', 'high')
+
+        if not start_date_str or not end_date_str:
+            return jsonify({"error": "start_date and end_date are required"}), 400
+
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
 
-        # Run import asynchronously
-        asyncio.create_task(bulk_import_news(start_date, end_date, impact_level))
+        if start_date > end_date:
+            return jsonify({"error": "start_date must be before or equal to end_date"}), 400
+
+        # Start the bulk import process
+        asyncio.run(bulk_import_news(start_date, end_date, impact_level))
 
         return jsonify({
-            "status": "import_started",
-            "start_date": start_date_str,
-            "end_date": end_date_str,
+            "status": "success",
+            "message": f"Bulk import started for {start_date_str} to {end_date_str}",
             "impact_level": impact_level
         })
     except ValueError:
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
     except Exception as e:
-        logger.error(f"Error starting import: {e}")
+        logger.error(f"Bulk import failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 
 async def bulk_import_news(start_date: date, end_date: date, impact_level: str = "high"):
     """Bulk import news for a date range."""
+    if not db_service:
+        logger.error("Database service not available for bulk import")
+        return
+
     try:
         current_date = start_date
         total_imported = 0
 
         while current_date <= end_date:
-            try:
-                logger.info(f"Importing data for {current_date}")
+            logger.info(f"Importing news for {current_date}")
 
-                # Check if data already exists
-                if db_service.has_news_for_date(current_date, impact_level):
-                    logger.info(f"Data already exists for {current_date}, skipping...")
-                    current_date += timedelta(days=1)
-                    continue
+            # Check if news already exists
+            if db_service.has_news_for_date(current_date, 'all'):
+                logger.info(f"News already exists for {current_date}, skipping")
+                current_date += timedelta(days=1)
+                continue
 
-                # Scrape and store
-                news_items = await scraper.scrape_news(
-                    target_date=datetime.combine(current_date, datetime.min.time()),
-                    impact_level=impact_level,
-                    debug=False
-                )
+            # Scrape news for the date
+            target_datetime = datetime.combine(current_date, datetime.min.time())
+            news_items = await scraper.scrape_news(target_datetime, analysis_required=False, debug=True)
 
-                if news_items:
-                    success = db_service.store_news_items(news_items, current_date, impact_level)
-                    if success:
-                        total_imported += len(news_items)
-                        logger.info(f"Imported {len(news_items)} items for {current_date}")
-
-                await asyncio.sleep(2)  # Rate limiting
-
-            except Exception as e:
-                logger.error(f"Error importing {current_date}: {e}")
+            if news_items:
+                # Store in database
+                success = db_service.store_news_items(news_items, current_date, 'all')
+                if success:
+                    total_imported += len(news_items)
+                    logger.info(f"Imported {len(news_items)} news items for {current_date}")
+                else:
+                    logger.error(f"Failed to store news for {current_date}")
+            else:
+                logger.info(f"No news found for {current_date}")
 
             current_date += timedelta(days=1)
 
@@ -283,61 +359,79 @@ async def bulk_import_news(start_date: date, end_date: date, impact_level: str =
 
 @app.route('/status', methods=['GET'])
 def status():
-    missing_vars = config.validate_required_vars()
-    return jsonify({
-        "status": "running",
-        "timestamp": datetime.now().isoformat(),
-        "config": {
-            "bot_initialized": bot is not None,
-            "chat_id_configured": bool(config.telegram_chat_id),
-            "chatgpt_configured": bool(config.chatgpt_api_key),
-            "database_configured": bool(config.database_url),
-            "render_hostname": config.render_hostname,
-            "port": config.port,
-            "timezone": config.timezone,
-        },
-        "missing_env_vars": missing_vars,
-        "ready": len(missing_vars) == 0 and bot is not None,
-    })
+    """Get application status."""
+    try:
+        db_healthy = db_service.health_check() if db_service else False
+        scheduler_status = digest_scheduler.get_scheduler_status() if digest_scheduler else {'running': False, 'jobs': []}
+
+        # Get user count if database is available
+        user_count = 0
+        if db_service:
+            try:
+                users = db_service.get_all_users()
+                user_count = len(users)
+            except Exception as e:
+                logger.error(f"Error getting user count: {e}")
+
+        return jsonify({
+            "status": "running",
+            "timestamp": datetime.now().isoformat(),
+            "components": {
+                "bot": bot is not None,
+                "database": db_healthy,
+                "digest_scheduler": scheduler_status['running'],
+                "webhook": config.telegram_bot_token is not None
+            },
+            "stats": {
+                "users": user_count,
+                "scheduler_jobs": len(scheduler_status.get('jobs', []))
+            },
+            "scheduler": scheduler_status
+        })
+    except Exception as e:
+        logger.error(f"Status check failed: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 @app.route('/', methods=['GET'])
 def home():
+    """Home page with basic information."""
     return jsonify({
-        "service": "Forex News Telegram Bot",
-        "status": "running",
+        "name": "Forex News Telegram Bot",
+        "version": "2.0.0",
+        "description": "A Telegram bot for delivering Forex news with user preferences and daily digest",
         "endpoints": {
-            "/ping": "Health check",
+            "/ping": "Health check for Render.com",
+            "/health": "Detailed health check",
             "/status": "Application status",
-            "/manual_scrape": "Manual news scraping (POST, requires API key)",
-            "/webhook": "Telegram webhook (POST)",
-            "/db/stats": "Database statistics (GET)",
-            "/db/check/<date>": "Check data for date (GET)",
-            "/db/import": "Bulk import data (POST, requires API key)",
+            "/db/stats": "Database statistics",
+            "/manual_scrape": "Manual news scraping (POST)",
+            "/db/import": "Bulk import news (POST)"
         },
+        "features": [
+            "User preferences management",
+            "Currency filtering",
+            "Impact level selection",
+            "Daily digest scheduling",
+            "AI analysis integration",
+            "Database storage and caching"
+        ]
     })
 
 
 def initialize_application():
-    """Initialize the application - called both in direct run and gunicorn."""
-    logger.info("Starting Forex News Telegram Bot...")
-    missing_vars = config.validate_required_vars()
-    if missing_vars:
-        logger.warning("Missing environment variables: %s", missing_vars)
+    """Initialize the application and start background services."""
+    try:
+        # Setup webhook if bot is available
+        if bot_manager:
+            bot_manager.setup_webhook_async()
 
-    # Setup webhook with shorter delay for faster startup
-    if bot and config.render_hostname:
-        bot_manager.setup_webhook_async()
-    else:
-        logger.warning("Webhook setup skipped: Bot or hostname not configured")
+        logger.info("Application initialized successfully")
 
-    logger.info("Application initialized successfully on port %s", config.port)
+    except Exception as e:
+        logger.error(f"Failed to initialize application: {e}")
 
 
-# Initialize application when module is imported (for gunicorn)
-initialize_application()
-
-
-if __name__ == '__main__':
-    # This runs only when called directly (not via gunicorn)
-    app.run(host='0.0.0.0', port=config.port, debug=False, threaded=True)
+if __name__ == "__main__":
+    initialize_application()
+    app.run(host="0.0.0.0", port=10000, debug=False)
