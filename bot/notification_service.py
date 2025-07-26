@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import text
 
 from .database_service import ForexNewsService
 from .config import Config
@@ -166,6 +167,20 @@ class NotificationService:
             if not self.db_service:
                 logger.error("Database service not available")
                 return 0
+
+            # Check if notification columns exist
+            with self.db_service.db_manager.get_session() as session:
+                result = session.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                """))
+                notification_columns = [row[0] for row in result]
+
+                if len(notification_columns) < 3:
+                    logger.info("Notification columns not fully available, skipping notifications")
+                    return 0
 
             # Get all users with notifications enabled
             users = self.db_service.get_users_with_notifications_enabled()

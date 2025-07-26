@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import text
 
 from .notification_service import NotificationService
 from .database_service import ForexNewsService
@@ -45,6 +46,20 @@ class NotificationScheduler:
         """Check for upcoming events and send notifications."""
         try:
             logger.info("Checking for upcoming news events...")
+
+            # Check if notification columns exist
+            with self.db_service.db_manager.get_session() as session:
+                result = session.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                """))
+                notification_columns = [row[0] for row in result]
+
+                if len(notification_columns) < 3:
+                    logger.info("Notification columns not fully available, skipping notification check")
+                    return
 
             # Check notifications for all users
             notifications_sent = self.notification_service.check_and_send_notifications_for_all_users()

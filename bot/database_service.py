@@ -1,7 +1,7 @@
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, text
 import logging
 
 from .models import DatabaseManager, ForexNews, User
@@ -70,7 +70,62 @@ class ForexNewsService:
         """Get all users."""
         try:
             with self.db_manager.get_session() as session:
-                users = session.query(User).all()
+                # Check if notification columns exist
+                result = session.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                """))
+                notification_columns = [row[0] for row in result]
+
+                if len(notification_columns) == 3:
+                    # All notification columns exist, use normal query
+                    users = session.query(User).all()
+                else:
+                    # Some notification columns missing, use raw SQL
+                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+
+                    # Add notification columns only if they exist
+                    if 'notifications_enabled' in notification_columns:
+                        columns.append('notifications_enabled')
+                    if 'notification_minutes' in notification_columns:
+                        columns.append('notification_minutes')
+                    if 'notification_impact_levels' in notification_columns:
+                        columns.append('notification_impact_levels')
+
+                    columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
+                    sql = f"SELECT {columns_str} FROM users"
+
+                    result = session.execute(text(sql))
+                    users = []
+                    for row in result:
+                        user_data = {}
+                        for i, col in enumerate(columns):
+                            user_data[col] = row[i]
+
+                        # Create User object manually
+                        user = User()
+                        user.id = user_data['id']
+                        user.telegram_id = user_data['telegram_id']
+                        user.preferred_currencies = user_data['preferred_currencies']
+                        user.impact_levels = user_data['impact_levels']
+                        user.analysis_required = user_data['analysis_required']
+                        user.digest_time = user_data['digest_time']
+                        user.created_at = user_data['created_at']
+                        user.updated_at = user_data['updated_at']
+
+                        # Set notification fields only if they exist
+                        if 'notifications_enabled' in user_data:
+                            user.notifications_enabled = user_data['notifications_enabled']
+                        if 'notification_minutes' in user_data:
+                            user.notification_minutes = user_data['notification_minutes']
+                        if 'notification_impact_levels' in user_data:
+                            user.notification_impact_levels = user_data['notification_impact_levels']
+
+                        users.append(user)
+
                 return users
         except Exception as e:
             logger.error(f"Error getting all users: {e}")
@@ -80,7 +135,67 @@ class ForexNewsService:
         """Get all users who have notifications enabled."""
         try:
             with self.db_manager.get_session() as session:
-                users = session.query(User).filter(User.notifications_enabled == True).all()
+                # Check if notification columns exist
+                result = session.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                """))
+                notification_columns = [row[0] for row in result]
+
+                if 'notifications_enabled' not in notification_columns:
+                    # Notification columns don't exist, return empty list
+                    logger.info("Notification columns not found, returning empty list")
+                    return []
+
+                if len(notification_columns) == 3:
+                    # All notification columns exist, use normal query
+                    users = session.query(User).filter(User.notifications_enabled == True).all()
+                else:
+                    # Some notification columns missing, use raw SQL
+                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+
+                    # Add notification columns only if they exist
+                    if 'notifications_enabled' in notification_columns:
+                        columns.append('notifications_enabled')
+                    if 'notification_minutes' in notification_columns:
+                        columns.append('notification_minutes')
+                    if 'notification_impact_levels' in notification_columns:
+                        columns.append('notification_impact_levels')
+
+                    columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
+                    sql = f"SELECT {columns_str} FROM users WHERE notifications_enabled = TRUE"
+
+                    result = session.execute(text(sql))
+                    users = []
+                    for row in result:
+                        user_data = {}
+                        for i, col in enumerate(columns):
+                            user_data[col] = row[i]
+
+                        # Create User object manually
+                        user = User()
+                        user.id = user_data['id']
+                        user.telegram_id = user_data['telegram_id']
+                        user.preferred_currencies = user_data['preferred_currencies']
+                        user.impact_levels = user_data['impact_levels']
+                        user.analysis_required = user_data['analysis_required']
+                        user.digest_time = user_data['digest_time']
+                        user.created_at = user_data['created_at']
+                        user.updated_at = user_data['updated_at']
+
+                        # Set notification fields only if they exist
+                        if 'notifications_enabled' in user_data:
+                            user.notifications_enabled = user_data['notifications_enabled']
+                        if 'notification_minutes' in user_data:
+                            user.notification_minutes = user_data['notification_minutes']
+                        if 'notification_impact_levels' in user_data:
+                            user.notification_impact_levels = user_data['notification_impact_levels']
+
+                        users.append(user)
+
                 return users
         except Exception as e:
             logger.error(f"Error getting users with notifications enabled: {e}")
