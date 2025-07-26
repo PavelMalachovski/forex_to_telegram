@@ -5,8 +5,8 @@ import sys
 import os
 from datetime import datetime, time
 
-# Add the bot directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'bot'))
+# Add the parent directory to the path to find the bot module
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 def test_custom_time_picker():
     """Test the custom time picker functionality."""

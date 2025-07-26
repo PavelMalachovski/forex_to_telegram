@@ -6,8 +6,10 @@ import os
 from datetime import datetime, time
 from typing import List, Optional
 
-# Add the bot directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'bot'))
+# Add the parent directory to the path to find the bot module
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from bot.models import User
 
 def test_user_model():
     """Test the User model functionality."""
@@ -15,8 +17,6 @@ def test_user_model():
     print("=" * 50)
 
     try:
-        from bot.models import User
-
         # Create a test user
         user = User(
             telegram_id=123456789,

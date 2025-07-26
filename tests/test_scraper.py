@@ -1,7 +1,12 @@
-import os
+#!/usr/bin/env python3
+"""Test script for scraper functionality."""
+
 import sys
+import os
 from datetime import datetime
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Add the parent directory to the path to find the bot module
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import pytest
 from unittest.mock import patch

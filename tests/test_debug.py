@@ -6,8 +6,8 @@ import sys
 import os
 from datetime import datetime
 
-# Add the bot directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'bot'))
+# Add the parent directory to the path to find the bot module
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from bot.config import Config
 from bot.scraper import ChatGPTAnalyzer, ForexNewsScraper

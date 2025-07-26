@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Test script for user features functionality."""
 
-import os
 import sys
+import os
 from datetime import datetime, time
 
-# Add the bot directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'bot'))
+# Add the parent directory to the path to find the bot module
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from bot.config import Config
 from bot.database_service import ForexNewsService
