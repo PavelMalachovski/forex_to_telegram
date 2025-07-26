@@ -43,6 +43,11 @@ class ForexNewsService:
                 for key, value in kwargs.items():
                     if hasattr(user, key):
                         setattr(user, key, value)
+                    else:
+                        # Handle notification fields that might not exist in database yet
+                        if key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']:
+                            # Skip updating these fields if they don't exist in the database
+                            continue
 
                 session.commit()
                 logger.info(f"Updated preferences for user {telegram_id}")
