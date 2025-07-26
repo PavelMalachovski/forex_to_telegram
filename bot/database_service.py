@@ -56,6 +56,140 @@ class ForexNewsService:
             logger.error(f"Error updating user preferences {telegram_id}: {e}")
             return False
 
+    def get_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
+        """Get user by telegram ID."""
+        try:
+            with self.db_manager.get_session() as session:
+                # Check if notification columns exist
+                result = session.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                """))
+                notification_columns = [row[0] for row in result]
+
+                if len(notification_columns) == 3:
+                    # All notification columns exist, use normal query
+                    return session.query(User).filter(User.telegram_id == telegram_id).first()
+                else:
+                    # Some notification columns missing, use raw SQL
+                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+
+                    # Add notification columns only if they exist
+                    if 'notifications_enabled' in notification_columns:
+                        columns.append('notifications_enabled')
+                    if 'notification_minutes' in notification_columns:
+                        columns.append('notification_minutes')
+                    if 'notification_impact_levels' in notification_columns:
+                        columns.append('notification_impact_levels')
+
+                    columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
+                    sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
+
+                    result = session.execute(text(sql), {'telegram_id': telegram_id})
+                    row = result.fetchone()
+
+                    if row:
+                        user_data = {}
+                        for i, col in enumerate(columns):
+                            user_data[col] = row[i]
+
+                        # Create User object manually
+                        user = User()
+                        user.id = user_data['id']
+                        user.telegram_id = user_data['telegram_id']
+                        user.preferred_currencies = user_data['preferred_currencies']
+                        user.impact_levels = user_data['impact_levels']
+                        user.analysis_required = user_data['analysis_required']
+                        user.digest_time = user_data['digest_time']
+                        user.created_at = user_data['created_at']
+                        user.updated_at = user_data['updated_at']
+
+                        # Set notification fields only if they exist
+                        if 'notifications_enabled' in user_data:
+                            user.notifications_enabled = user_data['notifications_enabled']
+                        if 'notification_minutes' in user_data:
+                            user.notification_minutes = user_data['notification_minutes']
+                        if 'notification_impact_levels' in user_data:
+                            user.notification_impact_levels = user_data['notification_impact_levels']
+
+                        return user
+
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user by telegram ID {telegram_id}: {e}")
+            return None
+
+    def get_user_preferences(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+        """Get user preferences by telegram ID."""
+        try:
+            with self.db_manager.get_session() as session:
+                # Check if notification columns exist
+                result = session.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                """))
+                notification_columns = [row[0] for row in result]
+
+                if len(notification_columns) == 3:
+                    # All notification columns exist, use normal query
+                    user = session.query(User).filter(User.telegram_id == telegram_id).first()
+                    if user:
+                        return user.to_dict()
+                else:
+                    # Some notification columns missing, use raw SQL
+                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+
+                    # Add notification columns only if they exist
+                    if 'notifications_enabled' in notification_columns:
+                        columns.append('notifications_enabled')
+                    if 'notification_minutes' in notification_columns:
+                        columns.append('notification_minutes')
+                    if 'notification_impact_levels' in notification_columns:
+                        columns.append('notification_impact_levels')
+
+                    columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
+                    sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
+
+                    result = session.execute(text(sql), {'telegram_id': telegram_id})
+                    row = result.fetchone()
+
+                    if row:
+                        user_data = {}
+                        for i, col in enumerate(columns):
+                            user_data[col] = row[i]
+
+                        # Create User object manually
+                        user = User()
+                        user.id = user_data['id']
+                        user.telegram_id = user_data['telegram_id']
+                        user.preferred_currencies = user_data['preferred_currencies']
+                        user.impact_levels = user_data['impact_levels']
+                        user.analysis_required = user_data['analysis_required']
+                        user.digest_time = user_data['digest_time']
+                        user.created_at = user_data['created_at']
+                        user.updated_at = user_data['updated_at']
+
+                        # Set notification fields only if they exist
+                        if 'notifications_enabled' in user_data:
+                            user.notifications_enabled = user_data['notifications_enabled']
+                        if 'notification_minutes' in user_data:
+                            user.notification_minutes = user_data['notification_minutes']
+                        if 'notification_impact_levels' in user_data:
+                            user.notification_impact_levels = user_data['notification_impact_levels']
+
+                        return user.to_dict()
+
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user preferences for {telegram_id}: {e}")
+            return None
+
     def get_users_for_digest(self, digest_time: datetime.time) -> List[User]:
         """Get all users who should receive digest at the specified time."""
         try:
