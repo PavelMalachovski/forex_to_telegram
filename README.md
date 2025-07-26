@@ -1,174 +1,266 @@
-# Forex Factory to Telegram Bot
+# Forex News Telegram Bot
 
-An advanced Telegram bot that scrapes the Forex Factory economic calendar and sends news updates to Telegram channels with intelligent time handling, sorting, and impact filtering.
+A comprehensive Telegram bot that delivers personalized Forex news from ForexFactory with AI-powered analysis and daily digest scheduling.
 
-## 🚀 Latest Features
+## 🌟 Features
 
-- **Enhanced Time Management**: All news items have proper times with fallback to previous available times
-- **Smart Sorting**: News sorted by currency alphabetically, then chronologically by time
-- **Advanced Anti-Bot Bypass**: Multiple strategies to bypass Cloudflare and other anti-bot protections
-- **Multi-Strategy Scraping**: Includes undetected-chromedriver with human-like behavior
-- **Intelligent Fallbacks**: Automatic fallback to alternative methods if primary fails
-- **ChatGPT Integration**: Optional AI-powered analysis of news events
-- **Flexible Scheduling**: Configurable news fetching intervals
-- **Impact Level Filtering**: All news is scraped and stored; filtering is done at output (Telegram or API)
-- **Telegram Integration**: Clean, formatted messages sent to Telegram channels
-- **Robust Error Handling**: Comprehensive timeout mechanisms and graceful degradation
+### Core Features
+- **Real-time News Scraping**: Fetches economic news from ForexFactory
+- **AI-Powered Analysis**: Optional ChatGPT integration for news analysis
+- **Database Storage**: PostgreSQL backend for efficient news storage and retrieval
+- **Personalized Filtering**: User-specific currency and impact preferences
+- **Daily Digest**: Automated daily news delivery at custom times
+- **Interactive UI**: Inline keyboards for easy navigation
 
-## ✨ Major Improvements
+### New User Features (v2.0)
+- **User Preferences**: Store individual user settings in database
+- **Currency Filtering**: Choose specific currencies of interest
+- **Impact Level Selection**: Filter by High/Medium/Low impact events
+- **Custom Digest Times**: Choose any specific time for daily digest
+- **Settings Management**: Interactive `/settings` command
+- **Personalized News**: News filtered based on user preferences
 
-- **All news is scraped and stored for each date, regardless of impact.**
-- **Impact is now robustly detected and stored per news item (high, medium, low, tentative, none).**
-- **Filtering by impact is done only at output (Telegram, API, etc).**
-- **Database logic and API endpoints updated for new impact handling.**
-
-## 🛠️ Installation
+## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.11+
-- Google Chrome (for undetected-chromedriver)
+- Python 3.8+
+- PostgreSQL database
+- Chrome browser (for web scraping)
 - Telegram Bot Token
-- Optional: OpenAI API Key for ChatGPT analysis
+- ChatGPT API Key (optional)
 
-### Quick Start
+### Installation
 
-1. **Clone the repository**:
+1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/forex_to_telegram.git
+git clone <repository-url>
 cd forex_to_telegram
 ```
 
-2. **Install dependencies**:
+2. **Install dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Install Playwright browsers** (optional, for enhanced scraping):
+3. **Set up environment variables**
 ```bash
-playwright install chromium
+# Create .env file or set environment variables
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+DATABASE_URL=postgresql://user:password@host:port/database
+CHATGPT_API_KEY=your_chatgpt_key  # Optional
 ```
 
-4. **Set up environment variables**:
+4. **Set up database**
 ```bash
-cp .env.example .env
-# Edit .env with your configuration
+python setup_database.py
 ```
 
-## ⚙️ Configuration
-
-Create a `.env` file with the following variables:
-
-```env
-# Required
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_id_here
-DATABASE_URL=postgresql://username:password@hostname:5432/database_name
-API_KEY=your_api_key_here
-
-# Optional
-CHATGPT_API_KEY=your_openai_api_key_here  # For AI analysis
-TIMEZONE=Europe/Prague  # Your preferred timezone
-```
-
-> **Never commit your real credentials or secrets to version control.**
-
-### Environment Variables Explained
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | Your Telegram bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | Yes | Target chat/channel ID for news messages |
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `API_KEY` | Yes | API key for protected endpoints |
-| `CHATGPT_API_KEY` | No | OpenAI API key for AI-powered news analysis |
-| `TIMEZONE` | No | Timezone for date handling (default: Europe/Prague) |
-
-## 🚀 Usage
-
-### Running the Bot
-
+5. **Run the bot**
 ```bash
 python app.py
 ```
 
-### Manual News Fetching (Python)
+## 📋 Commands
 
-```python
-from bot.scraper import ForexNewsScraper, ChatGPTAnalyzer
-from bot.config import Config
-from datetime import datetime
+### Basic Commands
+- `/start`, `/help` - Show help message
+- `/today` - Get today's news
+- `/tomorrow` - Get tomorrow's news
+- `/calendar` - Select a specific date
 
-config = Config()
-analyzer = ChatGPTAnalyzer(config.chatgpt_api_key)
-scraper = ForexNewsScraper(config, analyzer)
+### Settings Commands
+- `/settings` - Configure your preferences
 
-# Fetch news for today (all impacts)
-news = await scraper.scrape_news()
+## ⚙️ User Settings
 
-# Fetch news for a specific date (all impacts)
-target_date = datetime(2025, 7, 17)
-news = await scraper.scrape_news(target_date)
-```
+### Currency Preferences
+Choose which currencies you want to receive news for:
+- **USD**, **EUR**, **GBP**, **JPY**, **AUD**, **CAD**, **CHF**, **NZD**
+- **CNY**, **INR**, **BRL**, **RUB**, **KRW**, **MXN**, **SGD**, **HKD**
 
 ### Impact Levels
+Select which impact levels interest you:
+- **🔴 High Impact** - Major economic events
+- **🟠 Medium Impact** - Moderate market movers
+- **🟡 Low Impact** - Minor events
 
-- All news is scraped and stored for each date.
-- Impact is detected per item: `high`, `medium`, `low`, `tentative`, `none`.
-- Filtering by impact is done at output (Telegram, API, etc).
+### AI Analysis
+- **Enable/Disable** ChatGPT-powered news analysis
+- Provides insights and market context for each event
 
-## 🌐 API Endpoints
+### Daily Digest Time ⏰
+**NEW: Custom Time Picker**
+- Choose **any specific time** (00:00 to 23:59)
+- **Hour picker**: Select from 0-23 hours
+- **Minute picker**: Select from 0-59 minutes (5-minute intervals)
+- **Quick presets**: 06:00, 08:00, 12:00, 18:00, 20:00, 22:00
+- **Dynamic scheduling**: Scheduler automatically adjusts to user preferences
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Health check |
-| `/webhook` | POST | Telegram webhook endpoint |
-| `/db/stats` | GET | Database statistics |
-| `/db/check/<date>` | GET | Check if data exists for a date |
-| `/db/import` | POST | Bulk import data (requires API key) |
+#### How to Set Custom Time:
+1. Use `/settings` command
+2. Click "⏰ Digest Time"
+3. Choose from:
+   - **🕐 Hour** - Select specific hour (0-23)
+   - **🕐 Minute** - Select specific minute (0-59, 5-min intervals)
+   - **Quick presets** - Choose from common times
+   - **Current time display** - Shows your current setting
 
-## 🐳 Deployment
+## 🔧 Configuration
 
-### Docker Deployment
+### Environment Variables
 
-```bash
-# Build the Docker image
-docker build -t forex-telegram-bot .
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | Yes |
+| `TELEGRAM_CHAT_ID` | Default chat ID for messages | Yes |
+| `DATABASE_URL` | PostgreSQL connection string | Yes |
+| `CHATGPT_API_KEY` | OpenAI API key for analysis | No |
+| `WEBHOOK_URL` | Webhook URL for production | No |
 
-# Run with environment variables
-docker run -d \
-  --env-file .env \
-  -p 10000:10000 \
-  forex-telegram-bot
+### Database Schema
+
+#### Users Table
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE NOT NULL,
+    preferred_currencies TEXT DEFAULT '',
+    impact_levels TEXT DEFAULT 'high,medium',
+    analysis_required BOOLEAN DEFAULT TRUE,
+    digest_time TIME DEFAULT '08:00:00',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-### Render.com Deployment
+#### Forex News Table
+```sql
+CREATE TABLE forex_news (
+    id SERIAL PRIMARY KEY,
+    date DATE NOT NULL,
+    time VARCHAR(10),
+    currency VARCHAR(10),
+    event TEXT,
+    actual VARCHAR(50),
+    forecast VARCHAR(50),
+    previous VARCHAR(50),
+    impact VARCHAR(10),
+    analysis TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-1. **Connect your GitHub repository**
-2. **Set environment variables** in Render dashboard
-3. **Deploy using the provided `Dockerfile`**
+## 📊 API Endpoints
 
-## 🧑‍💻 Technical Details
+### Health & Status
+- `GET /ping` - Basic health check
+- `GET /health` - Detailed health status
+- `GET /status` - Application status with user count
 
-- **All news is scraped and stored for each date.**
-- **Impact is detected and stored per item.**
-- **Filtering by impact is done at output.**
-- **Database schema includes per-item impact.**
-- **Bulk import script supports historical data import.**
+### Database Operations
+- `GET /db/stats` - Database statistics
+- `GET /db/check/<date>` - Check news for specific date
+- `POST /db/import` - Bulk import news data
 
-## 🛡️ Security
+### Manual Operations
+- `POST /manual_scrape` - Trigger manual news scraping
 
-- All sensitive data is managed via environment variables.
-- Never commit real credentials to version control.
-- API endpoints requiring modification use API key authentication.
+## 🧪 Testing
 
-## 📝 License
+### Offline Tests
+```bash
+# Test user features without database
+python test_user_features_offline.py
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+# Test message formatting
+python test_bot_message.py
 
-## ⚠️ Disclaimer
+# Test custom time picker
+python test_custom_time_picker.py
+```
 
-This bot is for educational and personal use only. Please respect ForexFactory's terms of service and implement appropriate rate limiting. The authors are not responsible for any misuse of this software.
+### Online Tests
+```bash
+# Test with live database
+python test_user_features.py
+```
+
+## 🚀 Deployment
+
+### Docker Deployment
+```bash
+# Build and run with Docker
+docker build -t forex-bot .
+docker run -p 5000:5000 forex-bot
+```
+
+### Manual Deployment
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up database
+python setup_database.py
+
+# Run the application
+python app.py
+```
+
+## 🔄 Daily Digest System
+
+### How It Works
+1. **Dynamic Scheduling**: Creates jobs for each unique user digest time
+2. **Personalized Content**: Filters news based on user preferences
+3. **Automatic Delivery**: Sends digest at user's chosen time
+4. **Smart Filtering**: Only shows news matching user's currency and impact preferences
+
+### Digest Features
+- **Custom Times**: Any time from 00:00 to 23:59
+- **Personalized Content**: Based on user preferences
+- **No Duplicates**: Efficient database storage
+- **Error Handling**: Graceful failure handling
+- **User Feedback**: Clear messages when no news available
+
+## 📈 Version 2.0 Changes
+
+### New Features
+- ✅ **User Database**: Individual user preferences storage
+- ✅ **Currency Filtering**: Choose specific currencies
+- ✅ **Impact Selection**: Filter by High/Medium/Low impact
+- ✅ **Custom Digest Times**: Choose any specific time
+- ✅ **Settings Management**: Interactive `/settings` command
+- ✅ **Personalized News**: News filtered by user preferences
+- ✅ **Dynamic Scheduling**: Automatic job management
+- ✅ **Enhanced UI**: Better user experience
+
+### Technical Improvements
+- **Database Integration**: User preferences stored in PostgreSQL
+- **Modular Design**: Separate modules for different features
+- **Error Handling**: Robust error handling and logging
+- **Testing Suite**: Comprehensive test coverage
+- **Documentation**: Updated README and inline docs
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new features
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For issues and questions:
+1. Check the documentation
+2. Run the test suites
+3. Check the logs for error messages
+4. Open an issue with detailed information
 
 ---
 
-**Made with ❤️ for the Forex trading community**
+**🎯 Ready to get personalized Forex news delivered to your Telegram at your preferred time!**

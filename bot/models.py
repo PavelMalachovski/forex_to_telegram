@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Index, text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Index, text, Time
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -49,6 +49,56 @@ class ForexNews(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class User(Base):
+    """Database model for storing user preferences."""
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(Integer, unique=True, nullable=False, index=True)
+    preferred_currencies = Column(Text, default="")  # Comma-separated list of currencies
+    impact_levels = Column(Text, default="high,medium")  # Comma-separated list of impact levels
+    analysis_required = Column(Boolean, default=True)
+    digest_time = Column(Time, default=datetime.strptime("08:00", "%H:%M").time())  # Default 8:00 AM
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<User(telegram_id={self.telegram_id}, currencies={self.preferred_currencies})>"
+
+    def to_dict(self):
+        """Convert model to dictionary for API responses."""
+        return {
+            'id': self.id,
+            'telegram_id': self.telegram_id,
+            'preferred_currencies': self.preferred_currencies,
+            'impact_levels': self.impact_levels,
+            'analysis_required': self.analysis_required,
+            'digest_time': self.digest_time.strftime("%H:%M") if self.digest_time else "08:00",
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def get_currencies_list(self):
+        """Get preferred currencies as a list."""
+        if not self.preferred_currencies:
+            return []
+        return [c.strip() for c in self.preferred_currencies.split(",") if c.strip()]
+
+    def get_impact_levels_list(self):
+        """Get impact levels as a list."""
+        if not self.impact_levels:
+            return ["high", "medium"]
+        return [i.strip() for i in self.impact_levels.split(",") if i.strip()]
+
+    def set_currencies_list(self, currencies_list):
+        """Set preferred currencies from a list."""
+        self.preferred_currencies = ",".join(currencies_list)
+
+    def set_impact_levels_list(self, impact_levels_list):
+        """Set impact levels from a list."""
+        self.impact_levels = ",".join(impact_levels_list)
 
 
 class DatabaseManager:

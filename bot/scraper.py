@@ -584,20 +584,30 @@ class MessageFormatter:
     """Handles formatting of news messages for Telegram with grouping."""
 
     @staticmethod
-    def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str, analysis_required: bool = True) -> str:
+    def format_news_message(news_items: List[Dict[str, Any]], target_date: datetime, impact_level: str, analysis_required: bool = True, currencies: Optional[List[str]] = None) -> str:
         date_str = target_date.strftime("%d.%m.%Y")
-        header = f"🗓️ Forex News for {date_str} (CET):\n\n"
 
-        if not news_items:
+        # Filter by currencies if specified
+        if currencies:
+            filtered_items = [item for item in news_items if item.get('currency') in currencies]
+            currency_filter_text = f" (Filtered: {', '.join(currencies)})"
+        else:
+            filtered_items = news_items
+            currency_filter_text = ""
+
+        header = f"🗓️ Forex News for {date_str} (CET){currency_filter_text}:\n\n"
+
+        if not filtered_items:
+            currency_msg = f" with currencies: {', '.join(currencies)}" if currencies else ""
             return (
                 header
-                + f"✅ No news found for {date_str} with impact: {impact_level}\n"
+                + f"✅ No news found for {date_str} with impact: {impact_level}{currency_msg}\n"
                 + "Please check the website for updates."
             )
 
         # Group by currency and time for group event detection
         grouped = {}
-        for item in news_items:
+        for item in filtered_items:
             key = (item['currency'], item['time'])
             grouped.setdefault(key, []).append(item)
 
@@ -606,15 +616,16 @@ class MessageFormatter:
         for (currency, time), items in sorted(grouped.items()):
             if currency != last_currency:
                 if last_currency is not None:
-                    message_parts.append("\n")
-                message_parts.append(f"💰 <b>{currency}</b>\n")
+                    message_parts.append("\n" + "="*50 + "\n\n")
+                # Currency name with catchy formatting
+                message_parts.append(f'💎 <b>{currency}</b> 💎\n')
                 last_currency = currency
             # Group event highlight
             if len(items) > 1:
                 message_parts.append(f"<b>🚨 GROUP EVENT at {time} ({len(items)} events)</b>\n")
                 if analysis_required and items[0].get('analysis'):
                     message_parts.append(f"🔍 <b>Group Analysis:</b> {items[0]['analysis']}\n")
-            for item in items:
+            for idx, item in enumerate(items):
                 impact_emoji = {
                     'high': '🔴',
                     'medium': '🟠',
@@ -623,16 +634,25 @@ class MessageFormatter:
                     'none': '⚪️',
                     'unknown': '❓',
                 }.get(item.get('impact', 'unknown'), '❓')
+                # Remove unnecessary backslashes in Actual, Forecast and Previous
+                actual = str(item['actual']).replace('\\', '') if item['actual'] else 'N/A'
+                forecast = str(item['forecast']).replace('\\', '') if item['forecast'] else 'N/A'
+                previous = str(item['previous']).replace('\\', '') if item['previous'] else 'N/A'
                 part = (
                     f"⏰ <b>{item['time']}</b> {impact_emoji} <b>Impact:</b> {item.get('impact', 'unknown').capitalize()}\n"
                     f"📰 <b>Event:</b> {item['event']}\n"
-                    f"📊 <b>Actual:</b> {item['actual']}\n"
-                    f"📈 <b>Forecast:</b> {item['forecast']}\n"
-                    f"📉 <b>Previous:</b> {item['previous']}\n"
+                    f"📊 <b>Actual:</b> {actual}\n"
+                    f"📈 <b>Forecast:</b> {forecast}\n"
+                    f"📉 <b>Previous:</b> {previous}\n"
                 )
                 if analysis_required and not item.get('group_analysis', False) and item.get('analysis'):
                     part += f"🔍 <b>Analysis:</b> {item['analysis']}\n"
-                part += "------------------------------\n"
+                # Add separator between events in group, but not after the last one
+                if len(items) > 1 and idx < len(items) - 1:
+                    part += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                # Only add main separator if not a group event or not the last in group
+                if len(items) == 1 or idx == len(items) - 1:
+                    part += "------------------------------\n"
                 message_parts.append(part)
         return "".join(message_parts)
 
