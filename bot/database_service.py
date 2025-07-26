@@ -71,6 +71,16 @@ class ForexNewsService:
             logger.error(f"Error getting all users: {e}")
             return []
 
+    def get_users_with_notifications_enabled(self) -> List[User]:
+        """Get all users who have notifications enabled."""
+        try:
+            with self.db_manager.get_session() as session:
+                users = session.query(User).filter(User.notifications_enabled == True).all()
+                return users
+        except Exception as e:
+            logger.error(f"Error getting users with notifications enabled: {e}")
+            return []
+
     def get_news_for_date(self, target_date: date, impact_level: str = "high") -> List[Dict[str, Any]]:
         """Get news for a specific date from the database."""
         try:

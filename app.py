@@ -13,6 +13,7 @@ from bot.telegram_handlers import TelegramBotManager, RenderKeepAlive, register_
 from bot.scraper import ChatGPTAnalyzer, ForexNewsScraper, process_forex_news, MessageFormatter
 from bot.database_service import ForexNewsService
 from bot.daily_digest import DailyDigestScheduler
+from bot.notification_scheduler import NotificationScheduler
 
 config = Config()
 logger = setup_logging()
@@ -42,6 +43,15 @@ if db_service and bot:
         logger.info("Daily digest scheduler initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize daily digest scheduler: {e}")
+
+# Initialize notification scheduler
+notification_scheduler = None
+if db_service and bot:
+    try:
+        notification_scheduler = NotificationScheduler(db_service, bot, config)
+        logger.info("Notification scheduler initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize notification scheduler: {e}")
 
 if bot:
     register_handlers(bot, lambda date, impact, analysis, debug, user_id=None: process_forex_news_with_db(scraper, bot, config, db_service, date, impact, analysis, debug, user_id), config, db_service, digest_scheduler)

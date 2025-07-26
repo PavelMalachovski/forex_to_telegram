@@ -106,6 +106,27 @@ Select which impact levels interest you:
    - **Quick presets** - Choose from common times
    - **Current time display** - Shows your current setting
 
+### News Notifications 🔔
+**NEW: Real-time News Alerts**
+- **Enable/Disable** notifications for upcoming news events
+- **Custom Timing**: Choose 15, 30, or 60 minutes before events
+- **Impact Filtering**: Get alerts for High/Medium/Low impact events
+- **Smart Scheduling**: Automatic checks every 5 minutes
+
+#### How to Configure Notifications:
+1. Use `/settings` command
+2. Click "🔔 Notifications"
+3. Configure:
+   - **Enable/Disable** - Turn notifications on/off
+   - **⏱️ Alert Timing** - Choose 15, 30, or 60 minutes before
+   - **📊 Alert Impact** - Select which impact levels to notify about
+
+#### Example Notification:
+```
+⚠️ In 30 minutes: high news!
+14:30 | USD | Non-Farm Payrolls | 🔴 High Impact
+```
+
 ## 🔧 Configuration
 
 ### Environment Variables
@@ -129,6 +150,9 @@ CREATE TABLE users (
     impact_levels TEXT DEFAULT 'high,medium',
     analysis_required BOOLEAN DEFAULT TRUE,
     digest_time TIME DEFAULT '08:00:00',
+    notifications_enabled BOOLEAN DEFAULT FALSE,
+    notification_minutes INTEGER DEFAULT 30,
+    notification_impact_levels TEXT DEFAULT 'high',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -233,6 +257,7 @@ python app.py
 - ✅ **Personalized News**: News filtered by user preferences
 - ✅ **Dynamic Scheduling**: Automatic job management
 - ✅ **Enhanced UI**: Better user experience
+- ✅ **News Notifications**: Real-time alerts before high-impact events
 
 ### Technical Improvements
 - **Database Integration**: User preferences stored in PostgreSQL
