@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from datetime import datetime, time
+from sqlalchemy import text
 
 from .database_service import ForexNewsService
 
@@ -39,10 +40,25 @@ class UserSettingsHandler:
             analysis_status = "✅" if user.analysis_required else "❌"
             digest_time = user.digest_time.strftime("%H:%M") if user.digest_time else "08:00"
 
-            # Notification settings (check if available)
-            notification_available = hasattr(user, 'notifications_enabled')
+            # Check if notification columns exist in database
+            notification_available = False
+            try:
+                with self.db_service.db_manager.get_session() as session:
+                    result = session.execute(text("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_name = 'users'
+                        AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    """))
+                    notification_columns = [row[0] for row in result]
+                    notification_available = len(notification_columns) == 3
+            except Exception as e:
+                logger.error(f"Error checking notification columns: {e}")
+                notification_available = False
+
+            # Only show notification button if columns exist
             if notification_available:
-                notification_status = "✅" if user.notifications_enabled else "❌"
+                notification_status = "✅" if getattr(user, 'notifications_enabled', False) else "❌"
                 markup.add(InlineKeyboardButton(
                     f"🔔 Notifications: {notification_status}",
                     callback_data="settings_notifications"
