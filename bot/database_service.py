@@ -121,22 +121,83 @@ class ForexNewsService:
         """Update user preferences."""
         try:
             with self.db_manager.get_session() as session:
-                user = session.query(User).filter(User.telegram_id == telegram_id).first()
-                if not user:
-                    return False
+                # Check if notification columns exist
+                result = session.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                """))
+                notification_columns = [row[0] for row in result]
 
-                for key, value in kwargs.items():
-                    if hasattr(user, key):
-                        setattr(user, key, value)
-                    else:
-                        # Handle notification fields that might not exist in database yet
-                        if key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']:
-                            # Skip updating these fields if they don't exist in the database
+                if len(notification_columns) == 3:
+                    # All notification columns exist, use normal query
+                    user = session.query(User).filter(User.telegram_id == telegram_id).first()
+                    if not user:
+                        return False
+
+                    for key, value in kwargs.items():
+                        if hasattr(user, key):
+                            setattr(user, key, value)
+                        else:
+                            # Handle notification fields that might not exist in database yet
+                            if key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']:
+                                # Skip updating these fields if they don't exist in the database
+                                continue
+
+                    session.commit()
+                    logger.info(f"Updated preferences for user {telegram_id}")
+                    return True
+                else:
+                    # Some notification columns missing, use raw SQL
+                    # First get the user to check if it exists
+                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+
+                    # Add notification columns only if they exist
+                    if 'notifications_enabled' in notification_columns:
+                        columns.append('notifications_enabled')
+                    if 'notification_minutes' in notification_columns:
+                        columns.append('notification_minutes')
+                    if 'notification_impact_levels' in notification_columns:
+                        columns.append('notification_impact_levels')
+
+                    columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
+                    sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
+
+                    result = session.execute(text(sql), {'telegram_id': telegram_id})
+                    row = result.fetchone()
+
+                    if not row:
+                        return False
+
+                    # Build UPDATE statement with only existing columns
+                    update_parts = []
+                    update_values = {'telegram_id': telegram_id}
+
+                    for key, value in kwargs.items():
+                        if key in columns:
+                            update_parts.append(f"{key} = :{key}")
+                            update_values[key] = value
+                        elif key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']:
+                            # Skip notification fields that don't exist
                             continue
 
-                session.commit()
-                logger.info(f"Updated preferences for user {telegram_id}")
-                return True
+                    if update_parts:
+                        update_sql = f"""
+                            UPDATE users
+                            SET {', '.join(update_parts)}, updated_at = NOW()
+                            WHERE telegram_id = :telegram_id
+                        """
+
+                        session.execute(text(update_sql), update_values)
+                        session.commit()
+                        logger.info(f"Updated preferences for user {telegram_id}")
+                        return True
+                    else:
+                        logger.info(f"No valid fields to update for user {telegram_id}")
+                        return True
+
         except Exception as e:
             logger.error(f"Error updating user preferences {telegram_id}: {e}")
             return False
