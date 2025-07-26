@@ -119,6 +119,24 @@ def test_database_connection():
                 analysis_required=True,
                 digest_time=datetime.strptime("08:00", "%H:%M").time()
             )
+
+            # Check if notification columns exist before trying to set them
+            result = session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+            """))
+            notification_columns = [row[0] for row in result]
+
+            # Only set notification fields if they exist
+            if 'notifications_enabled' in notification_columns:
+                test_user.notifications_enabled = False
+            if 'notification_minutes' in notification_columns:
+                test_user.notification_minutes = 30
+            if 'notification_impact_levels' in notification_columns:
+                test_user.notification_impact_levels = 'high'
+
             session.add(test_user)
             session.commit()
 
@@ -131,6 +149,14 @@ def test_database_connection():
                 print(f"  - Impact levels: {user.get_impact_levels_list()}")
                 print(f"  - Analysis required: {user.analysis_required}")
                 print(f"  - Digest time: {user.digest_time}")
+
+                # Check notification fields if they exist
+                if hasattr(user, 'notifications_enabled'):
+                    print(f"  - Notifications enabled: {user.notifications_enabled}")
+                if hasattr(user, 'notification_minutes'):
+                    print(f"  - Notification minutes: {user.notification_minutes}")
+                if hasattr(user, 'notification_impact_levels'):
+                    print(f"  - Notification impacts: {user.get_notification_impact_levels_list()}")
 
                 # Clean up test user
                 session.delete(user)

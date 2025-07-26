@@ -311,11 +311,11 @@ The notification feature allows users to receive real-time alerts before high-im
 #### Step 1: Deploy the Code
 Deploy the updated code to your environment. The bot will start normally, but notifications will be disabled.
 
-#### Step 2: Run Database Migration
-When you have access to the database, run the migration script:
+#### Step 2: Add Notification Columns
+For existing databases, run the notification columns script:
 
 ```bash
-python migrations/add_notification_fields.py
+python add_notification_columns.py
 ```
 
 This will add the following columns to the `users` table:
@@ -324,7 +324,7 @@ This will add the following columns to the `users` table:
 - `notification_impact_levels` (TEXT, default: 'high')
 
 #### Step 3: Verify Migration
-After running the migration, the notification feature will be automatically enabled. Users can then:
+After running the script, the notification feature will be automatically enabled. Users can then:
 
 1. Use `/settings` command
 2. Click "🔔 Notifications"
