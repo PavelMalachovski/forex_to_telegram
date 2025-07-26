@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from datetime import datetime, time
+from sqlalchemy import text
 
 from .database_service import ForexNewsService
 
@@ -15,6 +16,9 @@ AVAILABLE_CURRENCIES = [
 
 # Available impact levels
 IMPACT_LEVELS = ["high", "medium", "low"]
+
+# Available notification minutes
+NOTIFICATION_MINUTES = [15, 30, 60]
 
 
 class UserSettingsHandler:
@@ -35,6 +39,41 @@ class UserSettingsHandler:
             impact_levels = user.get_impact_levels_list()
             analysis_status = "✅" if user.analysis_required else "❌"
             digest_time = user.digest_time.strftime("%H:%M") if user.digest_time else "08:00"
+
+            # Check if notification columns exist in database
+            notification_available = False
+            try:
+                with self.db_service.db_manager.get_session() as session:
+                    result = session.execute(text("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_name = 'users'
+                        AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    """))
+                    notification_columns = [row[0] for row in result]
+                    # Show notification button if at least notifications_enabled column exists
+                    notification_available = 'notifications_enabled' in notification_columns
+                    logger.info(f"User {user_id}: Notification columns found: {notification_columns}, notification_available: {notification_available}")
+            except Exception as e:
+                logger.error(f"Error checking notification columns for user {user_id}: {e}")
+                notification_available = False
+
+            # Only show notification button if columns exist
+            if notification_available:
+                notification_status = "✅" if getattr(user, 'notifications_enabled', False) else "❌"
+                markup.add(InlineKeyboardButton(
+                    f"🔔 Notifications: {notification_status}",
+                    callback_data="settings_notifications"
+                ))
+                logger.info(f"User {user_id}: Added notification button to settings")
+            else:
+                logger.info(f"User {user_id}: Notification button not added (columns not available)")
+
+            # Debug: Check if user object has notification attributes
+            has_notifications_enabled = hasattr(user, 'notifications_enabled')
+            has_notification_minutes = hasattr(user, 'notification_minutes')
+            has_notification_impact_levels = hasattr(user, 'notification_impact_levels')
+            logger.info(f"User {user_id}: has_notifications_enabled={has_notifications_enabled}, has_notification_minutes={has_notification_minutes}, has_notification_impact_levels={has_notification_impact_levels}")
 
             markup.add(InlineKeyboardButton(
                 f"💰 Currencies: {', '.join(currencies) if currencies else 'All'}",
@@ -191,6 +230,119 @@ class UserSettingsHandler:
             logger.error(f"Error generating minute picker keyboard for user {user_id}: {e}")
             return InlineKeyboardMarkup()
 
+    def get_notifications_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate notifications settings keyboard."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+
+            # Check if notification fields exist
+            if not hasattr(user, 'notifications_enabled'):
+                markup = InlineKeyboardMarkup(row_width=1)
+                markup.add(InlineKeyboardButton(
+                    "⚠️ Notifications not available yet",
+                    callback_data="IGNORE"
+                ))
+                markup.add(InlineKeyboardButton("🔙 Back to Settings", callback_data="settings_back"))
+                return markup
+
+            notification_status = "✅" if user.notifications_enabled else "❌"
+            notification_minutes = getattr(user, 'notification_minutes', 30)
+            notification_impacts = user.get_notification_impact_levels_list()
+
+            markup = InlineKeyboardMarkup(row_width=2)
+
+            # Enable/Disable notifications
+            markup.add(InlineKeyboardButton(
+                f"🔔 Notifications: {notification_status}",
+                callback_data="notification_toggle"
+            ))
+
+            # Notification timing
+            markup.add(InlineKeyboardButton(
+                f"⏱️ Alert {notification_minutes} min before",
+                callback_data="notification_timing"
+            ))
+
+            # Notification impact levels
+            markup.add(InlineKeyboardButton(
+                f"📊 Alert for: {', '.join(notification_impacts)}",
+                callback_data="notification_impact"
+            ))
+
+            markup.add(InlineKeyboardButton("🔙 Back to Settings", callback_data="settings_back"))
+
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating notifications keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
+    def get_notification_timing_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate notification timing selection keyboard."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+
+            # Check if notification fields exist
+            if not hasattr(user, 'notification_minutes'):
+                markup = InlineKeyboardMarkup(row_width=1)
+                markup.add(InlineKeyboardButton(
+                    "⚠️ Notifications not available yet",
+                    callback_data="IGNORE"
+                ))
+                markup.add(InlineKeyboardButton("🔙 Back to Notifications", callback_data="settings_notifications"))
+                return markup
+
+            current_minutes = getattr(user, 'notification_minutes', 30)
+
+            markup = InlineKeyboardMarkup(row_width=3)
+
+            for minutes in NOTIFICATION_MINUTES:
+                status = "✅" if minutes == current_minutes else "⬜"
+                markup.add(InlineKeyboardButton(
+                    f"{status} {minutes} min",
+                    callback_data=f"notification_minutes_{minutes}"
+                ))
+
+            markup.add(InlineKeyboardButton("🔙 Back to Notifications", callback_data="settings_notifications"))
+
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating notification timing keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
+    def get_notification_impact_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate notification impact levels selection keyboard."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+
+            # Check if notification fields exist
+            if not hasattr(user, 'notification_impact_levels'):
+                markup = InlineKeyboardMarkup(row_width=1)
+                markup.add(InlineKeyboardButton(
+                    "⚠️ Notifications not available yet",
+                    callback_data="IGNORE"
+                ))
+                markup.add(InlineKeyboardButton("🔙 Back to Notifications", callback_data="settings_notifications"))
+                return markup
+
+            selected_impacts = set(user.get_notification_impact_levels_list())
+
+            markup = InlineKeyboardMarkup(row_width=2)
+
+            for impact in IMPACT_LEVELS:
+                status = "✅" if impact in selected_impacts else "⬜"
+                emoji = {"high": "🔴", "medium": "🟠", "low": "🟡"}.get(impact, "⚪")
+                markup.add(InlineKeyboardButton(
+                    f"{status} {emoji} {impact.capitalize()}",
+                    callback_data=f"notification_impact_{impact}"
+                ))
+
+            markup.add(InlineKeyboardButton("🔙 Back to Notifications", callback_data="settings_notifications"))
+
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating notification impact keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
     def _refresh_digest_jobs(self):
         """Refresh digest jobs when user preferences change."""
         try:
@@ -230,6 +382,30 @@ class UserSettingsHandler:
                 markup = self.get_settings_keyboard(user_id)
                 return True, "⚙️ Your Settings:", markup
 
+            elif data == "settings_notifications":
+                markup = self.get_notifications_keyboard(user_id)
+                return True, "Configure your notifications:", markup
+
+            elif data == "notification_toggle":
+                user = self.db_service.get_or_create_user(user_id)
+                if not hasattr(user, 'notifications_enabled'):
+                    markup = self.get_notifications_keyboard(user_id)
+                    return True, "⚠️ Notifications not available yet. Please run database migration first.", markup
+
+                new_notifications_enabled = not user.notifications_enabled
+                self.db_service.update_user_preferences(user_id, notifications_enabled=new_notifications_enabled)
+                status = "enabled" if new_notifications_enabled else "disabled"
+                markup = self.get_notifications_keyboard(user_id)
+                return True, f"✅ Notifications {status}!", markup
+
+            elif data == "notification_timing":
+                markup = self.get_notification_timing_keyboard(user_id)
+                return True, "Select notification timing:", markup
+
+            elif data == "notification_impact":
+                markup = self.get_notification_impact_keyboard(user_id)
+                return True, "Select notification impact levels:", markup
+
             elif data.startswith("currency_"):
                 return self._handle_currency_callback(call)
 
@@ -244,6 +420,46 @@ class UserSettingsHandler:
 
             elif data.startswith("minute_"):
                 return self._handle_minute_callback(call)
+
+            elif data.startswith("notification_minutes_"):
+                minutes_str = data.replace("notification_minutes_", "")
+                try:
+                    minutes = int(minutes_str)
+                    if minutes in NOTIFICATION_MINUTES:
+                        user = self.db_service.get_or_create_user(user_id)
+                        if not hasattr(user, 'notification_minutes'):
+                            markup = self.get_notification_timing_keyboard(user_id)
+                            return True, "⚠️ Notifications not available yet. Please run database migration first.", markup
+
+                        self.db_service.update_user_preferences(user_id, notification_minutes=minutes)
+                        markup = self.get_notification_timing_keyboard(user_id)
+                        return True, f"✅ Notification timing set to {minutes} minutes!", markup
+                except Exception as e:
+                    logger.error(f"Error setting notification minutes: {e}")
+                    return False, "", None
+
+            elif data.startswith("notification_impact_"):
+                impact = data.replace("notification_impact_", "")
+                if impact in IMPACT_LEVELS:
+                    user = self.db_service.get_or_create_user(user_id)
+                    if not hasattr(user, 'notification_impact_levels'):
+                        markup = self.get_notification_impact_keyboard(user_id)
+                        return True, "⚠️ Notifications not available yet. Please run database migration first.", markup
+
+                    current_impacts = set(user.get_notification_impact_levels_list())
+                    if impact in current_impacts:
+                        current_impacts.remove(impact)
+                    else:
+                        current_impacts.add(impact)
+
+                    # Ensure at least one impact level is selected
+                    if not current_impacts:
+                        current_impacts.add("high")
+
+                    new_impacts_list = list(current_impacts)
+                    self.db_service.update_user_preferences(user_id, notification_impact_levels=",".join(new_impacts_list))
+                    markup = self.get_notification_impact_keyboard(user_id)
+                    return True, f"✅ Notification impact level {impact} {'added' if impact in current_impacts else 'removed'}!", markup
 
             return False, "", None
 

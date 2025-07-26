@@ -224,7 +224,8 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
             call.data.startswith("impact_") or
             call.data.startswith("time_") or
             call.data.startswith("hour_") or
-            call.data.startswith("minute_")):
+            call.data.startswith("minute_") or
+            call.data.startswith("notification_")):
 
             if settings_handler:
                 handled, message, markup = settings_handler.handle_settings_callback(call)
@@ -347,7 +348,8 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 
                 if saved_impact and len(saved_impact) > 0:
                     # Use saved preferences for one-click news
-                    impact_level = saved_impact[0] if len(saved_impact) == 1 else 'all'
+                    # If user has multiple impact levels, use 'all' to show all selected levels
+                    impact_level = 'all' if len(saved_impact) > 1 else saved_impact[0]
                     user_state[call.message.chat.id]['impact_level'] = impact_level
 
                     bot.edit_message_text(
@@ -398,7 +400,8 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 
                     if saved_impact and len(saved_impact) > 0:
                         # Use saved preferences for one-click news
-                        impact_level = saved_impact[0] if len(saved_impact) == 1 else 'all'
+                        # If user has multiple impact levels, use 'all' to show all selected levels
+                        impact_level = 'all' if len(saved_impact) > 1 else saved_impact[0]
                         user_state[call.message.chat.id]['impact_level'] = impact_level
 
                         bot.edit_message_text(
