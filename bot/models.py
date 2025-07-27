@@ -61,6 +61,12 @@ class User(Base):
     impact_levels = Column(Text, default="high,medium")  # Comma-separated list of impact levels
     analysis_required = Column(Boolean, default=True)
     digest_time = Column(Time, default=datetime.strptime("08:00", "%H:%M").time())  # Default 8:00 AM
+
+    # Notification settings (these may not exist in the database yet)
+    notifications_enabled = Column(Boolean, default=False, nullable=True)  # Whether notifications are enabled
+    notification_minutes = Column(Integer, default=30, nullable=True)  # Minutes before event to notify (15, 30, 60)
+    notification_impact_levels = Column(Text, default="high", nullable=True)  # Comma-separated list of impact levels for notifications
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -76,6 +82,9 @@ class User(Base):
             'impact_levels': self.impact_levels,
             'analysis_required': self.analysis_required,
             'digest_time': self.digest_time.strftime("%H:%M") if self.digest_time else "08:00",
+            'notifications_enabled': getattr(self, 'notifications_enabled', False),
+            'notification_minutes': getattr(self, 'notification_minutes', 30),
+            'notification_impact_levels': getattr(self, 'notification_impact_levels', 'high'),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -92,6 +101,13 @@ class User(Base):
             return ["high", "medium"]
         return [i.strip() for i in self.impact_levels.split(",") if i.strip()]
 
+    def get_notification_impact_levels_list(self):
+        """Get notification impact levels as a list."""
+        notification_impact_levels = getattr(self, 'notification_impact_levels', 'high')
+        if not notification_impact_levels:
+            return ["high"]
+        return [i.strip() for i in notification_impact_levels.split(",") if i.strip()]
+
     def set_currencies_list(self, currencies_list):
         """Set preferred currencies from a list."""
         self.preferred_currencies = ",".join(currencies_list)
@@ -99,6 +115,11 @@ class User(Base):
     def set_impact_levels_list(self, impact_levels_list):
         """Set impact levels from a list."""
         self.impact_levels = ",".join(impact_levels_list)
+
+    def set_notification_impact_levels_list(self, impact_levels_list):
+        """Set notification impact levels from a list."""
+        if hasattr(self, 'notification_impact_levels'):
+            self.notification_impact_levels = ",".join(impact_levels_list)
 
 
 class DatabaseManager:

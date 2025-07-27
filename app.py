@@ -13,6 +13,8 @@ from bot.telegram_handlers import TelegramBotManager, RenderKeepAlive, register_
 from bot.scraper import ChatGPTAnalyzer, ForexNewsScraper, process_forex_news, MessageFormatter
 from bot.database_service import ForexNewsService
 from bot.daily_digest import DailyDigestScheduler
+from bot.notification_scheduler import NotificationScheduler
+from sqlalchemy import text
 
 config = Config()
 logger = setup_logging()
@@ -42,6 +44,15 @@ if db_service and bot:
         logger.info("Daily digest scheduler initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize daily digest scheduler: {e}")
+
+# Initialize notification scheduler
+notification_scheduler = None
+if db_service and bot:
+    try:
+        notification_scheduler = NotificationScheduler(db_service, bot, config)
+        logger.info("Notification scheduler initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize notification scheduler: {e}")
 
 if bot:
     register_handlers(bot, lambda date, impact, analysis, debug, user_id=None: process_forex_news_with_db(scraper, bot, config, db_service, date, impact, analysis, debug, user_id), config, db_service, digest_scheduler)
@@ -84,12 +95,18 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 
         # Now filter for the requested impact level for output
         if db_service:
-            # If user asked for 'all', just return all
+            # Get all items from database
+            all_items = db_service.get_news_for_date(target_date_obj, 'all')
+
             if impact_level == 'all':
-                news_items = db_service.get_news_for_date(target_date_obj, 'all')
+                # Filter by user's selected impact levels
+                if user_impact_levels:
+                    news_items = [item for item in all_items if item.get('impact') in user_impact_levels]
+                else:
+                    # Default to high impact if no user preferences
+                    news_items = [item for item in all_items if item.get('impact') == 'high']
             else:
-                # Filter from 'all' in DB for the requested impact
-                all_items = db_service.get_news_for_date(target_date_obj, 'all')
+                # Filter for specific impact level
                 news_items = [item for item in all_items if item.get('impact') == impact_level]
         else:
             news_items = []
@@ -417,6 +434,131 @@ def home():
             "Database storage and caching"
         ]
     })
+
+
+@app.route('/add_notification_columns', methods=['POST'])
+def add_notification_columns_endpoint():
+    """Add notification columns to the database."""
+    try:
+        if not db_service:
+            return jsonify({"error": "Database service not available"}), 500
+
+        # Check if columns already exist
+        with db_service.db_manager.get_session() as session:
+            result = session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+            """))
+            existing_columns = [row[0] for row in result]
+
+            if len(existing_columns) == 3:
+                return jsonify({
+                    "status": "success",
+                    "message": "Notification columns already exist",
+                    "existing_columns": existing_columns
+                })
+
+            # Add missing columns
+            columns_added = []
+
+            if 'notifications_enabled' not in existing_columns:
+                session.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN notifications_enabled BOOLEAN DEFAULT FALSE
+                """))
+                columns_added.append('notifications_enabled')
+
+            if 'notification_minutes' not in existing_columns:
+                session.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN notification_minutes INTEGER DEFAULT 30
+                """))
+                columns_added.append('notification_minutes')
+
+            if 'notification_impact_levels' not in existing_columns:
+                session.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN notification_impact_levels TEXT DEFAULT 'high'
+                """))
+                columns_added.append('notification_impact_levels')
+
+            session.commit()
+
+            return jsonify({
+                "status": "success",
+                "message": f"Added notification columns: {columns_added}",
+                "columns_added": columns_added
+            })
+
+    except Exception as e:
+        logger.error(f"Error adding notification columns: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/check_notification_columns', methods=['GET'])
+def check_notification_columns():
+    """Check if notification columns exist in the database."""
+    try:
+        if not db_service:
+            return jsonify({"error": "Database service not available"}), 500
+
+        with db_service.db_manager.get_session() as session:
+            result = session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+            """))
+            existing_columns = [row[0] for row in result]
+
+            return jsonify({
+                "status": "success",
+                "existing_columns": existing_columns,
+                "all_columns_exist": len(existing_columns) == 3,
+                "notifications_enabled_exists": 'notifications_enabled' in existing_columns
+            })
+
+    except Exception as e:
+        logger.error(f"Error checking notification columns: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/test_settings/<int:user_id>', methods=['GET'])
+def test_settings(user_id):
+    """Test settings for a specific user."""
+    try:
+        if not db_service:
+            return jsonify({"error": "Database service not available"}), 500
+
+        user = db_service.get_or_create_user(user_id)
+
+        # Check notification columns
+        with db_service.db_manager.get_session() as session:
+            result = session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+            """))
+            notification_columns = [row[0] for row in result]
+
+        return jsonify({
+            "status": "success",
+            "user_id": user_id,
+            "notification_columns": notification_columns,
+            "has_notifications_enabled": hasattr(user, 'notifications_enabled'),
+            "has_notification_minutes": hasattr(user, 'notification_minutes'),
+            "has_notification_impact_levels": hasattr(user, 'notification_impact_levels'),
+            "notifications_enabled_value": getattr(user, 'notifications_enabled', None),
+            "notification_minutes_value": getattr(user, 'notification_minutes', None),
+            "notification_impact_levels_value": getattr(user, 'notification_impact_levels', None)
+        })
+
+    except Exception as e:
+        logger.error(f"Error testing settings for user {user_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 def initialize_application():

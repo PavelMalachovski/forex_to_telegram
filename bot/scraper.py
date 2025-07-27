@@ -616,7 +616,7 @@ class MessageFormatter:
         for (currency, time), items in sorted(grouped.items()):
             if currency != last_currency:
                 if last_currency is not None:
-                    message_parts.append("\n" + "="*50 + "\n\n")
+                    message_parts.append("\n" + "="*33 + "\n\n")
                 # Currency name with catchy formatting
                 message_parts.append(f'💎 <b>{currency}</b> 💎\n')
                 last_currency = currency
@@ -649,10 +649,10 @@ class MessageFormatter:
                     part += f"🔍 <b>Analysis:</b> {item['analysis']}\n"
                 # Add separator between events in group, but not after the last one
                 if len(items) > 1 and idx < len(items) - 1:
-                    part += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    part += "━━━━━━━━━━━━━━━━━━━━\n"
                 # Only add main separator if not a group event or not the last in group
                 if len(items) == 1 or idx == len(items) - 1:
-                    part += "------------------------------\n"
+                    part += "━━━━━━━━━━━━━━━━━━━━\n"
                 message_parts.append(part)
         return "".join(message_parts)
 
