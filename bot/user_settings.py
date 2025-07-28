@@ -20,6 +20,14 @@ IMPACT_LEVELS = ["high", "medium", "low"]
 # Available notification minutes
 NOTIFICATION_MINUTES = [15, 30, 60]
 
+# Available timezones
+AVAILABLE_TIMEZONES = [
+    "Europe/Prague", "Europe/Berlin", "Europe/London", "Europe/Paris",
+    "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+    "Asia/Tokyo", "Asia/Shanghai", "Asia/Singapore", "Australia/Sydney",
+    "UTC"
+]
+
 
 class UserSettingsHandler:
     """Handles user settings and preferences management."""
@@ -90,6 +98,10 @@ class UserSettingsHandler:
             markup.add(InlineKeyboardButton(
                 f"⏰ Digest Time: {digest_time}",
                 callback_data="settings_digest_time"
+            ))
+            markup.add(InlineKeyboardButton(
+                f"🌍 Timezone: {getattr(user, 'timezone', 'Europe/Prague')}",
+                callback_data="settings_timezone"
             ))
 
             return markup
@@ -343,6 +355,29 @@ class UserSettingsHandler:
             logger.error(f"Error generating notification impact keyboard for user {user_id}: {e}")
             return InlineKeyboardMarkup()
 
+    def get_timezone_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate keyboard for timezone selection."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+            current_timezone = getattr(user, 'timezone', 'Europe/Prague')
+            
+            markup = InlineKeyboardMarkup(row_width=1)
+            
+            # Add back button
+            markup.add(InlineKeyboardButton("⬅️ Back", callback_data="settings"))
+            
+            # Add timezone buttons
+            for timezone in AVAILABLE_TIMEZONES:
+                is_selected = timezone == current_timezone
+                button_text = f"{'✅' if is_selected else '❌'} {timezone}"
+                callback_data = f"timezone_{timezone}"
+                markup.add(InlineKeyboardButton(button_text, callback_data=callback_data))
+            
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating timezone keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
     def _refresh_digest_jobs(self):
         """Refresh digest jobs when user preferences change."""
         try:
@@ -377,6 +412,10 @@ class UserSettingsHandler:
             elif data == "settings_digest_time":
                 markup = self.get_digest_time_keyboard(user_id)
                 return True, "Select your preferred daily digest time:", markup
+
+            elif data == "settings_timezone":
+                markup = self.get_timezone_keyboard(user_id)
+                return True, "Select your timezone:", markup
 
             elif data == "settings_back":
                 markup = self.get_settings_keyboard(user_id)
@@ -420,6 +459,15 @@ class UserSettingsHandler:
 
             elif data.startswith("minute_"):
                 return self._handle_minute_callback(call)
+
+            elif data.startswith("timezone_"):
+                timezone = data.replace("timezone_", "")
+                if timezone in AVAILABLE_TIMEZONES:
+                    self.db_service.update_user_preferences(user_id, timezone=timezone)
+                    markup = self.get_timezone_keyboard(user_id)
+                    return True, f"✅ Timezone set to {timezone}!", markup
+                else:
+                    return False, "", None
 
             elif data.startswith("notification_minutes_"):
                 minutes_str = data.replace("notification_minutes_", "")

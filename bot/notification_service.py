@@ -18,7 +18,7 @@ class NotificationService:
         self.bot = bot
         self.config = config
 
-    def format_notification_message(self, news_item: Dict[str, Any], minutes_before: int) -> str:
+    def format_notification_message(self, news_item: Dict[str, Any], minutes_before: int, user_timezone: str = "Europe/Prague") -> str:
         """Format a notification message for a news event."""
         try:
             # Format time
@@ -34,8 +34,8 @@ class NotificationService:
                 'low': '🟡'
             }.get(impact, '⚪')
 
-            # Format the notification message
-            message = f"⚠️ In {minutes_before} minutes: {impact} news!\n"
+            # Format the notification message with "impact" word as requested
+            message = f"⚠️ In {minutes_before} minutes: {impact} impact news!\n"
             message += f"{time_str} | {currency} | {event} | {impact_emoji} {impact.capitalize()} Impact"
 
             return message
@@ -145,8 +145,11 @@ class NotificationService:
                 item = event_data['item']
                 minutes_until = event_data['minutes_until']
 
+                # Get user's timezone
+                user_timezone = getattr(user, 'timezone', 'Europe/Prague')
+
                 # Format notification message
-                message = self.format_notification_message(item, minutes_until)
+                message = self.format_notification_message(item, minutes_until, user_timezone)
 
                 # Send the notification
                 try:
