@@ -647,9 +647,9 @@ class MessageFormatter:
                 )
                 if analysis_required and not item.get('group_analysis', False) and item.get('analysis'):
                     part += f"🔍 <b>Analysis:</b> {item['analysis']}\n"
-                # Add separator between events in group, but not after the last one
+                # Add new line between events in group, but not after the last one
                 if len(items) > 1 and idx < len(items) - 1:
-                    part += "━━━━━━━━━━━━━━━━━━━━\n"
+                    part += "\n"
                 # Only add main separator if not a group event or not the last in group
                 if len(items) == 1 or idx == len(items) - 1:
                     part += "━━━━━━━━━━━━━━━━━━━━\n"

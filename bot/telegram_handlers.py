@@ -225,6 +225,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
             call.data.startswith("time_") or
             call.data.startswith("hour_") or
             call.data.startswith("minute_") or
+            call.data.startswith("timezone_") or
             call.data.startswith("notification_")):
 
             if settings_handler:

@@ -20,6 +20,14 @@ IMPACT_LEVELS = ["high", "medium", "low"]
 # Available notification minutes
 NOTIFICATION_MINUTES = [15, 30, 60]
 
+# Available timezones (common ones)
+AVAILABLE_TIMEZONES = [
+    "Europe/Prague", "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Rome",
+    "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+    "Asia/Tokyo", "Asia/Shanghai", "Asia/Singapore", "Australia/Sydney",
+    "UTC"
+]
+
 
 class UserSettingsHandler:
     """Handles user settings and preferences management."""
@@ -90,6 +98,10 @@ class UserSettingsHandler:
             markup.add(InlineKeyboardButton(
                 f"⏰ Digest Time: {digest_time}",
                 callback_data="settings_digest_time"
+            ))
+            markup.add(InlineKeyboardButton(
+                f"🌍 Timezone: {user.get_timezone()}",
+                callback_data="settings_timezone"
             ))
 
             return markup
@@ -228,6 +240,31 @@ class UserSettingsHandler:
             return markup
         except Exception as e:
             logger.error(f"Error generating minute picker keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
+    def get_timezone_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate timezone selection keyboard."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+            current_timezone = user.get_timezone()
+
+            markup = InlineKeyboardMarkup(row_width=2)
+
+            # Add timezone buttons
+            for timezone in AVAILABLE_TIMEZONES:
+                status = "✅" if timezone == current_timezone else "⬜"
+                # Create a shorter display name for the timezone
+                display_name = timezone.replace("Europe/", "").replace("America/", "").replace("Asia/", "").replace("Australia/", "")
+                markup.add(InlineKeyboardButton(
+                    f"{status} {display_name}",
+                    callback_data=f"timezone_{timezone}"
+                ))
+
+            markup.add(InlineKeyboardButton("🔙 Back to Settings", callback_data="settings_back"))
+
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating timezone keyboard for user {user_id}: {e}")
             return InlineKeyboardMarkup()
 
     def get_notifications_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
@@ -386,6 +423,10 @@ class UserSettingsHandler:
                 markup = self.get_notifications_keyboard(user_id)
                 return True, "Configure your notifications:", markup
 
+            elif data == "settings_timezone":
+                markup = self.get_timezone_keyboard(user_id)
+                return True, "Select your timezone:", markup
+
             elif data == "notification_toggle":
                 user = self.db_service.get_or_create_user(user_id)
                 if not hasattr(user, 'notifications_enabled'):
@@ -420,6 +461,9 @@ class UserSettingsHandler:
 
             elif data.startswith("minute_"):
                 return self._handle_minute_callback(call)
+
+            elif data.startswith("timezone_"):
+                return self._handle_timezone_callback(call)
 
             elif data.startswith("notification_minutes_"):
                 minutes_str = data.replace("notification_minutes_", "")
@@ -629,4 +673,29 @@ class UserSettingsHandler:
 
         except Exception as e:
             logger.error(f"Error handling minute callback: {e}")
+            return False, "", None
+
+    def _handle_timezone_callback(self, call: CallbackQuery) -> tuple[bool, str, Optional[InlineKeyboardMarkup]]:
+        """Handle timezone selection callbacks."""
+        try:
+            data = call.data
+            user_id = call.from_user.id
+
+            if data.startswith("timezone_"):
+                timezone = data.replace("timezone_", "")
+                if timezone in AVAILABLE_TIMEZONES:
+                    user = self.db_service.get_or_create_user(user_id)
+                    if not hasattr(user, 'timezone'):
+                        markup = self.get_timezone_keyboard(user_id)
+                        return True, "⚠️ Timezone not available yet. Please run database migration first.", markup
+
+                    self.db_service.update_user_preferences(user_id, timezone=timezone)
+                    markup = self.get_timezone_keyboard(user_id)
+                    display_name = timezone.replace("Europe/", "").replace("America/", "").replace("Asia/", "").replace("Australia/", "")
+                    return True, f"✅ Timezone set to {display_name}!", markup
+
+            return False, "", None
+
+        except Exception as e:
+            logger.error(f"Error handling timezone callback: {e}")
             return False, "", None

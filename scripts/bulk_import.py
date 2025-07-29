@@ -2,13 +2,21 @@
 """
 Bulk import script for forex news data.
 Usage: python bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level high
+
+By default, this script skips dates where data already exists.
+Use --force flag to rewrite existing data.
 """
 
 import argparse
 import asyncio
 import logging
+import os
+import sys
 from datetime import datetime, date, timedelta
 from typing import List, Optional
+
+# Add the parent directory to the Python path so we can import from bot
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from bot.config import Config
 from bot.scraper import ForexNewsScraper, ChatGPTAnalyzer
@@ -22,7 +30,8 @@ async def bulk_import_news(
     start_date: date,
     end_date: date,
     impact_level: str = "high",
-    database_url: Optional[str] = None
+    database_url: Optional[str] = None,
+    force: bool = False
 ) -> None:
     """
     Bulk import forex news for a date range.
@@ -32,6 +41,7 @@ async def bulk_import_news(
         end_date: End date for import
         impact_level: Impact level filter (high, medium, low, all)
         database_url: Optional database URL override
+        force: Force rewrite existing data
     """
     try:
         # Initialize services
@@ -50,13 +60,15 @@ async def bulk_import_news(
         total_skipped = 0
 
         logger.info(f"Starting bulk import from {start_date} to {end_date} with impact level: {impact_level}")
+        if force:
+            logger.info("Force mode enabled - will rewrite existing data")
 
         while current_date <= end_date:
             try:
                 logger.info(f"Processing date: {current_date}")
 
-                # Check if data already exists
-                if db_service.has_news_for_date(current_date, impact_level):
+                # Check if data already exists (unless force mode is enabled)
+                if not force and db_service.has_news_for_date(current_date, impact_level):
                     logger.info(f"Data already exists for {current_date}, skipping...")
                     total_skipped += 1
                     current_date += timedelta(days=1)
@@ -132,6 +144,11 @@ def main():
         action="store_true",
         help="Show what would be imported without actually importing"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force rewrite existing data (overwrites existing news for the date range)"
+    )
 
     args = parser.parse_args()
 
@@ -149,7 +166,8 @@ def main():
         start_date=args.start_date,
         end_date=args.end_date,
         impact_level=args.impact_level,
-        database_url=args.database_url
+        database_url=args.database_url,
+        force=args.force
     ))
 
 

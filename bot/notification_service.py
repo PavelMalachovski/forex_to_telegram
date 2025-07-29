@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import text
+import pytz
 
 from .database_service import ForexNewsService
 from .config import Config
@@ -18,7 +19,7 @@ class NotificationService:
         self.bot = bot
         self.config = config
 
-    def format_notification_message(self, news_item: Dict[str, Any], minutes_before: int) -> str:
+    def format_notification_message(self, news_item: Dict[str, Any], minutes_before: int, user_timezone: str = "Europe/Prague") -> str:
         """Format a notification message for a news event."""
         try:
             # Format time
@@ -44,7 +45,7 @@ class NotificationService:
             return f"⚠️ News event in {minutes_before} minutes!"
 
     def get_upcoming_events(self, target_date: datetime, impact_levels: List[str],
-                           minutes_before: int) -> List[Dict[str, Any]]:
+                           minutes_before: int, user_timezone: str = "Europe/Prague") -> List[Dict[str, Any]]:
         """Get events that are coming up within the specified time window."""
         try:
             # Get all news for the target date
@@ -53,7 +54,15 @@ class NotificationService:
                 return []
 
             upcoming_events = []
-            current_time = datetime.now()
+
+            # Get current time in user's timezone
+            try:
+                user_tz = pytz.timezone(user_timezone)
+                current_time = datetime.now(user_tz)
+            except Exception as e:
+                logger.error(f"Error getting user timezone {user_timezone}: {e}")
+                # Fallback to UTC
+                current_time = datetime.now(pytz.UTC)
 
             for item in news_items:
                 # Check if this item matches the impact levels we're looking for
@@ -67,7 +76,7 @@ class NotificationService:
                         continue
 
                     # Parse time string to datetime
-                    event_time = self._parse_event_time(target_date, time_str)
+                    event_time = self._parse_event_time(target_date, time_str, user_timezone)
                     if not event_time:
                         continue
 
@@ -93,7 +102,7 @@ class NotificationService:
             logger.error(f"Error getting upcoming events: {e}")
             return []
 
-    def _parse_event_time(self, target_date: datetime, time_str: str) -> Optional[datetime]:
+    def _parse_event_time(self, target_date: datetime, time_str: str, user_timezone: str = "Europe/Prague") -> Optional[datetime]:
         """Parse event time string to datetime object."""
         try:
             # Handle various time formats
@@ -108,6 +117,16 @@ class NotificationService:
 
             # Combine with target date
             event_datetime = datetime.combine(target_date.date(), time_obj.time())
+
+            # Convert to user's timezone
+            try:
+                user_tz = pytz.timezone(user_timezone)
+                event_datetime = user_tz.localize(event_datetime)
+            except Exception as e:
+                logger.error(f"Error localizing event time to {user_timezone}: {e}")
+                # Fallback to UTC
+                event_datetime = pytz.UTC.localize(event_datetime)
+
             return event_datetime
 
         except Exception as e:
@@ -131,10 +150,12 @@ class NotificationService:
 
             # Get upcoming events
             impact_levels = user.get_notification_impact_levels_list()
+            user_timezone = user.get_timezone()
             upcoming_events = self.get_upcoming_events(
                 target_date,
                 impact_levels,
-                user.notification_minutes
+                user.notification_minutes,
+                user_timezone
             )
 
             if not upcoming_events:
@@ -146,7 +167,7 @@ class NotificationService:
                 minutes_until = event_data['minutes_until']
 
                 # Format notification message
-                message = self.format_notification_message(item, minutes_until)
+                message = self.format_notification_message(item, minutes_until, user_timezone)
 
                 # Send the notification
                 try:

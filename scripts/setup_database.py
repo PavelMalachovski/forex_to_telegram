@@ -7,8 +7,8 @@ from datetime import datetime
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-# Add the bot directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'bot'))
+# Add the parent directory to the Python path so we can import from bot
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from bot.models import Base, DatabaseManager, ForexNews, User
 from bot.config import Config

@@ -1,4 +1,9 @@
 import os
+import sys
+
+# Add the parent directory to the Python path so we can import from bot
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 from bot.models import Base, DatabaseManager
 
 if __name__ == "__main__":

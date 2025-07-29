@@ -53,9 +53,9 @@ CHATGPT_API_KEY=your_chatgpt_key  # Optional
 API_KEY=your_secure_api_key_here
 ```
 
-4. **Set up database**
+4. **Set up database with timezone support**
 ```bash
-python setup_database.py
+python scripts/setup_with_timezone.py
 ```
 
 5. **Run the bot**
@@ -98,6 +98,13 @@ Select which impact levels interest you:
 - **Minute picker**: Select from 0-59 minutes (5-minute intervals)
 - **Quick presets**: 06:00, 08:00, 12:00, 18:00, 20:00, 22:00
 - **Dynamic scheduling**: Scheduler automatically adjusts to user preferences
+
+### Timezone Settings 🌍
+**Timezone Support**
+- **Default**: Europe/Prague (CET)
+- **Available timezones**: Europe, America, Asia, Australia regions
+- **Automatic conversion**: Notifications and digest times adjusted to your timezone
+- **Popular timezones**: London, New York, Tokyo, Sydney, and more
 
 #### How to Set Custom Time:
 1. Use `/settings` command
@@ -282,17 +289,17 @@ python setup_database.py
 
 #### Option 1: Basic Setup (without notifications)
 ```bash
-python setup_database.py
+python scripts/setup_database.py
 ```
 
 #### Option 2: Complete Setup (with notifications)
 ```bash
-python setup_with_notifications.py
+python scripts/setup_with_timezone.py
 ```
 
 #### Option 3: Add notifications to existing database
 ```bash
-python add_notification_columns.py
+python scripts/setup_with_timezone.py
 ```
 
 ### Bulk Data Import
@@ -301,13 +308,16 @@ To import historical data from 1.1.2025:
 
 ```bash
 # Import data for January 2025
-python bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level high
+python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level high
 
 # Import all impact levels for a date range
-python bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level all
+python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level all
+
+# Force rewrite existing data (overwrites existing news)
+python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level all --force
 
 # Dry run to see what would be imported
-python bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level high --dry-run
+python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level high --dry-run
 ```
 
 ## 🔔 Notification Feature
@@ -329,10 +339,10 @@ The notification feature allows users to receive real-time alerts before high-im
 Deploy the updated code to your environment. The bot will start normally, but notifications will be disabled.
 
 #### Step 2: Add Notification Columns
-For existing databases, run the notification columns script:
+For existing databases, run the setup script:
 
 ```bash
-python add_notification_columns.py
+python scripts/setup_with_timezone.py
 ```
 
 This will add the following columns to the `users` table:
@@ -370,19 +380,19 @@ The implementation is designed to be backward compatible:
 ### Offline Tests
 ```bash
 # Test user features without database
-python test_user_features_offline.py
+python tests/test_user_features_offline.py
 
 # Test message formatting
-python test_bot_message.py
+python tests/test_bot_message.py
 
 # Test custom time picker
-python test_custom_time_picker.py
+python tests/test_custom_time_picker.py
 ```
 
 ### Online Tests
 ```bash
 # Test with live database
-python test_user_features.py
+python tests/test_user_features.py
 ```
 
 ### Notification Tests
