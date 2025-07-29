@@ -2,6 +2,7 @@
 """Forex News Telegram Bot (modular version with database integration)."""
 
 import asyncio
+import time
 from datetime import datetime, date, timedelta
 from typing import Optional
 
@@ -175,6 +176,69 @@ def webhook_debug():
         })
     except Exception as e:
         logger.error(f"Error getting webhook info: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/bot_status', methods=['GET'])
+def bot_status():
+    """Comprehensive bot status check."""
+    if not bot_manager:
+        return jsonify({"error": "Bot manager not initialized"}), 500
+
+    try:
+        # Test bot connection
+        connection_test = bot_manager.test_bot_connection()
+
+        # Check webhook status
+        webhook_status = bot_manager.check_webhook_status()
+
+        # Get current webhook info
+        current_webhook = bot.get_webhook_info() if bot else None
+
+        return jsonify({
+            "bot_connection": connection_test,
+            "webhook_status": webhook_status,
+            "current_webhook": {
+                "url": current_webhook.url if current_webhook else None,
+                "pending_updates": current_webhook.pending_update_count if current_webhook else 0,
+                "last_error": current_webhook.last_error_message if current_webhook else None
+            },
+            "environment": {
+                "bot_token_set": bool(config.telegram_bot_token),
+                "render_hostname": config.render_hostname,
+                "expected_webhook_url": f"https://{config.render_hostname}/webhook" if config.render_hostname else None
+            }
+        })
+    except Exception as e:
+        logger.error(f"Bot status check failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/force_webhook_setup', methods=['POST'])
+def force_webhook_setup():
+    """Force webhook setup with detailed logging."""
+    if not bot_manager:
+        return jsonify({"error": "Bot manager not initialized"}), 500
+
+    try:
+        # First check current status
+        before_status = bot_manager.check_webhook_status()
+
+        # Attempt webhook setup
+        success = bot_manager.setup_webhook()
+
+        # Check status after setup
+        after_status = bot_manager.check_webhook_status()
+
+        return jsonify({
+            "status": "success" if success else "failed",
+            "setup_success": success,
+            "before_setup": before_status,
+            "after_setup": after_status,
+            "message": "Webhook setup completed" if success else "Webhook setup failed"
+        })
+    except Exception as e:
+        logger.error(f"Force webhook setup failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -652,21 +716,77 @@ def test_settings(user_id):
 def initialize_application():
     """Initialize the application and start background services."""
     try:
-        # Setup webhook immediately if bot is available
-        if bot_manager and bot_manager.bot:
-            logger.info("Setting up webhook immediately...")
-            success = bot_manager.setup_webhook()
-            if success:
-                logger.info("Webhook setup completed successfully")
-            else:
-                logger.error("Webhook setup failed")
-        else:
-            logger.warning("Bot manager or bot not available for webhook setup")
+        logger.info("🚀 Starting application initialization...")
 
-        logger.info("Application initialized successfully")
+        # Check if bot is available
+        if not bot_manager:
+            logger.error("❌ Bot manager not initialized")
+            return
+
+        if not bot_manager.bot:
+            logger.error("❌ Bot not initialized")
+            return
+
+        # Test bot connection first
+        logger.info("🔍 Testing bot connection...")
+        connection_test = bot_manager.test_bot_connection()
+        if "error" in connection_test:
+            logger.error(f"❌ Bot connection failed: {connection_test['error']}")
+            return
+        else:
+            logger.info(f"✅ Bot connection successful: {connection_test.get('bot_info', {}).get('username', 'Unknown')}")
+
+        # Check current webhook status
+        logger.info("🔍 Checking current webhook status...")
+        webhook_status = bot_manager.check_webhook_status()
+        if "error" not in webhook_status:
+            logger.info(f"Current webhook URL: {webhook_status.get('url', 'None')}")
+            logger.info(f"Pending updates: {webhook_status.get('pending_update_count', 0)}")
+            if webhook_status.get('last_error_message'):
+                logger.warning(f"Webhook error: {webhook_status['last_error_message']}")
+
+        # Setup webhook if needed
+        if not config.render_hostname:
+            logger.error("❌ RENDER_EXTERNAL_HOSTNAME not set - cannot setup webhook")
+            return
+
+        logger.info("🔧 Setting up webhook...")
+        success = bot_manager.setup_webhook()
+
+        if success:
+            logger.info("✅ Webhook setup completed successfully")
+
+            # Verify webhook was set correctly
+            time.sleep(2)
+            final_status = bot_manager.check_webhook_status()
+            if "error" not in final_status and final_status.get('is_configured'):
+                logger.info("✅ Webhook verification successful")
+            else:
+                logger.warning("⚠️ Webhook verification failed")
+        else:
+            logger.error("❌ Webhook setup failed")
+
+        logger.info("✅ Application initialization completed")
 
     except Exception as e:
-        logger.error(f"Failed to initialize application: {e}")
+        logger.error(f"❌ Failed to initialize application: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+
+@app.route('/initialize', methods=['POST'])
+def manual_initialize():
+    """Manually trigger application initialization."""
+    try:
+        logger.info("🔄 Manual initialization triggered")
+        initialize_application()
+        return jsonify({
+            "status": "success",
+            "message": "Initialization completed"
+        })
+    except Exception as e:
+        logger.error(f"Manual initialization failed: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
