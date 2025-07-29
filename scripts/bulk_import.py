@@ -10,8 +10,13 @@ Use --force flag to rewrite existing data.
 import argparse
 import asyncio
 import logging
+import os
+import sys
 from datetime import datetime, date, timedelta
 from typing import List, Optional
+
+# Add the parent directory to the Python path so we can import from bot
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from bot.config import Config
 from bot.scraper import ForexNewsScraper, ChatGPTAnalyzer
