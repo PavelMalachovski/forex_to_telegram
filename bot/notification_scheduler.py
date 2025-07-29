@@ -116,7 +116,8 @@ class NotificationScheduler:
                 bulk_import_script,
                 '--start-date', yesterday.strftime('%Y-%m-%d'),
                 '--end-date', day_after_tomorrow.strftime('%Y-%m-%d'),
-                '--impact-level', 'all'
+                '--impact-level', 'all',
+                '--force'  # Force rewrite to ensure fresh data
             ]
 
             # Run the bulk import script

@@ -313,6 +313,9 @@ python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --im
 # Import all impact levels for a date range
 python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level all
 
+# Force rewrite existing data (overwrites existing news)
+python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level all --force
+
 # Dry run to see what would be imported
 python scripts/bulk_import.py --start-date 2025-01-01 --end-date 2025-01-31 --impact-level high --dry-run
 ```
