@@ -67,6 +67,9 @@ class User(Base):
     notification_minutes = Column(Integer, default=30, nullable=True)  # Minutes before event to notify (15, 30, 60)
     notification_impact_levels = Column(Text, default="high", nullable=True)  # Comma-separated list of impact levels for notifications
 
+    # Timezone settings
+    timezone = Column(String(50), default="Europe/Prague", nullable=True)  # User's timezone
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -85,6 +88,7 @@ class User(Base):
             'notifications_enabled': getattr(self, 'notifications_enabled', False),
             'notification_minutes': getattr(self, 'notification_minutes', 30),
             'notification_impact_levels': getattr(self, 'notification_impact_levels', 'high'),
+            'timezone': getattr(self, 'timezone', 'Europe/Prague'),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -120,6 +124,15 @@ class User(Base):
         """Set notification impact levels from a list."""
         if hasattr(self, 'notification_impact_levels'):
             self.notification_impact_levels = ",".join(impact_levels_list)
+
+    def get_timezone(self):
+        """Get user's timezone."""
+        return getattr(self, 'timezone', 'Europe/Prague')
+
+    def set_timezone(self, timezone):
+        """Set user's timezone."""
+        if hasattr(self, 'timezone'):
+            self.timezone = timezone
 
 
 class DatabaseManager:

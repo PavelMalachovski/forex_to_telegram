@@ -53,9 +53,9 @@ CHATGPT_API_KEY=your_chatgpt_key  # Optional
 API_KEY=your_secure_api_key_here
 ```
 
-4. **Set up database**
+4. **Set up database with timezone support**
 ```bash
-python setup_database.py
+python setup_with_timezone.py
 ```
 
 5. **Run the bot**
@@ -98,6 +98,13 @@ Select which impact levels interest you:
 - **Minute picker**: Select from 0-59 minutes (5-minute intervals)
 - **Quick presets**: 06:00, 08:00, 12:00, 18:00, 20:00, 22:00
 - **Dynamic scheduling**: Scheduler automatically adjusts to user preferences
+
+### Timezone Settings 🌍
+**Timezone Support**
+- **Default**: Europe/Prague (CET)
+- **Available timezones**: Europe, America, Asia, Australia regions
+- **Automatic conversion**: Notifications and digest times adjusted to your timezone
+- **Popular timezones**: London, New York, Tokyo, Sydney, and more
 
 #### How to Set Custom Time:
 1. Use `/settings` command

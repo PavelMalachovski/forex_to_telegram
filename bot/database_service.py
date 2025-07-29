@@ -126,7 +126,7 @@ class ForexNewsService:
                     SELECT column_name
                     FROM information_schema.columns
                     WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -161,6 +161,8 @@ class ForexNewsService:
                         columns.append('notification_minutes')
                     if 'notification_impact_levels' in notification_columns:
                         columns.append('notification_impact_levels')
+                    if 'timezone' in notification_columns:
+                        columns.append('timezone')
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
@@ -179,7 +181,7 @@ class ForexNewsService:
                         if key in columns:
                             update_parts.append(f"{key} = :{key}")
                             update_values[key] = value
-                        elif key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']:
+                        elif key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone']:
                             # Skip notification fields that don't exist
                             continue
 
@@ -277,11 +279,11 @@ class ForexNewsService:
                     SELECT column_name
                     FROM information_schema.columns
                     WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
-                if len(notification_columns) == 3:
+                if len(notification_columns) == 4:
                     # All notification columns exist, use normal query
                     user = session.query(User).filter(User.telegram_id == telegram_id).first()
                     if user:
@@ -298,6 +300,8 @@ class ForexNewsService:
                         columns.append('notification_minutes')
                     if 'notification_impact_levels' in notification_columns:
                         columns.append('notification_impact_levels')
+                    if 'timezone' in notification_columns:
+                        columns.append('timezone')
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
@@ -328,6 +332,8 @@ class ForexNewsService:
                             user.notification_minutes = user_data['notification_minutes']
                         if 'notification_impact_levels' in user_data:
                             user.notification_impact_levels = user_data['notification_impact_levels']
+                        if 'timezone' in user_data:
+                            user.timezone = user_data['timezone']
 
                         return user.to_dict()
 
@@ -355,11 +361,11 @@ class ForexNewsService:
                     SELECT column_name
                     FROM information_schema.columns
                     WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
-                if len(notification_columns) == 3:
+                if len(notification_columns) == 4:
                     # All notification columns exist, use normal query
                     users = session.query(User).all()
                 else:
@@ -374,6 +380,8 @@ class ForexNewsService:
                         columns.append('notification_minutes')
                     if 'notification_impact_levels' in notification_columns:
                         columns.append('notification_impact_levels')
+                    if 'timezone' in notification_columns:
+                        columns.append('timezone')
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users"
@@ -403,6 +411,8 @@ class ForexNewsService:
                             user.notification_minutes = user_data['notification_minutes']
                         if 'notification_impact_levels' in user_data:
                             user.notification_impact_levels = user_data['notification_impact_levels']
+                        if 'timezone' in user_data:
+                            user.timezone = user_data['timezone']
 
                         users.append(user)
 
@@ -420,7 +430,7 @@ class ForexNewsService:
                     SELECT column_name
                     FROM information_schema.columns
                     WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -429,7 +439,7 @@ class ForexNewsService:
                     logger.info("Notification columns not found, returning empty list")
                     return []
 
-                if len(notification_columns) == 3:
+                if len(notification_columns) == 4:
                     # All notification columns exist, use normal query
                     users = session.query(User).filter(User.notifications_enabled == True).all()
                 else:
@@ -444,6 +454,8 @@ class ForexNewsService:
                         columns.append('notification_minutes')
                     if 'notification_impact_levels' in notification_columns:
                         columns.append('notification_impact_levels')
+                    if 'timezone' in notification_columns:
+                        columns.append('timezone')
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE notifications_enabled = TRUE"
@@ -473,6 +485,8 @@ class ForexNewsService:
                             user.notification_minutes = user_data['notification_minutes']
                         if 'notification_impact_levels' in user_data:
                             user.notification_impact_levels = user_data['notification_impact_levels']
+                        if 'timezone' in user_data:
+                            user.timezone = user_data['timezone']
 
                         users.append(user)
 
