@@ -52,13 +52,22 @@ class UserSettingsHandler:
             notification_available = False
             try:
                 with self.db_service.db_manager.get_session() as session:
-                    result = session.execute(text("""
-                        SELECT column_name
-                        FROM information_schema.columns
-                        WHERE table_name = 'users'
-                        AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
-                    """))
-                    notification_columns = [row[0] for row in result]
+                    # Use the same approach as database_service
+                    try:
+                        # Try PostgreSQL information_schema approach first
+                        result = session.execute(text("""
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_name = 'users'
+                            AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                        """))
+                        notification_columns = [row[0] for row in result]
+                    except Exception:
+                        # Fallback to SQLite pragma approach
+                        result = session.execute(text("PRAGMA table_info(users)"))
+                        existing_columns = [row[1] for row in result]  # row[1] is the column name
+                        notification_columns = [col for col in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels'] if col in existing_columns]
+
                     # Show notification button if at least notifications_enabled column exists
                     notification_available = 'notifications_enabled' in notification_columns
                     logger.info(f"User {user_id}: Notification columns found: {notification_columns}, notification_available: {notification_available}")
@@ -360,19 +369,19 @@ class UserSettingsHandler:
         try:
             user = self.db_service.get_or_create_user(user_id)
             current_timezone = getattr(user, 'timezone', 'Europe/Prague')
-            
+
             markup = InlineKeyboardMarkup(row_width=1)
-            
+
             # Add back button
             markup.add(InlineKeyboardButton("⬅️ Back", callback_data="settings"))
-            
+
             # Add timezone buttons
             for timezone in AVAILABLE_TIMEZONES:
                 is_selected = timezone == current_timezone
                 button_text = f"{'✅' if is_selected else '❌'} {timezone}"
                 callback_data = f"timezone_{timezone}"
                 markup.add(InlineKeyboardButton(button_text, callback_data=callback_data))
-            
+
             return markup
         except Exception as e:
             logger.error(f"Error generating timezone keyboard for user {user_id}: {e}")

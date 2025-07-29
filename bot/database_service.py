@@ -16,102 +16,44 @@ class ForexNewsService:
         self.db_manager = DatabaseManager(database_url)
         self.db_manager.create_tables()
 
+    def _check_columns_exist(self, session: Session, table_name: str, column_names: List[str]) -> List[str]:
+        """Check which columns exist in the table. Works with both PostgreSQL and SQLite."""
+        try:
+            # Try PostgreSQL information_schema approach first
+            result = session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = :table_name
+                AND column_name IN :column_names
+            """), {'table_name': table_name, 'column_names': tuple(column_names)})
+            return [row[0] for row in result]
+        except Exception:
+            # Fallback to SQLite pragma approach
+            try:
+                result = session.execute(text(f"PRAGMA table_info({table_name})"))
+                existing_columns = [row[1] for row in result]  # row[1] is the column name
+                return [col for col in column_names if col in existing_columns]
+            except Exception as e:
+                logger.warning(f"Could not check columns for {table_name}: {e}")
+                return []
+
     # User management methods
     def get_or_create_user(self, telegram_id: int) -> User:
         """Get existing user or create a new one."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
-                result = session.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
-                """))
-                notification_columns = [row[0] for row in result]
+                # Try to get user with normal SQLAlchemy query first
+                user = session.query(User).filter(User.telegram_id == telegram_id).first()
 
-                if len(notification_columns) == 3:
-                    # All notification columns exist, use normal query
-                    user = session.query(User).filter(User.telegram_id == telegram_id).first()
-                    if not user:
-                        user = User(telegram_id=telegram_id)
-                        session.add(user)
-                        session.commit()
-                        logger.info(f"Created new user with telegram_id: {telegram_id}")
-                    return user
-                else:
-                    # Some notification columns missing, use raw SQL for getting user
-                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                if not user:
+                    # Create new user
+                    user = User(telegram_id=telegram_id)
+                    session.add(user)
+                    session.commit()
+                    session.refresh(user)
+                    logger.info(f"Created new user with telegram_id: {telegram_id}")
 
-                    # Add notification columns only if they exist
-                    if 'notifications_enabled' in notification_columns:
-                        columns.append('notifications_enabled')
-                    if 'notification_minutes' in notification_columns:
-                        columns.append('notification_minutes')
-                    if 'notification_impact_levels' in notification_columns:
-                        columns.append('notification_impact_levels')
-
-                    columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
-                    sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
-
-                    result = session.execute(text(sql), {'telegram_id': telegram_id})
-                    row = result.fetchone()
-
-                    if row:
-                        # User exists, create User object manually
-                        user_data = {}
-                        for i, col in enumerate(columns):
-                            user_data[col] = row[i]
-
-                        user = User()
-                        user.id = user_data['id']
-                        user.telegram_id = user_data['telegram_id']
-                        user.preferred_currencies = user_data['preferred_currencies']
-                        user.impact_levels = user_data['impact_levels']
-                        user.analysis_required = user_data['analysis_required']
-                        user.digest_time = user_data['digest_time']
-                        user.created_at = user_data['created_at']
-                        user.updated_at = user_data['updated_at']
-
-                        # Set notification fields only if they exist
-                        if 'notifications_enabled' in user_data:
-                            user.notifications_enabled = user_data['notifications_enabled']
-                        if 'notification_minutes' in user_data:
-                            user.notification_minutes = user_data['notification_minutes']
-                        if 'notification_impact_levels' in user_data:
-                            user.notification_impact_levels = user_data['notification_impact_levels']
-
-                        return user
-                    else:
-                        # User doesn't exist, create new user with raw SQL
-                        insert_columns = ['telegram_id', 'created_at', 'updated_at']
-                        insert_values = [':telegram_id', 'NOW()', 'NOW()']
-
-                        insert_sql = f"""
-                            INSERT INTO users ({', '.join(insert_columns)})
-                            VALUES ({', '.join(insert_values)})
-                            RETURNING id, telegram_id, preferred_currencies, impact_levels,
-                                     analysis_required, digest_time, created_at, updated_at
-                        """
-
-                        result = session.execute(text(insert_sql), {'telegram_id': telegram_id})
-                        row = result.fetchone()
-                        session.commit()
-
-                        # Create User object manually
-                        user = User()
-                        user.id = row[0]
-                        user.telegram_id = row[1]
-                        user.preferred_currencies = row[2]
-                        user.impact_levels = row[3]
-                        user.analysis_required = row[4]
-                        user.digest_time = row[5]
-                        user.created_at = row[6]
-                        user.updated_at = row[7]
-
-                        logger.info(f"Created new user with telegram_id: {telegram_id}")
-                        return user
+                return user
 
         except Exception as e:
             logger.error(f"Error getting/creating user {telegram_id}: {e}")
