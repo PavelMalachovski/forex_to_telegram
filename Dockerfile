@@ -33,4 +33,4 @@ RUN mkdir -p migrations/versions
 EXPOSE 10000
 
 # Start the application with database setup
-CMD ["sh", "-c", "python setup_database.py && gunicorn app:app --bind 0.0.0.0:${PORT:-10000} --timeout 120 --workers 1 --threads 2"]
+CMD ["sh", "-c", "python scripts/setup_with_timezone.py && gunicorn app:app --bind 0.0.0.0:${PORT:-10000} --timeout 120 --workers 1 --threads 2"]
