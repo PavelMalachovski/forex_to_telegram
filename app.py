@@ -147,6 +147,82 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
         return [] if debug else None
 
 
+@app.route('/webhook_debug', methods=['GET'])
+def webhook_debug():
+    """Debug endpoint to check webhook status."""
+    if not bot:
+        return jsonify({"error": "Bot not initialized"}), 500
+
+    try:
+        # Get webhook info from Telegram
+        webhook_info = bot.get_webhook_info()
+
+        return jsonify({
+            "webhook_info": {
+                "url": webhook_info.url,
+                "has_custom_certificate": webhook_info.has_custom_certificate,
+                "pending_update_count": webhook_info.pending_update_count,
+                "last_error_date": webhook_info.last_error_date.isoformat() if webhook_info.last_error_date else None,
+                "last_error_message": webhook_info.last_error_message,
+                "max_connections": webhook_info.max_connections,
+                "allowed_updates": webhook_info.allowed_updates
+            },
+            "config": {
+                "bot_token_set": bool(config.telegram_bot_token),
+                "render_hostname": config.render_hostname,
+                "expected_webhook_url": f"https://{config.render_hostname}/webhook" if config.render_hostname else None
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error getting webhook info: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/test_bot', methods=['POST'])
+def test_bot():
+    """Test endpoint to verify bot functionality."""
+    if not bot:
+        return jsonify({"error": "Bot not initialized"}), 500
+
+    try:
+        data = request.get_json() or {}
+        chat_id = data.get('chat_id', config.telegram_chat_id)
+
+        if not chat_id:
+            return jsonify({"error": "No chat_id provided"}), 400
+
+        # Send a test message
+        message = "🤖 Bot test message - If you receive this, the bot is working correctly!"
+        result = bot.send_message(chat_id, message)
+
+        return jsonify({
+            "status": "success",
+            "message": "Test message sent successfully",
+            "message_id": result.message_id,
+            "chat_id": chat_id
+        })
+    except Exception as e:
+        logger.error(f"Bot test failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/setup_webhook', methods=['POST'])
+def setup_webhook_manual():
+    """Manually trigger webhook setup."""
+    if not bot_manager:
+        return jsonify({"error": "Bot manager not initialized"}), 500
+
+    try:
+        success = bot_manager.setup_webhook()
+        return jsonify({
+            "status": "success" if success else "failed",
+            "message": "Webhook setup completed" if success else "Webhook setup failed"
+        })
+    except Exception as e:
+        logger.error(f"Manual webhook setup failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if not bot:
@@ -154,11 +230,23 @@ def webhook():
         return jsonify({"error": "Bot not initialized"}), 500
     try:
         json_str = request.get_data().decode('UTF-8')
+        logger.info(f"Received webhook data: {json_str[:200]}...")  # Log first 200 chars
+
+        # Parse the update
         update = telebot.types.Update.de_json(json_str)
+
+        # Log the update type for debugging
+        if hasattr(update, 'message') and update.message:
+            logger.info(f"Processing message from user {update.message.from_user.id if update.message.from_user else 'unknown'}")
+        elif hasattr(update, 'callback_query') and update.callback_query:
+            logger.info(f"Processing callback query from user {update.callback_query.from_user.id if update.callback_query.from_user else 'unknown'}")
+
+        # Process the update
         bot.process_new_updates([update])
         return jsonify({"status": "ok"})
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
+        logger.error(f"Webhook data: {request.get_data().decode('UTF-8')[:500]}...")
         return jsonify({"error": str(e)}), 500
 
 
@@ -564,9 +652,16 @@ def test_settings(user_id):
 def initialize_application():
     """Initialize the application and start background services."""
     try:
-        # Setup webhook if bot is available
-        if bot_manager:
-            bot_manager.setup_webhook_async()
+        # Setup webhook immediately if bot is available
+        if bot_manager and bot_manager.bot:
+            logger.info("Setting up webhook immediately...")
+            success = bot_manager.setup_webhook()
+            if success:
+                logger.info("Webhook setup completed successfully")
+            else:
+                logger.error("Webhook setup failed")
+        else:
+            logger.warning("Bot manager or bot not available for webhook setup")
 
         logger.info("Application initialized successfully")
 

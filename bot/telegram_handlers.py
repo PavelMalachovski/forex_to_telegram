@@ -42,17 +42,48 @@ class TelegramBotManager:
         if not self.config.render_hostname:
             logger.warning("Cannot set webhook: RENDER_EXTERNAL_HOSTNAME not set")
             return False
+
         webhook_url = f"https://{self.config.render_hostname}/webhook"
+        logger.info("Attempting to set webhook to: %s", webhook_url)
+
+        # First, check current webhook status
+        try:
+            current_webhook = self.bot.get_webhook_info()
+            logger.info("Current webhook info: URL=%s, Pending updates=%s",
+                       current_webhook.url, current_webhook.pending_update_count)
+        except Exception as e:
+            logger.error("Failed to get current webhook info: %s", e)
+
         for attempt in range(max_retries):
             try:
                 logger.info("Setting webhook attempt %s/%s to %s", attempt + 1, max_retries, webhook_url)
+
+                # Remove existing webhook first
                 self.bot.remove_webhook()
                 time.sleep(2)
+
+                # Set new webhook
                 result = self.bot.set_webhook(url=webhook_url)
                 if result:
                     logger.info("Webhook successfully configured")
+
+                    # Verify webhook was set correctly
+                    try:
+                        new_webhook = self.bot.get_webhook_info()
+                        logger.info("Webhook verification: URL=%s, Pending updates=%s",
+                                   new_webhook.url, new_webhook.pending_update_count)
+                        if new_webhook.url == webhook_url:
+                            logger.info("Webhook URL matches expected URL")
+                            return True
+                        else:
+                            logger.warning("Webhook URL mismatch. Expected: %s, Got: %s",
+                                         webhook_url, new_webhook.url)
+                    except Exception as e:
+                        logger.error("Failed to verify webhook: %s", e)
+
                     return True
-                logger.warning("Webhook setup returned False on attempt %s", attempt + 1)
+                else:
+                    logger.warning("Webhook setup returned False on attempt %s", attempt + 1)
             except Exception as e:
                 logger.error("Failed to set webhook on attempt %s: %s", attempt + 1, e)
                 if attempt < max_retries - 1:
