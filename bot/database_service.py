@@ -63,14 +63,9 @@ class ForexNewsService:
         """Update user preferences."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
-                result = session.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
-                """))
-                notification_columns = [row[0] for row in result]
+                # Check if notification columns exist using the cross-database method
+                notification_columns = self._check_columns_exist(session, 'users',
+                    ['notifications_enabled', 'notification_minutes', 'notification_impact_levels'])
 
                 if len(notification_columns) == 3:
                     # All notification columns exist, use normal query
@@ -294,14 +289,9 @@ class ForexNewsService:
         """Get all users."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
-                result = session.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
-                """))
-                notification_columns = [row[0] for row in result]
+                # Check if notification columns exist using the cross-database method
+                notification_columns = self._check_columns_exist(session, 'users',
+                    ['notifications_enabled', 'notification_minutes', 'notification_impact_levels'])
 
                 if len(notification_columns) == 3:
                     # All notification columns exist, use normal query
@@ -359,14 +349,9 @@ class ForexNewsService:
         """Get all users who have notifications enabled."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
-                result = session.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
-                """))
-                notification_columns = [row[0] for row in result]
+                # Check if notification columns exist using the cross-database method
+                notification_columns = self._check_columns_exist(session, 'users',
+                    ['notifications_enabled', 'notification_minutes', 'notification_impact_levels'])
 
                 if 'notifications_enabled' not in notification_columns:
                     # Notification columns don't exist, return empty list
