@@ -96,7 +96,6 @@ Select which impact levels interest you:
 - Choose **any specific time** (00:00 to 23:59)
 - **Hour picker**: Select from 0-23 hours
 - **Minute picker**: Select from 0-59 minutes (5-minute intervals)
-- **Quick presets**: 06:00, 08:00, 12:00, 18:00, 20:00, 22:00
 - **Dynamic scheduling**: Scheduler automatically adjusts to user preferences
 
 ### Timezone Settings 🌍
@@ -112,7 +111,6 @@ Select which impact levels interest you:
 3. Choose from:
    - **🕐 Hour** - Select specific hour (0-23)
    - **🕐 Minute** - Select specific minute (0-59, 5-min intervals)
-   - **Quick presets** - Choose from common times
    - **Current time display** - Shows your current setting
 
 ### News Notifications 🔔
