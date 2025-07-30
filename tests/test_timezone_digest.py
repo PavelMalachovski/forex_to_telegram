@@ -16,52 +16,47 @@ from bot.models import User
 
 def test_timezone_digest_scheduling():
     """Test timezone-aware digest scheduling."""
-    print("🧪 Testing timezone-aware digest scheduling...")
+    print("\n🧪 Testing timezone-aware digest scheduling...")
 
     try:
-        # Create a mock config
-        config = Config()
-
-        # Create a mock database service (we'll test without actual DB)
-        db_service = None
-
-        # Test timezone conversion for different scenarios
         test_cases = [
             {
                 'user_timezone': 'Europe/Prague',
-                'digest_time': time(8, 0),
-                'expected_server_time': '06:00'  # UTC time when Prague is 08:00 (summer time)
+                'user_time': time(8, 0),
+                'expected_utc_hour': 6  # Prague is UTC+2 in summer
             },
             {
                 'user_timezone': 'America/New_York',
-                'digest_time': time(9, 0),
-                'expected_server_time': '13:00'  # UTC time when NY is 09:00 (EDT)
+                'user_time': time(9, 0),
+                'expected_utc_hour': 13  # New York is UTC-4 in summer
             },
             {
                 'user_timezone': 'Asia/Tokyo',
-                'digest_time': time(7, 30),
-                'expected_server_time': '22:30'  # UTC time when Tokyo is 07:30 (previous day)
+                'user_time': time(7, 30),
+                'expected_utc_hour': 22  # Tokyo is UTC+9
             }
         ]
 
         for i, test_case in enumerate(test_cases, 1):
-            print(f"\n📋 Test case {i}: {test_case['user_timezone']} at {test_case['digest_time']}")
+            print(f"\n📋 Test case {i}: {test_case['user_timezone']} at {test_case['user_time'].strftime('%H:%M:%S')}")
+            print(f"   User's local time: {test_case['user_time'].strftime('%H:%M')} ({test_case['user_timezone']})")
 
-            # Convert user's local time to UTC
+            # Convert user time to UTC
             user_tz = pytz.timezone(test_case['user_timezone'])
-            local_time = datetime.combine(datetime.now().date(), test_case['digest_time'])
-            local_dt = user_tz.localize(local_time)
-            utc_time = local_dt.astimezone(pytz.UTC)
+            today = datetime.now().date()
+            user_datetime = datetime.combine(today, test_case['user_time'])
+            localized_datetime = user_tz.localize(user_datetime)
+            utc_time = localized_datetime.astimezone(pytz.UTC)
 
-            print(f"   User's local time: {test_case['digest_time'].strftime('%H:%M')} ({test_case['user_timezone']})")
             print(f"   Server UTC time: {utc_time.strftime('%H:%M')} (UTC)")
-            print(f"   Expected: {test_case['expected_server_time']} (UTC)")
 
-            # Check if the conversion is reasonable (within 2 hours of expected due to DST)
-            expected_hour, expected_minute = map(int, test_case['expected_server_time'].split(':'))
-            expected_utc = datetime.combine(datetime.now().date(), time(expected_hour, expected_minute))
+            # Expected UTC time
+            expected_utc = datetime.combine(today, time(test_case['expected_utc_hour'], 0))
             expected_utc = pytz.UTC.localize(expected_utc)
 
+            print(f"   Expected: {expected_utc.strftime('%H:%M')} (UTC)")
+
+            # Check if conversion is correct (allow 2 hour tolerance for DST)
             time_diff = abs((utc_time - expected_utc).total_seconds() / 3600)
             if time_diff <= 2:
                 print(f"   ✅ Timezone conversion correct (diff: {time_diff:.1f}h)")
@@ -69,11 +64,10 @@ def test_timezone_digest_scheduling():
                 print(f"   ❌ Timezone conversion incorrect (diff: {time_diff:.1f}h)")
 
         print("\n✅ Timezone digest scheduling test completed")
-        return True
 
     except Exception as e:
         print(f"❌ Error testing timezone digest scheduling: {e}")
-        return False
+        raise
 
 def test_digest_message_formatting():
     """Test digest message formatting with timezone info."""
@@ -111,11 +105,10 @@ def test_digest_message_formatting():
             print(f"   ✅ Message formatting correct")
 
         print("\n✅ Digest message formatting test completed")
-        return True
 
     except Exception as e:
         print(f"❌ Error testing digest message formatting: {e}")
-        return False
+        raise
 
 def test_timezone_validation():
     """Test timezone validation and fallback."""
@@ -147,11 +140,10 @@ def test_timezone_validation():
             print(f"   ✅ {invalid_tz} - Correctly rejected")
 
         print("\n✅ Timezone validation test completed")
-        return True
 
     except Exception as e:
         print(f"❌ Error testing timezone validation: {e}")
-        return False
+        raise
 
 def test_scheduler_status_json_serializable():
     """Test that scheduler status is JSON serializable."""
@@ -191,33 +183,28 @@ def test_scheduler_status_json_serializable():
         print(f"   - Timezone 1: {parsed_status['jobs'][0]['timezone']}")
         print(f"   - Timezone 2: {parsed_status['jobs'][1]['timezone']}")
 
-        return True
-
     except Exception as e:
         print(f"❌ JSON serialization test failed: {e}")
-        return False
+        raise
 
 def main():
     """Main test function."""
     print("🌍 Testing timezone-aware digest functionality")
     print("=" * 60)
 
-    success1 = test_timezone_digest_scheduling()
-    success2 = test_digest_message_formatting()
-    success3 = test_timezone_validation()
-    success4 = test_scheduler_status_json_serializable()
+    test_timezone_digest_scheduling()
+    test_digest_message_formatting()
+    test_timezone_validation()
+    test_scheduler_status_json_serializable()
 
     print("\n" + "=" * 60)
-    if success1 and success2 and success3 and success4:
-        print("✅ All timezone digest tests passed!")
-        print("\n📋 Summary:")
-        print("- Timezone conversion works correctly")
-        print("- Digest messages include timezone information")
-        print("- Timezone validation works properly")
-        print("- Scheduler status is JSON serializable")
-        print("- Users will receive digests at their local time")
-    else:
-        print("❌ Some timezone digest tests failed!")
+    print("✅ All timezone digest tests passed!")
+    print("\n📋 Summary:")
+    print("- Timezone conversion works correctly")
+    print("- Digest messages include timezone information")
+    print("- Timezone validation works properly")
+    print("- Scheduler status is JSON serializable")
+    print("- Users will receive digests at their local time")
 
 if __name__ == "__main__":
     main()
