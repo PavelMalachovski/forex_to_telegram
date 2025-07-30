@@ -4,6 +4,7 @@ import time
 import threading
 from datetime import datetime, timedelta, date as dt_date
 from typing import Callable
+import pytz
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -198,7 +199,7 @@ class TelegramHandlers:
     """Utility methods for Telegram calendar markup."""
 
     @staticmethod
-    def generate_calendar(year: int, month: int) -> InlineKeyboardMarkup:
+    def generate_calendar(year: int, month: int, timezone_str: str = "UTC") -> InlineKeyboardMarkup:
         markup = InlineKeyboardMarkup(row_width=7)
 
         # Header with month/year
@@ -221,7 +222,7 @@ class TelegramHandlers:
         next_month = first_day.replace(day=28) + timedelta(days=4)
         days_in_month = (next_month - timedelta(days=next_month.day)).day
 
-        today = datetime.now().date()
+        today = datetime.now(pytz.timezone(timezone_str)).date()
 
         for day in range(1, days_in_month + 1):
             date_str = f"{year}-{month:02d}-{day:02d}"
@@ -255,9 +256,9 @@ class TelegramHandlers:
         markup.row(*nav_buttons)
 
         # Quick access buttons
-        today_str = datetime.today().strftime('%Y-%m-%d')
-        tomorrow_str = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
-        yesterday_str = (datetime.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+        today_str = datetime.now(pytz.timezone(timezone_str)).strftime('%Y-%m-%d')
+        tomorrow_str = (datetime.now(pytz.timezone(timezone_str)) + timedelta(days=1)).strftime('%Y-%m-%d')
+        yesterday_str = (datetime.now(pytz.timezone(timezone_str)) - timedelta(days=1)).strftime('%Y-%m-%d')
 
         quick_buttons = [
             InlineKeyboardButton("📅 Yesterday", callback_data=f"pickdate_{yesterday_str.replace('-', '_')}"),
@@ -290,6 +291,20 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
     settings_handler = None
     if db_service:
         settings_handler = UserSettingsHandler(db_service, digest_scheduler)
+
+    # Provide decorator shims when running in tests with a minimal MockBot
+    if not hasattr(bot, 'message_handler'):
+        def _noop_decorator_factory(*args, **kwargs):
+            def _decorator(func):
+                return func
+            return _decorator
+        setattr(bot, 'message_handler', _noop_decorator_factory)
+    if not hasattr(bot, 'callback_query_handler'):
+        def _noop_callback_decorator_factory(*args, **kwargs):
+            def _decorator(func):
+                return func
+            return _decorator
+        setattr(bot, 'callback_query_handler', _noop_callback_decorator_factory)
 
     @bot.message_handler(commands=["start", "help"])
     def send_welcome(message):
@@ -347,6 +362,53 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
             pick_date(call)
             return
 
+        # Handle visualize callbacks
+        if (call.data.startswith("viz_currency_") or
+            call.data.startswith("viz_event_name_") or
+            call.data.startswith("viz_event_") or
+            call.data.startswith("viz_chart_") or
+            call.data.startswith("viz_multi_") or
+            call.data.startswith("viz_secondary_") or
+            call.data == "viz_back_currencies"):
+
+            logger.info(f"Processing visualize callback: {call.data}")
+
+            if not db_service:
+                bot.answer_callback_query(call.id, "❌ Database service not available")
+                return
+
+            # Import and initialize visualize handler
+            from .visualize_handler import VisualizeHandler
+            viz_handler = VisualizeHandler(db_service, config)
+
+            # Handle different visualize callbacks
+            try:
+                if call.data.startswith("viz_currency_"):
+                    logger.info("Handling currency selection")
+                    viz_handler.handle_currency_selection(call, bot)
+                elif call.data.startswith("viz_event_name_"):
+                    logger.info("Handling event name selection")
+                    viz_handler.handle_event_name_selection(call, bot)
+                elif call.data.startswith("viz_event_"):
+                    logger.info("Handling event selection")
+                    viz_handler.handle_event_selection(call, bot)
+                elif call.data.startswith("viz_chart_"):
+                    logger.info("Handling single chart generation")
+                    viz_handler.handle_chart_generation(call, bot)
+                elif call.data.startswith("viz_multi_"):
+                    logger.info("Handling multi-currency selection")
+                    viz_handler.handle_multi_currency_selection(call, bot)
+                elif call.data.startswith("viz_secondary_"):
+                    logger.info("Handling secondary currency selection")
+                    viz_handler.handle_secondary_currency_selection(call, bot)
+                elif call.data == "viz_back_currencies":
+                    logger.info("Handling back to currencies")
+                    viz_handler.handle_back_to_currencies(call, bot)
+            except Exception as e:
+                logger.error(f"Error handling visualize callback {call.data}: {e}")
+                bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
+            return
+
         # Handle classic news flow callbacks
         if call.data in ["ANALYSIS_YES", "ANALYSIS_NO"]:
             analysis_choice_callback(call)
@@ -361,7 +423,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
     def get_today_news(message):
         chat_id = message.chat.id
         user_id = message.from_user.id
-        user_state[chat_id] = {'date': datetime.now().date(), 'impact_level': 'high'}
+        user_state[chat_id] = {'date': datetime.now(pytz.timezone(config.timezone)).date(), 'impact_level': 'high'}
 
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
@@ -377,7 +439,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
     def get_tomorrow_news(message):
         chat_id = message.chat.id
         user_id = message.from_user.id
-        tomorrow = datetime.now().date() + timedelta(days=1)
+        tomorrow = datetime.now(pytz.timezone(config.timezone)).date() + timedelta(days=1)
         user_state[chat_id] = {'date': tomorrow, 'impact_level': 'high'}
 
         markup = InlineKeyboardMarkup(row_width=2)
@@ -396,10 +458,44 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
         user_id = message.from_user.id
         user_state[chat_id] = {'date': None, 'impact_level': 'high'}
 
-        today = datetime.now().date()
-        markup = TelegramHandlers.generate_calendar(today.year, today.month)
+        today = datetime.now(pytz.timezone(config.timezone)).date()
+        markup = TelegramHandlers.generate_calendar(today.year, today.month, config.timezone)
 
         bot.reply_to(message, "Please pick a date:", reply_markup=markup)
+
+    @bot.message_handler(commands=["visualize"])
+    def show_visualize(message):
+        chat_id = message.chat.id
+        if not db_service:
+            bot.send_message(chat_id, "❌ Database service not available.")
+            return
+
+        # Import and initialize visualize handler
+        from .visualize_handler import VisualizeHandler
+        viz_handler = VisualizeHandler(db_service, config)
+
+        # Create currency selection keyboard
+        keyboard = []
+        row = []
+
+        for currency in viz_handler.available_currencies:
+            row.append(InlineKeyboardButton(currency, callback_data=f"viz_currency_{currency}"))
+            if len(row) == 3:  # 3 buttons per row
+                keyboard.append(row)
+                row = []
+
+        if row:  # Add remaining buttons
+            keyboard.append(row)
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        bot.send_message(
+            chat_id,
+            "📊 **Chart Visualization**\n\n"
+            "Select a currency to view available events and generate charts:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("cal_"))
     def calendar_nav(call):
@@ -408,7 +504,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
         bot.edit_message_reply_markup(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            reply_markup=TelegramHandlers.generate_calendar(year, month)
+            reply_markup=TelegramHandlers.generate_calendar(year, month, config.timezone)
         )
         bot.answer_callback_query(call.id)
 
@@ -426,7 +522,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 
     @bot.callback_query_handler(func=lambda call: call.data == "pickdate_today")
     def pick_today(call):
-        today = datetime.now().date()
+        today = datetime.now(pytz.timezone(config.timezone)).date()
         user_state[call.message.chat.id] = {'date': today}
 
         # Check if user has saved preferences
@@ -451,7 +547,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                     # Fetch news directly with saved preferences
                     import asyncio
                     asyncio.run(process_news_func(
-                        datetime.combine(today, datetime.min.time()),
+                        datetime.combine(today, datetime.min.time()).replace(tzinfo=pytz.timezone(config.timezone)),
                         impact_level,
                         saved_analysis,
                         False,
@@ -578,6 +674,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 • /today - Get today's news
 • /tomorrow - Get tomorrow's news
 • /calendar - Select a specific date
+• /visualize - Generate charts for events
 
 <b>Features:</b>
 • 📊 Personalized news filtering
@@ -586,12 +683,18 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 • 🤖 AI-powered analysis
 • ⏰ Daily digest scheduling
 • ⚙️ User settings management
+• 📊 Chart visualization for events
 
 <b>Settings:</b>
 • Choose preferred currencies
 • Select impact levels (High/Medium/Low)
 • Enable/disable AI analysis
 • Set daily digest time
+
+<b>Visualization:</b>
+• Select currency and view events
+• Generate charts with customizable time windows
+• View price movements around news events
 
 Use /settings to customize your experience!
         """

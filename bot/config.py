@@ -23,7 +23,11 @@ class Config:
 
         # Build database URL if not provided
         if not self.database_url:
-            self.database_url = f"postgresql://{self.database_user}:{self.database_password}@{self.database_host}:{self.database_port}/{self.database_name}"
+            # Try to use local SQLite for testing if remote database is not available
+            if os.getenv("USE_LOCAL_DB", "false").lower() == "true":
+                self.database_url = "sqlite:///./forex_bot.db"
+            else:
+                self.database_url = f"postgresql://{self.database_user}:{self.database_password}@{self.database_host}:{self.database_port}/{self.database_name}"
 
     def validate_required_vars(self):
         required_vars = {

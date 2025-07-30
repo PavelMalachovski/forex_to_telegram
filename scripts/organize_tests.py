@@ -28,6 +28,15 @@ def organize_tests():
         print(f"  {i:2d}. {test_file.name}")
 
     print(f"\n✅ Found {len(test_files)} test files")
+
+    # Also show scripts directory organization
+    scripts_dir = Path("scripts")
+    if scripts_dir.exists():
+        script_files = [f for f in scripts_dir.iterdir() if f.is_file() and f.suffix == ".py"]
+        script_files.sort(key=lambda x: x.name)
+        print(f"\n📁 Scripts directory ({len(script_files)} utility scripts):")
+        for i, script_file in enumerate(script_files, 1):
+            print(f"  {i:2d}. {script_file.name}")
     return True
 
 if __name__ == "__main__":

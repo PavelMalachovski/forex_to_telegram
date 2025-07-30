@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Set
+from io import BytesIO
 import hashlib
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -9,6 +10,7 @@ import pytz
 
 from .database_service import ForexNewsService
 from .config import Config
+from .chart_service import chart_service
 
 logger = logging.getLogger(__name__)
 
@@ -316,8 +318,21 @@ class NotificationService:
 
                     # Send the notification
                     try:
-                        self.bot.send_message(user_id, message, parse_mode="HTML")
-                        logger.info(f"Sent notification to user {user_id} for event at {item.get('time')}")
+                        # Check if user has charts enabled
+                        if getattr(user, 'charts_enabled', False):
+                            chart_buffer = self._generate_event_chart(item, user)
+                            if chart_buffer:
+                                # Send message with chart
+                                self.bot.send_photo(user_id, chart_buffer, caption=message, parse_mode="HTML")
+                                logger.info(f"Sent notification with chart to user {user_id} for event at {item.get('time')}")
+                            else:
+                                # Fallback to text-only if chart generation fails
+                                self.bot.send_message(user_id, message, parse_mode="HTML")
+                                logger.info(f"Sent text-only notification to user {user_id} for event at {item.get('time')} (chart generation failed)")
+                        else:
+                            # Send text-only notification
+                            self.bot.send_message(user_id, message, parse_mode="HTML")
+                            logger.info(f"Sent notification to user {user_id} for event at {item.get('time')}")
                     except Exception as e:
                         logger.error(f"Error sending notification to user {user_id}: {e}")
 
@@ -353,6 +368,52 @@ class NotificationService:
             logger.error(f"Error sending notifications to user {user_id}: {e}")
             return False
 
+    def _generate_event_chart(self, news_item: Dict[str, Any], user) -> Optional[BytesIO]:
+        """Generate a chart for a news event based on user preferences."""
+        try:
+            currency = news_item.get('currency', 'USD')
+            event_name = news_item.get('event', 'Unknown Event')
+            impact_level = news_item.get('impact_level', 'medium')
+
+            # Parse event time
+            event_time = self._parse_event_time(
+                datetime.now(),
+                news_item.get('time', ''),
+                user.get_timezone()
+            )
+
+            if not event_time:
+                logger.warning(f"Could not parse event time for chart generation: {news_item.get('time')}")
+                return None
+
+            # Get user chart preferences
+            chart_type = getattr(user, 'chart_type', 'single')
+            window_hours = getattr(user, 'chart_window_hours', 2)
+
+            # Generate chart based on user preference
+            if chart_type == 'multi':
+                chart_buffer = chart_service.create_multi_pair_chart(
+                    currency=currency,
+                    event_time=event_time,
+                    event_name=event_name,
+                    impact_level=impact_level,
+                    window_hours=window_hours
+                )
+            else:  # Default to single chart
+                chart_buffer = chart_service.create_event_chart(
+                    currency=currency,
+                    event_time=event_time,
+                    event_name=event_name,
+                    impact_level=impact_level,
+                    window_hours=window_hours
+                )
+
+            return chart_buffer
+
+        except Exception as e:
+            logger.error(f"Error generating chart for event {news_item.get('id')}: {e}")
+            return None
+
     def check_and_send_notifications_for_all_users(self, target_date: datetime = None) -> int:
         """Check and send notifications for all users with notifications enabled."""
         try:
@@ -365,8 +426,7 @@ class NotificationService:
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
                 """))
                 notification_columns = [row[0] for row in result]
 

@@ -21,17 +21,25 @@ class ForexNewsService:
         """Get existing user or create a new one."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
+                # Check if all required columns exist (notification + chart + timezone)
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    WHERE table_name = 'users' AND column_name IN (
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    )
                 """))
-                notification_columns = [row[0] for row in result]
+                all_columns = [row[0] for row in result]
 
-                if len(notification_columns) == 3:
-                    # All notification columns exist, use normal query
+                # Check if we have all required columns
+                required_columns = [
+                    'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                    'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                ]
+
+                if all(col in all_columns for col in required_columns):
+                    # All required columns exist, use normal query
                     user = session.query(User).filter(User.telegram_id == telegram_id).first()
                     if not user:
                         user = User(telegram_id=telegram_id)
@@ -40,17 +48,20 @@ class ForexNewsService:
                         logger.info(f"Created new user with telegram_id: {telegram_id}")
                     return user
                 else:
-                    # Some notification columns missing, use raw SQL for getting user
-                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                    # Some columns missing, use raw SQL for getting user
+                    base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                                  'analysis_required', 'digest_time', 'created_at', 'updated_at']
 
-                    # Add notification columns only if they exist
-                    if 'notifications_enabled' in notification_columns:
-                        columns.append('notifications_enabled')
-                    if 'notification_minutes' in notification_columns:
-                        columns.append('notification_minutes')
-                    if 'notification_impact_levels' in notification_columns:
-                        columns.append('notification_impact_levels')
+                    # Add optional columns only if they exist
+                    optional_columns = [
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    ]
+
+                    columns = base_columns.copy()
+                    for col in optional_columns:
+                        if col in all_columns:
+                            columns.append(col)
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
@@ -74,13 +85,10 @@ class ForexNewsService:
                         user.created_at = user_data['created_at']
                         user.updated_at = user_data['updated_at']
 
-                        # Set notification fields only if they exist
-                        if 'notifications_enabled' in user_data:
-                            user.notifications_enabled = user_data['notifications_enabled']
-                        if 'notification_minutes' in user_data:
-                            user.notification_minutes = user_data['notification_minutes']
-                        if 'notification_impact_levels' in user_data:
-                            user.notification_impact_levels = user_data['notification_impact_levels']
+                        # Set optional fields only if they exist
+                        for field in optional_columns:
+                            if field in user_data:
+                                setattr(user, field, user_data[field])
 
                         return user
                     else:
@@ -121,17 +129,25 @@ class ForexNewsService:
         """Update user preferences."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
+                # Check if all required columns exist (notification + chart + timezone)
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    WHERE table_name = 'users' AND column_name IN (
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    )
                 """))
-                notification_columns = [row[0] for row in result]
+                all_columns = [row[0] for row in result]
 
-                if len(notification_columns) == 3:
-                    # All notification columns exist, use normal query
+                # Check if we have all required columns
+                required_columns = [
+                    'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                    'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                ]
+
+                if all(col in all_columns for col in required_columns):
+                    # All required columns exist, use normal query
                     user = session.query(User).filter(User.telegram_id == telegram_id).first()
                     if not user:
                         return False
@@ -140,8 +156,8 @@ class ForexNewsService:
                         if hasattr(user, key):
                             setattr(user, key, value)
                         else:
-                            # Handle notification fields that might not exist in database yet
-                            if key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']:
+                            # Handle optional fields that might not exist in database yet
+                            if key in required_columns:
                                 # Skip updating these fields if they don't exist in the database
                                 continue
 
@@ -149,20 +165,21 @@ class ForexNewsService:
                     logger.info(f"Updated preferences for user {telegram_id}")
                     return True
                 else:
-                    # Some notification columns missing, use raw SQL
+                    # Some columns missing, use raw SQL
                     # First get the user to check if it exists
-                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                    base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                                  'analysis_required', 'digest_time', 'created_at', 'updated_at']
 
-                    # Add notification columns only if they exist
-                    if 'notifications_enabled' in notification_columns:
-                        columns.append('notifications_enabled')
-                    if 'notification_minutes' in notification_columns:
-                        columns.append('notification_minutes')
-                    if 'notification_impact_levels' in notification_columns:
-                        columns.append('notification_impact_levels')
-                    if 'timezone' in notification_columns:
-                        columns.append('timezone')
+                    # Add optional columns only if they exist
+                    optional_columns = [
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    ]
+
+                    columns = base_columns.copy()
+                    for col in optional_columns:
+                        if col in all_columns:
+                            columns.append(col)
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
@@ -181,8 +198,8 @@ class ForexNewsService:
                         if key in columns:
                             update_parts.append(f"{key} = :{key}")
                             update_values[key] = value
-                        elif key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone']:
-                            # Skip notification fields that don't exist
+                        elif key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone', 'charts_enabled', 'chart_type', 'chart_window_hours']:
+                            # Skip notification and chart fields that don't exist
                             continue
 
                     if update_parts:
@@ -208,30 +225,41 @@ class ForexNewsService:
         """Get user by telegram ID."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
+                # Check if all required columns exist (notification + chart + timezone)
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    WHERE table_name = 'users' AND column_name IN (
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    )
                 """))
-                notification_columns = [row[0] for row in result]
+                all_columns = [row[0] for row in result]
 
-                if len(notification_columns) == 3:
-                    # All notification columns exist, use normal query
+                # Check if we have all required columns
+                required_columns = [
+                    'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                    'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                ]
+
+                if all(col in all_columns for col in required_columns):
+                    # All required columns exist, use normal query
                     return session.query(User).filter(User.telegram_id == telegram_id).first()
                 else:
-                    # Some notification columns missing, use raw SQL
-                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                    # Some columns missing, use raw SQL
+                    base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                                  'analysis_required', 'digest_time', 'created_at', 'updated_at']
 
-                    # Add notification columns only if they exist
-                    if 'notifications_enabled' in notification_columns:
-                        columns.append('notifications_enabled')
-                    if 'notification_minutes' in notification_columns:
-                        columns.append('notification_minutes')
-                    if 'notification_impact_levels' in notification_columns:
-                        columns.append('notification_impact_levels')
+                    # Add optional columns only if they exist
+                    optional_columns = [
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    ]
+
+                    columns = base_columns.copy()
+                    for col in optional_columns:
+                        if col in all_columns:
+                            columns.append(col)
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
@@ -274,34 +302,43 @@ class ForexNewsService:
         """Get user preferences by telegram ID."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
+                # Check if all required columns exist (notification + chart + timezone)
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    WHERE table_name = 'users' AND column_name IN (
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    )
                 """))
-                notification_columns = [row[0] for row in result]
+                all_columns = [row[0] for row in result]
 
-                if len(notification_columns) == 4:
-                    # All notification columns exist, use normal query
+                # Check if we have all required columns
+                required_columns = [
+                    'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                    'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                ]
+
+                if all(col in all_columns for col in required_columns):
+                    # All required columns exist, use normal query
                     user = session.query(User).filter(User.telegram_id == telegram_id).first()
                     if user:
                         return user.to_dict()
                 else:
-                    # Some notification columns missing, use raw SQL
-                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                    # Some columns missing, use raw SQL
+                    base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                                  'analysis_required', 'digest_time', 'created_at', 'updated_at']
 
-                    # Add notification columns only if they exist
-                    if 'notifications_enabled' in notification_columns:
-                        columns.append('notifications_enabled')
-                    if 'notification_minutes' in notification_columns:
-                        columns.append('notification_minutes')
-                    if 'notification_impact_levels' in notification_columns:
-                        columns.append('notification_impact_levels')
-                    if 'timezone' in notification_columns:
-                        columns.append('timezone')
+                    # Add optional columns only if they exist
+                    optional_columns = [
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    ]
+
+                    columns = base_columns.copy()
+                    for col in optional_columns:
+                        if col in all_columns:
+                            columns.append(col)
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
@@ -325,15 +362,10 @@ class ForexNewsService:
                         user.created_at = user_data['created_at']
                         user.updated_at = user_data['updated_at']
 
-                        # Set notification fields only if they exist
-                        if 'notifications_enabled' in user_data:
-                            user.notifications_enabled = user_data['notifications_enabled']
-                        if 'notification_minutes' in user_data:
-                            user.notification_minutes = user_data['notification_minutes']
-                        if 'notification_impact_levels' in user_data:
-                            user.notification_impact_levels = user_data['notification_impact_levels']
-                        if 'timezone' in user_data:
-                            user.timezone = user_data['timezone']
+                        # Set optional fields only if they exist
+                        for field in optional_columns:
+                            if field in user_data:
+                                setattr(user, field, user_data[field])
 
                         return user.to_dict()
 
@@ -356,32 +388,41 @@ class ForexNewsService:
         """Get all users."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
+                # Check if all required columns exist (notification + chart + timezone)
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    WHERE table_name = 'users' AND column_name IN (
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    )
                 """))
-                notification_columns = [row[0] for row in result]
+                all_columns = [row[0] for row in result]
 
-                if len(notification_columns) == 4:
-                    # All notification columns exist, use normal query
+                # Check if we have all required columns
+                required_columns = [
+                    'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                    'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                ]
+
+                if all(col in all_columns for col in required_columns):
+                    # All required columns exist, use normal query
                     users = session.query(User).all()
                 else:
-                    # Some notification columns missing, use raw SQL
-                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                    # Some columns missing, use raw SQL
+                    base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                                  'analysis_required', 'digest_time', 'created_at', 'updated_at']
 
-                    # Add notification columns only if they exist
-                    if 'notifications_enabled' in notification_columns:
-                        columns.append('notifications_enabled')
-                    if 'notification_minutes' in notification_columns:
-                        columns.append('notification_minutes')
-                    if 'notification_impact_levels' in notification_columns:
-                        columns.append('notification_impact_levels')
-                    if 'timezone' in notification_columns:
-                        columns.append('timezone')
+                    # Add optional columns only if they exist
+                    optional_columns = [
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    ]
+
+                    columns = base_columns.copy()
+                    for col in optional_columns:
+                        if col in all_columns:
+                            columns.append(col)
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users"
@@ -404,15 +445,10 @@ class ForexNewsService:
                         user.created_at = user_data['created_at']
                         user.updated_at = user_data['updated_at']
 
-                        # Set notification fields only if they exist
-                        if 'notifications_enabled' in user_data:
-                            user.notifications_enabled = user_data['notifications_enabled']
-                        if 'notification_minutes' in user_data:
-                            user.notification_minutes = user_data['notification_minutes']
-                        if 'notification_impact_levels' in user_data:
-                            user.notification_impact_levels = user_data['notification_impact_levels']
-                        if 'timezone' in user_data:
-                            user.timezone = user_data['timezone']
+                        # Set optional fields only if they exist
+                        for field in optional_columns:
+                            if field in user_data:
+                                setattr(user, field, user_data[field])
 
                         users.append(user)
 
@@ -425,37 +461,46 @@ class ForexNewsService:
         """Get all users who have notifications enabled."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
+                # Check if all required columns exist (notification + chart + timezone)
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    WHERE table_name = 'users' AND column_name IN (
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    )
                 """))
-                notification_columns = [row[0] for row in result]
+                all_columns = [row[0] for row in result]
 
-                if 'notifications_enabled' not in notification_columns:
+                if 'notifications_enabled' not in all_columns:
                     # Notification columns don't exist, return empty list
                     logger.info("Notification columns not found, returning empty list")
                     return []
 
-                if len(notification_columns) == 4:
-                    # All notification columns exist, use normal query
+                # Check if we have all required columns
+                required_columns = [
+                    'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                    'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                ]
+
+                if all(col in all_columns for col in required_columns):
+                    # All required columns exist, use normal query
                     users = session.query(User).filter(User.notifications_enabled == True).all()
                 else:
-                    # Some notification columns missing, use raw SQL
-                    columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                             'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                    # Some columns missing, use raw SQL
+                    base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                                  'analysis_required', 'digest_time', 'created_at', 'updated_at']
 
-                    # Add notification columns only if they exist
-                    if 'notifications_enabled' in notification_columns:
-                        columns.append('notifications_enabled')
-                    if 'notification_minutes' in notification_columns:
-                        columns.append('notification_minutes')
-                    if 'notification_impact_levels' in notification_columns:
-                        columns.append('notification_impact_levels')
-                    if 'timezone' in notification_columns:
-                        columns.append('timezone')
+                    # Add optional columns only if they exist
+                    optional_columns = [
+                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                    ]
+
+                    columns = base_columns.copy()
+                    for col in optional_columns:
+                        if col in all_columns:
+                            columns.append(col)
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE notifications_enabled = TRUE"
@@ -478,15 +523,10 @@ class ForexNewsService:
                         user.created_at = user_data['created_at']
                         user.updated_at = user_data['updated_at']
 
-                        # Set notification fields only if they exist
-                        if 'notifications_enabled' in user_data:
-                            user.notifications_enabled = user_data['notifications_enabled']
-                        if 'notification_minutes' in user_data:
-                            user.notification_minutes = user_data['notification_minutes']
-                        if 'notification_impact_levels' in user_data:
-                            user.notification_impact_levels = user_data['notification_impact_levels']
-                        if 'timezone' in user_data:
-                            user.timezone = user_data['timezone']
+                        # Set optional fields only if they exist
+                        for field in optional_columns:
+                            if field in user_data:
+                                setattr(user, field, user_data[field])
 
                         users.append(user)
 

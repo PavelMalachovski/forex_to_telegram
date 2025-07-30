@@ -67,6 +67,11 @@ class User(Base):
     notification_minutes = Column(Integer, default=30, nullable=True)  # Minutes before event to notify (15, 30, 60)
     notification_impact_levels = Column(Text, default="high", nullable=True)  # Comma-separated list of impact levels for notifications
 
+    # Chart settings (these may not exist in the database yet)
+    charts_enabled = Column(Boolean, default=False, nullable=True)  # Whether to include charts with notifications
+    chart_type = Column(String(20), default="single", nullable=True)  # Type of chart: single, multi, or none
+    chart_window_hours = Column(Integer, default=2, nullable=True)  # Hours before/after event to include in chart
+
     # Timezone settings
     timezone = Column(String(50), default="Europe/Prague", nullable=True)  # User's timezone
 
@@ -88,6 +93,9 @@ class User(Base):
             'notifications_enabled': getattr(self, 'notifications_enabled', False),
             'notification_minutes': getattr(self, 'notification_minutes', 30),
             'notification_impact_levels': getattr(self, 'notification_impact_levels', 'high'),
+            'charts_enabled': getattr(self, 'charts_enabled', False),
+            'chart_type': getattr(self, 'chart_type', 'single'),
+            'chart_window_hours': getattr(self, 'chart_window_hours', 2),
             'timezone': getattr(self, 'timezone', 'Europe/Prague'),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
