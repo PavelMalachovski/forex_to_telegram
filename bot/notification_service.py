@@ -118,6 +118,47 @@ class NotificationService:
             logger.error(f"Error formatting notification message: {e}")
             return f"⚠️ News event in {minutes_before} minutes!"
 
+    def format_group_notification_message(self, events: List[Dict[str, Any]], minutes_before: int, user_timezone: str = "Europe/Prague") -> str:
+        """Format a notification message for multiple events happening at the same time."""
+        try:
+            if not events:
+                return "⚠️ Multiple news events coming up!"
+
+            # Group events by impact level
+            high_impact = []
+            medium_impact = []
+            low_impact = []
+
+            for event_data in events:
+                item = event_data['item']
+                impact = item.get('impact', 'low')
+                if impact == 'high':
+                    high_impact.append(item)
+                elif impact == 'medium':
+                    medium_impact.append(item)
+                else:
+                    low_impact.append(item)
+
+            # Create the main message
+            message = f"⚠️ In {minutes_before} minutes: Multiple news events!\n\n"
+
+            # Add events by impact level (high first, then medium, then low)
+            for impact_level, items, emoji in [('high', high_impact, '🔴'), ('medium', medium_impact, '🟠'), ('low', low_impact, '🟡')]:
+                if items:
+                    message += f"{emoji} {impact_level.capitalize()} Impact:\n"
+                    for item in items:
+                        time_str = item.get('time', 'N/A')
+                        currency = item.get('currency', 'N/A')
+                        event = item.get('event', 'N/A')
+                        message += f"• {time_str} | {currency} | {event}\n"
+                    message += "\n"
+
+            return message.strip()
+
+        except Exception as e:
+            logger.error(f"Error formatting group notification message: {e}")
+            return f"⚠️ Multiple news events in {minutes_before} minutes!"
+
     def get_upcoming_events(self, target_date: datetime, impact_levels: List[str],
                            minutes_before: int, user_timezone: str = "Europe/Prague") -> List[Dict[str, Any]]:
         """Get events that are coming up within the specified time window."""
@@ -158,8 +199,9 @@ class NotificationService:
                     time_diff = event_time - current_time
                     minutes_diff = time_diff.total_seconds() / 60
 
-                    # Check if event is within the notification window
-                    if 0 <= minutes_diff <= minutes_before:
+                    # Check if event is within the notification window (exactly at the notification time)
+                    # Only send notification when we're exactly at the notification time (e.g., 30 minutes before)
+                    if abs(minutes_diff - minutes_before) <= 2.5:  # Allow 2.5 minute window for scheduling
                         upcoming_events.append({
                             'item': item,
                             'minutes_until': int(minutes_diff),
@@ -207,6 +249,21 @@ class NotificationService:
             logger.error(f"Error parsing time '{time_str}': {e}")
             return None
 
+    def _group_events_by_time(self, events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Group events by their time to identify events happening at the same time."""
+        grouped_events = {}
+
+        for event_data in events:
+            item = event_data['item']
+            time_str = item.get('time', '')
+
+            # Use time as the grouping key
+            if time_str not in grouped_events:
+                grouped_events[time_str] = []
+            grouped_events[time_str].append(event_data)
+
+        return grouped_events
+
     def send_notifications(self, user_id: int, target_date: datetime = None) -> bool:
         """Send notifications to a specific user for upcoming events."""
         try:
@@ -235,29 +292,60 @@ class NotificationService:
             if not upcoming_events:
                 return True  # No events to notify about
 
-            # Send notifications for each upcoming event
-            for event_data in upcoming_events:
-                item = event_data['item']
-                minutes_until = event_data['minutes_until']
+            # Group events by time
+            grouped_events = self._group_events_by_time(upcoming_events)
 
-                # Check if we should send this notification (deduplication)
-                notification_key = f"news_event_{item.get('id', 'unknown')}_{user_id}_{minutes_until}"
-                if not self.deduplication.should_send_notification("news_event",
-                                                                  event_id=item.get('id', 'unknown'),
-                                                                  user_id=user_id,
-                                                                  minutes_until=minutes_until):
-                    logger.info(f"Skipping duplicate notification for event {item.get('id')} to user {user_id}")
-                    continue
+            # Send notifications for each group of events
+            for time_str, events in grouped_events.items():
+                if len(events) == 1:
+                    # Single event - send individual notification
+                    event_data = events[0]
+                    item = event_data['item']
+                    minutes_until = event_data['minutes_until']
 
-                # Format notification message
-                message = self.format_notification_message(item, minutes_until, user_timezone)
+                    # Check if we should send this notification (deduplication)
+                    if not self.deduplication.should_send_notification("news_event",
+                                                                      event_id=item.get('id', 'unknown'),
+                                                                      user_id=user_id,
+                                                                      notification_minutes=user.notification_minutes):
+                        logger.info(f"Skipping duplicate notification for event {item.get('id')} to user {user_id}")
+                        continue
 
-                # Send the notification
-                try:
-                    self.bot.send_message(user_id, message, parse_mode="HTML")
-                    logger.info(f"Sent notification to user {user_id} for event at {item.get('time')}")
-                except Exception as e:
-                    logger.error(f"Error sending notification to user {user_id}: {e}")
+                    # Format notification message
+                    message = self.format_notification_message(item, minutes_until, user_timezone)
+
+                    # Send the notification
+                    try:
+                        self.bot.send_message(user_id, message, parse_mode="HTML")
+                        logger.info(f"Sent notification to user {user_id} for event at {item.get('time')}")
+                    except Exception as e:
+                        logger.error(f"Error sending notification to user {user_id}: {e}")
+
+                else:
+                    # Multiple events at the same time - send group notification
+                    minutes_until = events[0]['minutes_until']
+
+                    # Create a hash of the events for deduplication
+                    event_ids = sorted([e['item'].get('id', '') for e in events])
+                    events_hash = hashlib.md5(str(event_ids).encode()).hexdigest()
+
+                    # Check if we should send this group notification (deduplication)
+                    if not self.deduplication.should_send_notification("group_news_event",
+                                                                      user_id=user_id,
+                                                                      events_hash=events_hash,
+                                                                      notification_minutes=user.notification_minutes):
+                        logger.info(f"Skipping duplicate group notification for events at {time_str} to user {user_id}")
+                        continue
+
+                    # Format group notification message
+                    message = self.format_group_notification_message(events, minutes_until, user_timezone)
+
+                    # Send the group notification
+                    try:
+                        self.bot.send_message(user_id, message, parse_mode="HTML")
+                        logger.info(f"Sent group notification to user {user_id} for {len(events)} events at {time_str}")
+                    except Exception as e:
+                        logger.error(f"Error sending group notification to user {user_id}: {e}")
 
             return True
 

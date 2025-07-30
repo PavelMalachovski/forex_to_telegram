@@ -33,10 +33,10 @@ class NotificationScheduler:
         try:
             self.scheduler = BackgroundScheduler()
 
-            # Check for notifications every 5 minutes
+            # Check for notifications every 2 minutes for more precise timing
             self.scheduler.add_job(
                 self._check_notifications,
-                IntervalTrigger(minutes=5),
+                IntervalTrigger(minutes=2),
                 id='notification_check',
                 name='Check for upcoming news events'
             )
@@ -50,7 +50,7 @@ class NotificationScheduler:
             )
 
             self.scheduler.start()
-            logger.info("Notification scheduler started - checking every 5 minutes")
+            logger.info("Notification scheduler started - checking every 2 minutes")
             logger.info("Bulk import scheduled for daily at 03:00")
 
         except Exception as e:
@@ -81,7 +81,7 @@ class NotificationScheduler:
             if notifications_sent > 0:
                 logger.info(f"Sent {notifications_sent} notifications")
             else:
-                logger.debug("No notifications sent")
+                logger.debug("No notifications sent - no events within notification windows")
 
         except Exception as e:
             logger.error(f"Error checking notifications: {e}")
