@@ -281,11 +281,18 @@ class DailyDigestScheduler:
         try:
             jobs = []
             for job in self.scheduler.get_jobs():
+                # Convert timezone object to string to make it JSON serializable
+                timezone_str = 'UTC'
+                if hasattr(job.trigger, 'timezone'):
+                    timezone_obj = getattr(job.trigger, 'timezone')
+                    if timezone_obj:
+                        timezone_str = str(timezone_obj)
+
                 jobs.append({
                     'id': job.id,
                     'name': job.name,
                     'next_run': job.next_run_time.isoformat() if job.next_run_time else None,
-                    'timezone': getattr(job.trigger, 'timezone', 'UTC') if hasattr(job.trigger, 'timezone') else 'UTC'
+                    'timezone': timezone_str
                 })
 
             return {

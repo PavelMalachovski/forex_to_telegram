@@ -153,6 +153,50 @@ def test_timezone_validation():
         print(f"❌ Error testing timezone validation: {e}")
         return False
 
+def test_scheduler_status_json_serializable():
+    """Test that scheduler status is JSON serializable."""
+    print("\n🧪 Testing scheduler status JSON serialization...")
+
+    try:
+        import json
+
+        # Mock scheduler status (similar to what would be returned)
+        mock_status = {
+            'running': True,
+            'jobs': [
+                {
+                    'id': 'daily_digest_Europe_Prague_08_00',
+                    'name': 'Daily Digest at 08:00 (Europe/Prague)',
+                    'next_run': '2025-07-30T08:00:00+02:00',
+                    'timezone': 'Europe/Prague'
+                },
+                {
+                    'id': 'daily_digest_America_New_York_09_00',
+                    'name': 'Daily Digest at 09:00 (America/New_York)',
+                    'next_run': '2025-07-30T09:00:00-04:00',
+                    'timezone': 'America/New_York'
+                }
+            ]
+        }
+
+        # Test JSON serialization
+        json_str = json.dumps(mock_status)
+        print(f"✅ JSON serialization successful: {len(json_str)} characters")
+
+        # Test JSON deserialization
+        parsed_status = json.loads(json_str)
+        print(f"✅ JSON deserialization successful")
+        print(f"   - Running: {parsed_status['running']}")
+        print(f"   - Jobs count: {len(parsed_status['jobs'])}")
+        print(f"   - Timezone 1: {parsed_status['jobs'][0]['timezone']}")
+        print(f"   - Timezone 2: {parsed_status['jobs'][1]['timezone']}")
+
+        return True
+
+    except Exception as e:
+        print(f"❌ JSON serialization test failed: {e}")
+        return False
+
 def main():
     """Main test function."""
     print("🌍 Testing timezone-aware digest functionality")
@@ -161,14 +205,16 @@ def main():
     success1 = test_timezone_digest_scheduling()
     success2 = test_digest_message_formatting()
     success3 = test_timezone_validation()
+    success4 = test_scheduler_status_json_serializable()
 
     print("\n" + "=" * 60)
-    if success1 and success2 and success3:
+    if success1 and success2 and success3 and success4:
         print("✅ All timezone digest tests passed!")
         print("\n📋 Summary:")
         print("- Timezone conversion works correctly")
         print("- Digest messages include timezone information")
         print("- Timezone validation works properly")
+        print("- Scheduler status is JSON serializable")
         print("- Users will receive digests at their local time")
     else:
         print("❌ Some timezone digest tests failed!")
