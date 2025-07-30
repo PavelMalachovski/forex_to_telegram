@@ -4,6 +4,7 @@ from datetime import datetime, date, time
 from typing import List, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+import pytz
 
 from .database_service import ForexNewsService
 from .scraper import MessageFormatter
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class DailyDigestScheduler:
-    """Manages daily digest scheduling and sending."""
+    """Manages daily digest scheduling and sending with timezone support."""
 
     def __init__(self, db_service: ForexNewsService, bot, config):
         self.db_service = db_service
@@ -23,81 +24,129 @@ class DailyDigestScheduler:
         self._setup_scheduler()
 
     def _setup_scheduler(self):
-        """Setup the scheduler with dynamic digest jobs."""
+        """Setup the scheduler with timezone-aware digest jobs."""
         try:
-            # Get all unique digest times from users
-            unique_times = self._get_unique_digest_times()
+            # Get all users with their timezone and digest time preferences
+            users_with_times = self._get_users_with_digest_times()
 
-            # Add jobs for each unique digest time
-            for digest_time in unique_times:
-                self._add_digest_job(digest_time)
+            # Group users by timezone and digest time
+            timezone_digest_groups = self._group_users_by_timezone_and_time(users_with_times)
+
+            # Add jobs for each unique timezone and digest time combination
+            for (user_timezone, digest_time), users in timezone_digest_groups.items():
+                self._add_timezone_digest_job(user_timezone, digest_time, users)
 
             self.scheduler.start()
-            logger.info(f"Daily digest scheduler started with {len(unique_times)} unique times")
+            logger.info(f"Daily digest scheduler started with timezone-aware scheduling")
 
         except Exception as e:
             logger.error(f"Error setting up daily digest scheduler: {e}")
 
-    def _get_unique_digest_times(self) -> List[time]:
-        """Get all unique digest times from users."""
+    def _get_users_with_digest_times(self) -> List[dict]:
+        """Get all users with their digest times and timezones."""
         try:
             users = self.db_service.get_all_users()
-            unique_times = set()
+            users_with_times = []
 
             for user in users:
                 if user.digest_time:
-                    unique_times.add(user.digest_time)
+                    user_timezone = getattr(user, 'timezone', 'Europe/Prague')  # Default timezone
+                    users_with_times.append({
+                        'user': user,
+                        'digest_time': user.digest_time,
+                        'timezone': user_timezone
+                    })
 
-            # If no users have digest times, add default
-            if not unique_times:
-                unique_times.add(time(8, 0))
-
-            return list(unique_times)
+            return users_with_times
 
         except Exception as e:
-            logger.error(f"Error getting unique digest times: {e}")
-            return [time(8, 0)]  # Default fallback
+            logger.error(f"Error getting users with digest times: {e}")
+            return []
 
-    def _add_digest_job(self, digest_time: time):
-        """Add a digest job for a specific time."""
+    def _group_users_by_timezone_and_time(self, users_with_times: List[dict]) -> dict:
+        """Group users by timezone and digest time."""
+        groups = {}
+
+        for user_data in users_with_times:
+            timezone = user_data['timezone']
+            digest_time = user_data['digest_time']
+            key = (timezone, digest_time)
+
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(user_data['user'])
+
+        return groups
+
+    def _add_timezone_digest_job(self, user_timezone: str, digest_time: time, users: List):
+        """Add a digest job for a specific timezone and time."""
         try:
-            job_id = f"daily_digest_{digest_time.hour:02d}_{digest_time.minute:02d}"
-            job_name = f"Daily Digest at {digest_time.strftime('%H:%M')}"
+            # Create a unique job ID that includes timezone
+            timezone_safe = user_timezone.replace('/', '_').replace('-', '_')
+            job_id = f"daily_digest_{timezone_safe}_{digest_time.hour:02d}_{digest_time.minute:02d}"
+            job_name = f"Daily Digest at {digest_time.strftime('%H:%M')} ({user_timezone})"
 
+            # Add the job with timezone-aware trigger
             self.scheduler.add_job(
-                func=self._send_daily_digest,
-                trigger=CronTrigger(hour=digest_time.hour, minute=digest_time.minute),
+                func=self._send_timezone_digest,
+                trigger=CronTrigger(
+                    hour=digest_time.hour,
+                    minute=digest_time.minute,
+                    timezone=user_timezone
+                ),
                 id=job_id,
                 name=job_name,
-                args=[digest_time],  # Pass the specific time
+                args=[user_timezone, digest_time, users],  # Pass timezone and users
                 replace_existing=True
             )
 
-            logger.info(f"Added digest job for {digest_time.strftime('%H:%M')}")
+            logger.info(f"Added timezone-aware digest job for {digest_time.strftime('%H:%M')} in {user_timezone}")
 
         except Exception as e:
-            logger.error(f"Error adding digest job for {digest_time}: {e}")
+            logger.error(f"Error adding timezone digest job for {user_timezone} at {digest_time}: {e}")
 
     def refresh_digest_jobs(self):
-        """Refresh digest jobs based on current user preferences."""
+        """Refresh digest jobs based on current user preferences with timezone support."""
         try:
             # Remove existing digest jobs
             existing_jobs = [job for job in self.scheduler.get_jobs() if job.id.startswith("daily_digest_")]
             for job in existing_jobs:
                 self.scheduler.remove_job(job.id)
 
-            # Add new jobs based on current user preferences
-            unique_times = self._get_unique_digest_times()
-            for digest_time in unique_times:
-                self._add_digest_job(digest_time)
+            # Get updated user preferences
+            users_with_times = self._get_users_with_digest_times()
+            timezone_digest_groups = self._group_users_by_timezone_and_time(users_with_times)
 
-            logger.info(f"Refreshed digest jobs with {len(unique_times)} unique times")
+            # Add new jobs based on current user preferences
+            for (user_timezone, digest_time), users in timezone_digest_groups.items():
+                self._add_timezone_digest_job(user_timezone, digest_time, users)
+
+            logger.info(f"Refreshed timezone-aware digest jobs")
 
         except Exception as e:
             logger.error(f"Error refreshing digest jobs: {e}")
 
+    def _send_timezone_digest(self, user_timezone: str, digest_time: time, users: List):
+        """Send daily digest to users in a specific timezone at the specified time."""
+        try:
+            if not users:
+                logger.info(f"No users scheduled for digest at {digest_time} in {user_timezone}")
+                return
+
+            logger.info(f"Sending daily digest to {len(users)} users at {digest_time} in {user_timezone}")
+
+            # Send digest to each user in this timezone/time group
+            for user in users:
+                try:
+                    self._send_user_digest(user, user_timezone)
+                except Exception as e:
+                    logger.error(f"Error sending digest to user {user.telegram_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in timezone digest job for {user_timezone}: {e}")
+
     def _send_daily_digest(self, digest_time: time = None):
-        """Send daily digest to all users at the specified time."""
+        """Legacy method for backward compatibility."""
         try:
             if digest_time is None:
                 digest_time = datetime.now().time()
@@ -113,20 +162,22 @@ class DailyDigestScheduler:
             # Send digest to each user
             for user in users:
                 try:
-                    self._send_user_digest(user)
+                    user_timezone = getattr(user, 'timezone', 'Europe/Prague')
+                    self._send_user_digest(user, user_timezone)
                 except Exception as e:
                     logger.error(f"Error sending digest to user {user.telegram_id}: {e}")
 
         except Exception as e:
             logger.error(f"Error in daily digest job: {e}")
 
-    def _send_user_digest(self, user):
-        """Send personalized digest to a specific user."""
+    def _send_user_digest(self, user, user_timezone: str = "Europe/Prague"):
+        """Send personalized digest to a specific user with timezone support."""
         try:
             # Get user preferences
             currencies = user.get_currencies_list()
             impact_levels = user.get_impact_levels_list()
             analysis_required = user.analysis_required
+            digest_time = user.digest_time
 
             # Get today's news
             today = date.today()
@@ -134,7 +185,8 @@ class DailyDigestScheduler:
 
             if not all_news:
                 # No news available, send a message
-                message = f"📅 <b>Daily Digest for {today.strftime('%d.%m.%Y')}</b>\n\n"
+                message = f"📅 <b>Daily Digest for {today.strftime('%d.%m.%Y')}</b>\n"
+                message += f"🕐 <i>Your time: {digest_time.strftime('%H:%M')} ({user_timezone})</i>\n\n"
                 message += "✅ No forex news available for today.\n"
                 message += "Check back later for updates!"
 
@@ -164,7 +216,8 @@ class DailyDigestScheduler:
                 currency_msg = f" for currencies: {', '.join(currencies)}" if currencies else ""
                 impact_msg = f" with impact: {', '.join(impact_levels)}"
 
-                message = f"📅 <b>Daily Digest for {today.strftime('%d.%m.%Y')}</b>\n\n"
+                message = f"📅 <b>Daily Digest for {today.strftime('%d.%m.%Y')}</b>\n"
+                message += f"🕐 <i>Your time: {digest_time.strftime('%H:%M')} ({user_timezone})</i>\n\n"
                 message += f"✅ No news found{currency_msg}{impact_msg}.\n"
                 message += "Try adjusting your preferences with /settings"
 
@@ -185,8 +238,9 @@ class DailyDigestScheduler:
                 currencies if currencies else None
             )
 
-            # Add digest header
-            digest_header = f"📅 <b>Daily Digest for {today.strftime('%d.%m.%Y')}</b>\n\n"
+            # Add digest header with timezone info
+            digest_header = f"📅 <b>Daily Digest for {today.strftime('%d.%m.%Y')}</b>\n"
+            digest_header += f"🕐 <i>Your time: {digest_time.strftime('%H:%M')} ({user_timezone})</i>\n\n"
             message = digest_header + message
 
             # Send the message
@@ -206,7 +260,8 @@ class DailyDigestScheduler:
         """Send a test digest to a specific user (for testing purposes)."""
         try:
             user = self.db_service.get_or_create_user(user_id)
-            self._send_user_digest(user)
+            user_timezone = getattr(user, 'timezone', 'Europe/Prague')
+            self._send_user_digest(user, user_timezone)
             return True
         except Exception as e:
             logger.error(f"Error sending test digest to user {user_id}: {e}")
@@ -226,10 +281,18 @@ class DailyDigestScheduler:
         try:
             jobs = []
             for job in self.scheduler.get_jobs():
+                # Convert timezone object to string to make it JSON serializable
+                timezone_str = 'UTC'
+                if hasattr(job.trigger, 'timezone'):
+                    timezone_obj = getattr(job.trigger, 'timezone')
+                    if timezone_obj:
+                        timezone_str = str(timezone_obj)
+
                 jobs.append({
                     'id': job.id,
                     'name': job.name,
-                    'next_run': job.next_run_time.isoformat() if job.next_run_time else None
+                    'next_run': job.next_run_time.isoformat() if job.next_run_time else None,
+                    'timezone': timezone_str
                 })
 
             return {

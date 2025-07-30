@@ -175,18 +175,6 @@ class UserSettingsHandler:
             markup.add(InlineKeyboardButton(f"⏰ {current_hour:02d}:{current_minute:02d}", callback_data="time_current"))
             markup.add(InlineKeyboardButton("🕐 Minute", callback_data="time_minute"))
 
-            # Quick time presets
-            markup.add(
-                InlineKeyboardButton("🌅 06:00", callback_data="time_preset_06:00"),
-                InlineKeyboardButton("🌞 08:00", callback_data="time_preset_08:00"),
-                InlineKeyboardButton("☀️ 12:00", callback_data="time_preset_12:00")
-            )
-            markup.add(
-                InlineKeyboardButton("🌆 18:00", callback_data="time_preset_18:00"),
-                InlineKeyboardButton("🌙 20:00", callback_data="time_preset_20:00"),
-                InlineKeyboardButton("🌃 22:00", callback_data="time_preset_22:00")
-            )
-
             markup.add(InlineKeyboardButton("🔙 Back to Settings", callback_data="settings_back"))
 
             return markup
@@ -599,19 +587,6 @@ class UserSettingsHandler:
                 current_time = user.digest_time if user.digest_time else time(8, 0)
                 markup = self.get_settings_keyboard(user_id)
                 return True, f"⏰ Current digest time: {current_time.strftime('%H:%M')}", markup
-
-            elif data.startswith("time_preset_"):
-                time_str = data.replace("time_preset_", "")
-                try:
-                    hour, minute = map(int, time_str.split(":"))
-                    new_time = time(hour, minute)
-                    self.db_service.update_user_preferences(user_id, digest_time=new_time)
-                    self._refresh_digest_jobs()
-                    markup = self.get_digest_time_keyboard(user_id)
-                    return True, f"✅ Digest time set to {time_str}!", markup
-                except Exception as e:
-                    logger.error(f"Error setting preset time: {e}")
-                    return False, "", None
 
             return False, "", None
 

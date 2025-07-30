@@ -2,8 +2,10 @@
 """Forex News Telegram Bot (modular version with database integration)."""
 
 import asyncio
+import time
 from datetime import datetime, date, timedelta
 from typing import Optional
+import hashlib
 
 from flask import Flask, request, jsonify
 import telebot
@@ -14,6 +16,7 @@ from bot.scraper import ChatGPTAnalyzer, ForexNewsScraper, process_forex_news, M
 from bot.database_service import ForexNewsService
 from bot.daily_digest import DailyDigestScheduler
 from bot.notification_scheduler import NotificationScheduler
+from bot.notification_service import notification_deduplication
 from sqlalchemy import text
 
 config = Config()
@@ -147,6 +150,145 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
         return [] if debug else None
 
 
+@app.route('/webhook_debug', methods=['GET'])
+def webhook_debug():
+    """Debug endpoint to check webhook status."""
+    if not bot:
+        return jsonify({"error": "Bot not initialized"}), 500
+
+    try:
+        # Get webhook info from Telegram
+        webhook_info = bot.get_webhook_info()
+
+        return jsonify({
+            "webhook_info": {
+                "url": webhook_info.url,
+                "has_custom_certificate": webhook_info.has_custom_certificate,
+                "pending_update_count": webhook_info.pending_update_count,
+                "last_error_date": webhook_info.last_error_date.isoformat() if webhook_info.last_error_date else None,
+                "last_error_message": webhook_info.last_error_message,
+                "max_connections": webhook_info.max_connections,
+                "allowed_updates": webhook_info.allowed_updates
+            },
+            "config": {
+                "bot_token_set": bool(config.telegram_bot_token),
+                "render_hostname": config.render_hostname,
+                "expected_webhook_url": f"https://{config.render_hostname}/webhook" if config.render_hostname else None
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error getting webhook info: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/bot_status', methods=['GET'])
+def bot_status():
+    """Comprehensive bot status check."""
+    if not bot_manager:
+        return jsonify({"error": "Bot manager not initialized"}), 500
+
+    try:
+        # Test bot connection
+        connection_test = bot_manager.test_bot_connection()
+
+        # Check webhook status
+        webhook_status = bot_manager.check_webhook_status()
+
+        # Get current webhook info
+        current_webhook = bot.get_webhook_info() if bot else None
+
+        return jsonify({
+            "bot_connection": connection_test,
+            "webhook_status": webhook_status,
+            "current_webhook": {
+                "url": current_webhook.url if current_webhook else None,
+                "pending_updates": current_webhook.pending_update_count if current_webhook else 0,
+                "last_error": current_webhook.last_error_message if current_webhook else None
+            },
+            "environment": {
+                "bot_token_set": bool(config.telegram_bot_token),
+                "render_hostname": config.render_hostname,
+                "expected_webhook_url": f"https://{config.render_hostname}/webhook" if config.render_hostname else None
+            }
+        })
+    except Exception as e:
+        logger.error(f"Bot status check failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/force_webhook_setup', methods=['POST'])
+def force_webhook_setup():
+    """Force webhook setup with detailed logging."""
+    if not bot_manager:
+        return jsonify({"error": "Bot manager not initialized"}), 500
+
+    try:
+        # First check current status
+        before_status = bot_manager.check_webhook_status()
+
+        # Attempt webhook setup
+        success = bot_manager.setup_webhook()
+
+        # Check status after setup
+        after_status = bot_manager.check_webhook_status()
+
+        return jsonify({
+            "status": "success" if success else "failed",
+            "setup_success": success,
+            "before_setup": before_status,
+            "after_setup": after_status,
+            "message": "Webhook setup completed" if success else "Webhook setup failed"
+        })
+    except Exception as e:
+        logger.error(f"Force webhook setup failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/test_bot', methods=['POST'])
+def test_bot():
+    """Test endpoint to verify bot functionality."""
+    if not bot:
+        return jsonify({"error": "Bot not initialized"}), 500
+
+    try:
+        data = request.get_json() or {}
+        chat_id = data.get('chat_id', config.telegram_chat_id)
+
+        if not chat_id:
+            return jsonify({"error": "No chat_id provided"}), 400
+
+        # Send a test message
+        message = "🤖 Bot test message - If you receive this, the bot is working correctly!"
+        result = bot.send_message(chat_id, message)
+
+        return jsonify({
+            "status": "success",
+            "message": "Test message sent successfully",
+            "message_id": result.message_id,
+            "chat_id": chat_id
+        })
+    except Exception as e:
+        logger.error(f"Bot test failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/setup_webhook', methods=['POST'])
+def setup_webhook_manual():
+    """Manually trigger webhook setup."""
+    if not bot_manager:
+        return jsonify({"error": "Bot manager not initialized"}), 500
+
+    try:
+        success = bot_manager.setup_webhook()
+        return jsonify({
+            "status": "success" if success else "failed",
+            "message": "Webhook setup completed" if success else "Webhook setup failed"
+        })
+    except Exception as e:
+        logger.error(f"Manual webhook setup failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if not bot:
@@ -154,11 +296,80 @@ def webhook():
         return jsonify({"error": "Bot not initialized"}), 500
     try:
         json_str = request.get_data().decode('UTF-8')
+        logger.info(f"Received webhook data: {json_str[:200]}...")  # Log first 200 chars
+
+        # Parse the update
         update = telebot.types.Update.de_json(json_str)
+
+        # Log the update type for debugging
+        if hasattr(update, 'message') and update.message:
+            user_id = update.message.from_user.id if update.message.from_user else 'unknown'
+            chat_type = update.message.chat.type if update.message.chat else 'unknown'
+            logger.info(f"Processing message from user {user_id} in chat type: {chat_type}")
+
+            # Handle group events
+            if chat_type in ['group', 'supergroup']:
+                logger.info("📢 GROUP EVENT detected")
+
+                # Generate a hash for the message to prevent duplicate notifications
+                message_text = update.message.text or "No text"
+                message_hash = hashlib.md5(message_text.encode()).hexdigest()
+                group_id = str(update.message.chat.id)
+                user_id_str = str(user_id)
+
+                # Check if we should send a group notification (prevents spam)
+                if notification_deduplication.should_send_group_notification(group_id, user_id_str, message_hash):
+                    try:
+                        group_name = update.message.chat.title or "Unknown Group"
+                        user_name = update.message.from_user.first_name or "Unknown"
+                        message = f"📢 **GROUP EVENT NOTIFICATION**\n\nGroup: {group_name}\nUser: {user_name}\nMessage: {message_text[:100]}{'...' if len(message_text) > 100 else ''}"
+
+                        # Send to the configured chat_id (not the group)
+                        if config.telegram_chat_id:
+                            bot.send_message(config.telegram_chat_id, message, parse_mode="Markdown")
+                            logger.info("Group event notification sent successfully")
+                        else:
+                            logger.warning("No telegram_chat_id configured for group notifications")
+                    except Exception as e:
+                        logger.error(f"Failed to send group event notification: {e}")
+                else:
+                    logger.info("Group notification skipped (duplicate)")
+
+                # Still process the message normally
+                bot.process_new_updates([update])
+                return jsonify({"status": "ok", "group_event": True})
+
+        elif hasattr(update, 'callback_query') and update.callback_query:
+            logger.info(f"Processing callback query from user {update.callback_query.from_user.id if update.callback_query.from_user else 'unknown'}")
+
+        # Process the update
         bot.process_new_updates([update])
         return jsonify({"status": "ok"})
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
+        logger.error(f"Webhook data: {request.get_data().decode('UTF-8')[:500]}...")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/test_webhook', methods=['POST'])
+def test_webhook():
+    """Test webhook endpoint that doesn't process the full update."""
+    if not bot:
+        logger.error("Test webhook called but bot not initialized")
+        return jsonify({"error": "Bot not initialized"}), 500
+
+    try:
+        json_str = request.get_data().decode('UTF-8')
+        logger.info(f"Test webhook received data: {json_str[:200]}...")
+
+        # Just log the data without processing it through telebot
+        return jsonify({
+            "status": "ok",
+            "message": "Test webhook received data successfully",
+            "data_length": len(json_str)
+        })
+    except Exception as e:
+        logger.error(f"Error in test webhook: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -561,17 +772,144 @@ def test_settings(user_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/test_digest_timezone', methods=['POST'])
+def test_digest_timezone():
+    """Test timezone-aware digest functionality."""
+    if not digest_scheduler:
+        return jsonify({"error": "Digest scheduler not initialized"}), 500
+
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        # Test sending a digest to the specified user
+        success = digest_scheduler.send_test_digest(user_id)
+
+        return jsonify({
+            "status": "success" if success else "failed",
+            "message": "Test digest sent successfully" if success else "Failed to send test digest",
+            "user_id": user_id
+        })
+    except Exception as e:
+        logger.error(f"Error testing digest timezone: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/refresh_digest_jobs', methods=['POST'])
+def refresh_digest_jobs():
+    """Refresh digest jobs with current user preferences."""
+    if not digest_scheduler:
+        return jsonify({"error": "Digest scheduler not initialized"}), 500
+
+    try:
+        # Refresh digest jobs
+        digest_scheduler.refresh_digest_jobs()
+
+        # Get updated scheduler status
+        status = digest_scheduler.get_scheduler_status()
+
+        return jsonify({
+            "status": "success",
+            "message": "Digest jobs refreshed successfully",
+            "scheduler_status": status
+        })
+    except Exception as e:
+        logger.error(f"Error refreshing digest jobs: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/notification_stats', methods=['GET'])
+def notification_stats():
+    """Get notification statistics and deduplication status."""
+    try:
+        stats = notification_deduplication.get_notification_stats()
+        return jsonify({
+            "status": "success",
+            "notification_stats": stats,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting notification stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 def initialize_application():
     """Initialize the application and start background services."""
     try:
-        # Setup webhook if bot is available
-        if bot_manager:
-            bot_manager.setup_webhook_async()
+        logger.info("🚀 Starting application initialization...")
 
-        logger.info("Application initialized successfully")
+        # Check if bot is available
+        if not bot_manager:
+            logger.error("❌ Bot manager not initialized")
+            return
+
+        if not bot_manager.bot:
+            logger.error("❌ Bot not initialized")
+            return
+
+        # Test bot connection first
+        logger.info("🔍 Testing bot connection...")
+        connection_test = bot_manager.test_bot_connection()
+        if "error" in connection_test:
+            logger.error(f"❌ Bot connection failed: {connection_test['error']}")
+            return
+        else:
+            logger.info(f"✅ Bot connection successful: {connection_test.get('bot_info', {}).get('username', 'Unknown')}")
+
+        # Check current webhook status
+        logger.info("🔍 Checking current webhook status...")
+        webhook_status = bot_manager.check_webhook_status()
+        if "error" not in webhook_status:
+            logger.info(f"Current webhook URL: {webhook_status.get('url', 'None')}")
+            logger.info(f"Pending updates: {webhook_status.get('pending_update_count', 0)}")
+            if webhook_status.get('last_error_message'):
+                logger.warning(f"Webhook error: {webhook_status['last_error_message']}")
+
+        # Setup webhook if needed
+        if not config.render_hostname:
+            logger.error("❌ RENDER_EXTERNAL_HOSTNAME not set - cannot setup webhook")
+            return
+
+        logger.info("🔧 Setting up webhook...")
+        success = bot_manager.setup_webhook()
+
+        if success:
+            logger.info("✅ Webhook setup completed successfully")
+
+            # Verify webhook was set correctly
+            time.sleep(2)
+            final_status = bot_manager.check_webhook_status()
+            if "error" not in final_status and final_status.get('is_configured'):
+                logger.info("✅ Webhook verification successful")
+            else:
+                logger.warning("⚠️ Webhook verification failed")
+        else:
+            logger.error("❌ Webhook setup failed")
+
+        logger.info("✅ Application initialization completed")
 
     except Exception as e:
-        logger.error(f"Failed to initialize application: {e}")
+        logger.error(f"❌ Failed to initialize application: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+
+@app.route('/initialize', methods=['POST'])
+def manual_initialize():
+    """Manually trigger application initialization."""
+    try:
+        logger.info("🔄 Manual initialization triggered")
+        initialize_application()
+        return jsonify({
+            "status": "success",
+            "message": "Initialization completed"
+        })
+    except Exception as e:
+        logger.error(f"Manual initialization failed: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

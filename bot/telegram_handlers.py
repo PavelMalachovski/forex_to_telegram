@@ -42,17 +42,65 @@ class TelegramBotManager:
         if not self.config.render_hostname:
             logger.warning("Cannot set webhook: RENDER_EXTERNAL_HOSTNAME not set")
             return False
+
         webhook_url = f"https://{self.config.render_hostname}/webhook"
+        logger.info("Attempting to set webhook to: %s", webhook_url)
+
+        # First, check current webhook status
+        try:
+            current_webhook = self.bot.get_webhook_info()
+            logger.info("Current webhook info: URL=%s, Pending updates=%s, Last error=%s",
+                       current_webhook.url, current_webhook.pending_update_count,
+                       current_webhook.last_error_message)
+        except Exception as e:
+            logger.error("Failed to get current webhook info: %s", e)
+
         for attempt in range(max_retries):
             try:
                 logger.info("Setting webhook attempt %s/%s to %s", attempt + 1, max_retries, webhook_url)
-                self.bot.remove_webhook()
-                time.sleep(2)
+
+                # Remove existing webhook first
+                try:
+                    self.bot.remove_webhook()
+                    time.sleep(2)
+                    logger.info("Removed existing webhook")
+                except Exception as e:
+                    logger.warning("Failed to remove existing webhook: %s", e)
+
+                # Set new webhook
                 result = self.bot.set_webhook(url=webhook_url)
                 if result:
-                    logger.info("Webhook successfully configured")
+                    logger.info("Webhook setup returned True")
+
+                    # Verify webhook was set correctly
+                    try:
+                        time.sleep(3)  # Wait a bit for Telegram to process
+                        new_webhook = self.bot.get_webhook_info()
+                        logger.info("Webhook verification: URL=%s, Pending updates=%s, Last error=%s",
+                                   new_webhook.url, new_webhook.pending_update_count,
+                                   new_webhook.last_error_message)
+
+                        if new_webhook.url == webhook_url:
+                            logger.info("✅ Webhook URL matches expected URL")
+
+                            # Check if there are any pending updates
+                            if new_webhook.pending_update_count > 0:
+                                logger.info("📥 Found %s pending updates", new_webhook.pending_update_count)
+
+                            # Check for any recent errors
+                            if new_webhook.last_error_message:
+                                logger.warning("⚠️ Webhook has recent error: %s", new_webhook.last_error_message)
+
+                            return True
+                        else:
+                            logger.warning("❌ Webhook URL mismatch. Expected: %s, Got: %s",
+                                         webhook_url, new_webhook.url)
+                    except Exception as e:
+                        logger.error("Failed to verify webhook: %s", e)
+
                     return True
-                logger.warning("Webhook setup returned False on attempt %s", attempt + 1)
+                else:
+                    logger.warning("Webhook setup returned False on attempt %s", attempt + 1)
             except Exception as e:
                 logger.error("Failed to set webhook on attempt %s: %s", attempt + 1, e)
                 if attempt < max_retries - 1:
@@ -62,6 +110,47 @@ class TelegramBotManager:
                 else:
                     logger.error("All webhook setup attempts failed")
         return False
+
+    def check_webhook_status(self):
+        """Check the current webhook status and return detailed information."""
+        if not self.bot:
+            return {"error": "Bot not initialized"}
+
+        try:
+            webhook_info = self.bot.get_webhook_info()
+            return {
+                "url": webhook_info.url,
+                "has_custom_certificate": webhook_info.has_custom_certificate,
+                "pending_update_count": webhook_info.pending_update_count,
+                "last_error_date": webhook_info.last_error_date.isoformat() if webhook_info.last_error_date else None,
+                "last_error_message": webhook_info.last_error_message,
+                "max_connections": webhook_info.max_connections,
+                "allowed_updates": webhook_info.allowed_updates,
+                "is_configured": webhook_info.url is not None and webhook_info.url != ""
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    def test_bot_connection(self):
+        """Test if the bot can connect to Telegram API."""
+        if not self.bot:
+            return {"error": "Bot not initialized"}
+
+        try:
+            me = self.bot.get_me()
+            return {
+                "success": True,
+                "bot_info": {
+                    "id": me.id,
+                    "username": me.username,
+                    "first_name": me.first_name,
+                    "can_join_groups": me.can_join_groups,
+                    "can_read_all_group_messages": me.can_read_all_group_messages,
+                    "supports_inline_queries": me.supports_inline_queries
+                }
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     def setup_webhook_async(self):
         def delayed_webhook_setup():

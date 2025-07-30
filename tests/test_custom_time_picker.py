@@ -54,15 +54,9 @@ def test_custom_time_picker():
             test_time = time(hour, 0)
             print(f"✅ {test_time.strftime('%H:%M')} (hour: {hour:02d})")
 
-        # Test time comparison and validation
-        print("\n🔍 Testing time validation...")
-
-        # Valid times
-        valid_times = [
-            time(0, 0),   # Midnight
-            time(12, 0),  # Noon
-            time(23, 59), # End of day
-        ]
+        # Test time validation
+        print("\n✅ Testing time validation...")
+        valid_times = [time(0, 0), time(12, 30), time(23, 59)]
 
         for valid_time in valid_times:
             if 0 <= valid_time.hour <= 23 and 0 <= valid_time.minute <= 59:
@@ -70,17 +64,19 @@ def test_custom_time_picker():
             else:
                 print(f"❌ Invalid time: {valid_time.strftime('%H:%M')}")
 
-        # Test time preset parsing
-        print("\n🎯 Testing time presets...")
-        presets = ["06:00", "08:00", "12:00", "18:00", "20:00", "22:00"]
+        # Test invalid time strings (that would be parsed from user input)
+        print("\n❌ Testing invalid time strings...")
+        invalid_time_strings = ["24:00", "12:60", "25:30", "10:70"]
 
-        for preset in presets:
+        for time_str in invalid_time_strings:
             try:
-                hour, minute = map(int, preset.split(":"))
-                preset_time = time(hour, minute)
-                print(f"✅ Preset '{preset}' -> {preset_time.strftime('%H:%M')}")
+                hour, minute = map(int, time_str.split(":"))
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    print(f"✅ Valid time string: {time_str}")
+                else:
+                    print(f"❌ Invalid time string: {time_str}")
             except Exception as e:
-                print(f"❌ Error parsing preset '{preset}': {e}")
+                print(f"❌ Error parsing time string '{time_str}': {e}")
 
         # Test time formatting for display
         print("\n📱 Testing time display formatting...")
@@ -102,7 +98,6 @@ def test_custom_time_picker():
         print("- Hour picker (0-23) works correctly")
         print("- Minute picker (0-59, 5-minute intervals) works correctly")
         print("- Time validation works correctly")
-        print("- Time presets work correctly")
         print("- Time display formatting works correctly")
         print("- The custom time picker is ready for use!")
 

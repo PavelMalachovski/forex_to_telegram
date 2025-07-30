@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
+import hashlib
+
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import text
 import pytz
@@ -11,6 +13,77 @@ from .config import Config
 logger = logging.getLogger(__name__)
 
 
+class NotificationDeduplicationService:
+    """Service to handle notification deduplication and tracking."""
+
+    def __init__(self):
+        self.sent_notifications: Dict[str, datetime] = {}
+        self.group_notifications: Set[str] = set()
+        self.cleanup_interval = timedelta(hours=24)  # Clean up old notifications every 24 hours
+        self.last_cleanup = datetime.now()
+
+    def _generate_notification_id(self, event_type: str, **kwargs) -> str:
+        """Generate a unique ID for a notification based on its parameters."""
+        # Create a string representation of the notification parameters
+        params_str = f"{event_type}:{':'.join(f'{k}={v}' for k, v in sorted(kwargs.items()))}"
+        return hashlib.md5(params_str.encode()).hexdigest()
+
+    def _cleanup_old_notifications(self):
+        """Remove notifications older than the cleanup interval."""
+        now = datetime.now()
+        if now - self.last_cleanup > self.cleanup_interval:
+            cutoff_time = now - self.cleanup_interval
+            old_notifications = [
+                notification_id for notification_id, timestamp in self.sent_notifications.items()
+                if timestamp < cutoff_time
+            ]
+            for notification_id in old_notifications:
+                del self.sent_notifications[notification_id]
+
+            self.last_cleanup = now
+            logger.info(f"Cleaned up {len(old_notifications)} old notifications")
+
+    def should_send_notification(self, event_type: str, **kwargs) -> bool:
+        """Check if a notification should be sent (prevents duplicates)."""
+        self._cleanup_old_notifications()
+
+        notification_id = self._generate_notification_id(event_type, **kwargs)
+
+        if notification_id in self.sent_notifications:
+            logger.info(f"Notification already sent for {event_type} with params {kwargs}")
+            return False
+
+        # Mark as sent
+        self.sent_notifications[notification_id] = datetime.now()
+        logger.info(f"New notification approved for {event_type} with params {kwargs}")
+        return True
+
+    def should_send_group_notification(self, group_id: str, user_id: str, message_hash: str) -> bool:
+        """Check if a group notification should be sent (prevents spam)."""
+        group_key = f"{group_id}:{user_id}:{message_hash}"
+
+        if group_key in self.group_notifications:
+            logger.info(f"Group notification already sent for {group_key}")
+            return False
+
+        # Mark as sent (keep for 1 hour to prevent spam)
+        self.group_notifications.add(group_key)
+        logger.info(f"New group notification approved for {group_key}")
+        return True
+
+    def get_notification_stats(self) -> Dict:
+        """Get notification statistics."""
+        return {
+            "active_notifications": len(self.sent_notifications),
+            "group_notifications": len(self.group_notifications),
+            "last_cleanup": self.last_cleanup.isoformat()
+        }
+
+
+# Global notification deduplication service instance
+notification_deduplication = NotificationDeduplicationService()
+
+
 class NotificationService:
     """Handles notification logic for high-impact news events."""
 
@@ -18,6 +91,7 @@ class NotificationService:
         self.db_service = db_service
         self.bot = bot
         self.config = config
+        self.deduplication = notification_deduplication
 
     def format_notification_message(self, news_item: Dict[str, Any], minutes_before: int, user_timezone: str = "Europe/Prague") -> str:
         """Format a notification message for a news event."""
@@ -165,6 +239,15 @@ class NotificationService:
             for event_data in upcoming_events:
                 item = event_data['item']
                 minutes_until = event_data['minutes_until']
+
+                # Check if we should send this notification (deduplication)
+                notification_key = f"news_event_{item.get('id', 'unknown')}_{user_id}_{minutes_until}"
+                if not self.deduplication.should_send_notification("news_event",
+                                                                  event_id=item.get('id', 'unknown'),
+                                                                  user_id=user_id,
+                                                                  minutes_until=minutes_until):
+                    logger.info(f"Skipping duplicate notification for event {item.get('id')} to user {user_id}")
+                    continue
 
                 # Format notification message
                 message = self.format_notification_message(item, minutes_until, user_timezone)
