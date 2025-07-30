@@ -19,6 +19,13 @@ selenium==4.21.0  # Required by undetected-chromedriver
 requests==2.32.3         # HTTP requests
 pytz==2023.3             # Timezone handling
 
+# Chart generation dependencies
+yfinance==0.2.36         # Yahoo Finance API for historical data
+matplotlib==3.8.2        # Chart generation
+plotly==5.17.0           # Interactive charts
+pandas==2.1.4            # Data manipulation
+numpy==1.24.3            # Numerical operations
+
 # Testing
 pytest==8.4.1
 pytest-asyncio==0.23.5

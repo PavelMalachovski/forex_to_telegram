@@ -294,6 +294,16 @@ class UserSettingsHandler:
                 callback_data="notification_impact"
             ))
 
+            # Chart settings
+            charts_enabled = getattr(user, 'charts_enabled', False)
+            chart_status = "✅" if charts_enabled else "❌"
+            chart_type = getattr(user, 'chart_type', 'single')
+
+            markup.add(InlineKeyboardButton(
+                f"📈 Charts: {chart_status} ({chart_type})",
+                callback_data="settings_charts"
+            ))
+
             markup.add(InlineKeyboardButton("🔙 Back to Settings", callback_data="settings_back"))
 
             return markup
@@ -366,6 +376,104 @@ class UserSettingsHandler:
             return markup
         except Exception as e:
             logger.error(f"Error generating notification impact keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
+    def get_charts_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate chart settings keyboard."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+
+            # Check if chart fields exist
+            if not hasattr(user, 'charts_enabled'):
+                markup = InlineKeyboardMarkup(row_width=1)
+                markup.add(InlineKeyboardButton(
+                    "⚠️ Chart settings not available yet",
+                    callback_data="IGNORE"
+                ))
+                markup.add(InlineKeyboardButton("🔙 Back to Notifications", callback_data="settings_notifications"))
+                return markup
+
+            charts_enabled = getattr(user, 'charts_enabled', False)
+            chart_type = getattr(user, 'chart_type', 'single')
+            window_hours = getattr(user, 'chart_window_hours', 2)
+
+            markup = InlineKeyboardMarkup(row_width=2)
+
+            # Enable/Disable charts
+            markup.add(InlineKeyboardButton(
+                f"📈 Charts: {'✅' if charts_enabled else '❌'}",
+                callback_data="chart_toggle"
+            ))
+
+            # Chart type selection
+            markup.add(InlineKeyboardButton(
+                f"📊 Type: {chart_type.title()}",
+                callback_data="chart_type"
+            ))
+
+            # Chart window hours
+            markup.add(InlineKeyboardButton(
+                f"⏱️ Window: {window_hours}h",
+                callback_data="chart_window"
+            ))
+
+            markup.add(InlineKeyboardButton("🔙 Back to Notifications", callback_data="settings_notifications"))
+
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating charts keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
+    def get_chart_type_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate chart type selection keyboard."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+            current_type = getattr(user, 'chart_type', 'single')
+
+            markup = InlineKeyboardMarkup(row_width=2)
+
+            chart_types = [
+                ('single', 'Single Pair'),
+                ('multi', 'Multi Pair'),
+                ('none', 'No Charts')
+            ]
+
+            for chart_type, display_name in chart_types:
+                status = "✅" if chart_type == current_type else "⬜"
+                markup.add(InlineKeyboardButton(
+                    f"{status} {display_name}",
+                    callback_data=f"chart_type_{chart_type}"
+                ))
+
+            markup.add(InlineKeyboardButton("🔙 Back to Charts", callback_data="settings_charts"))
+
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating chart type keyboard for user {user_id}: {e}")
+            return InlineKeyboardMarkup()
+
+    def get_chart_window_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
+        """Generate chart window hours selection keyboard."""
+        try:
+            user = self.db_service.get_or_create_user(user_id)
+            current_hours = getattr(user, 'chart_window_hours', 2)
+
+            markup = InlineKeyboardMarkup(row_width=3)
+
+            window_options = [1, 2, 4, 6]
+
+            for hours in window_options:
+                status = "✅" if hours == current_hours else "⬜"
+                markup.add(InlineKeyboardButton(
+                    f"{status} {hours}h",
+                    callback_data=f"chart_window_{hours}"
+                ))
+
+            markup.add(InlineKeyboardButton("🔙 Back to Charts", callback_data="settings_charts"))
+
+            return markup
+        except Exception as e:
+            logger.error(f"Error generating chart window keyboard for user {user_id}: {e}")
             return InlineKeyboardMarkup()
 
     def _refresh_digest_jobs(self):
@@ -477,6 +585,59 @@ class UserSettingsHandler:
                     if not hasattr(user, 'notification_impact_levels'):
                         markup = self.get_notification_impact_keyboard(user_id)
                         return True, "⚠️ Notifications not available yet. Please run database migration first.", markup
+
+            elif data == "settings_charts":
+                markup = self.get_charts_keyboard(user_id)
+                return True, "Configure your chart settings:", markup
+
+            elif data == "chart_toggle":
+                user = self.db_service.get_or_create_user(user_id)
+                if not hasattr(user, 'charts_enabled'):
+                    markup = self.get_charts_keyboard(user_id)
+                    return True, "⚠️ Chart settings not available yet. Please run database migration first.", markup
+
+                new_charts_enabled = not user.charts_enabled
+                self.db_service.update_user_preferences(user_id, charts_enabled=new_charts_enabled)
+                status = "enabled" if new_charts_enabled else "disabled"
+                markup = self.get_charts_keyboard(user_id)
+                return True, f"✅ Charts {status}!", markup
+
+            elif data == "chart_type":
+                markup = self.get_chart_type_keyboard(user_id)
+                return True, "Select chart type:", markup
+
+            elif data == "chart_window":
+                markup = self.get_chart_window_keyboard(user_id)
+                return True, "Select chart window hours:", markup
+
+            elif data.startswith("chart_type_"):
+                chart_type = data.replace("chart_type_", "")
+                if chart_type in ['single', 'multi', 'none']:
+                    user = self.db_service.get_or_create_user(user_id)
+                    if not hasattr(user, 'chart_type'):
+                        markup = self.get_chart_type_keyboard(user_id)
+                        return True, "⚠️ Chart settings not available yet. Please run database migration first.", markup
+
+                    self.db_service.update_user_preferences(user_id, chart_type=chart_type)
+                    markup = self.get_chart_type_keyboard(user_id)
+                    return True, f"✅ Chart type set to {chart_type.title()}!", markup
+
+            elif data.startswith("chart_window_"):
+                hours_str = data.replace("chart_window_", "")
+                try:
+                    hours = int(hours_str)
+                    if hours in [1, 2, 4, 6]:
+                        user = self.db_service.get_or_create_user(user_id)
+                        if not hasattr(user, 'chart_window_hours'):
+                            markup = self.get_chart_window_keyboard(user_id)
+                            return True, "⚠️ Chart settings not available yet. Please run database migration first.", markup
+
+                        self.db_service.update_user_preferences(user_id, chart_window_hours=hours)
+                        markup = self.get_chart_window_keyboard(user_id)
+                        return True, f"✅ Chart window set to {hours} hours!", markup
+                except Exception as e:
+                    logger.error(f"Error setting chart window hours: {e}")
+                    return False, "", None
 
                     current_impacts = set(user.get_notification_impact_levels_list())
                     if impact in current_impacts:

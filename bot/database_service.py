@@ -121,12 +121,12 @@ class ForexNewsService:
         """Update user preferences."""
         try:
             with self.db_manager.get_session() as session:
-                # Check if notification columns exist
+                # Check if notification and chart columns exist
                 result = session.execute(text("""
                     SELECT column_name
                     FROM information_schema.columns
                     WHERE table_name = 'users'
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone', 'charts_enabled', 'chart_type', 'chart_window_hours')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -140,8 +140,8 @@ class ForexNewsService:
                         if hasattr(user, key):
                             setattr(user, key, value)
                         else:
-                            # Handle notification fields that might not exist in database yet
-                            if key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']:
+                            # Handle notification and chart fields that might not exist in database yet
+                            if key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'charts_enabled', 'chart_type', 'chart_window_hours']:
                                 # Skip updating these fields if they don't exist in the database
                                 continue
 
@@ -154,7 +154,7 @@ class ForexNewsService:
                     columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
                              'analysis_required', 'digest_time', 'created_at', 'updated_at']
 
-                    # Add notification columns only if they exist
+                    # Add notification and chart columns only if they exist
                     if 'notifications_enabled' in notification_columns:
                         columns.append('notifications_enabled')
                     if 'notification_minutes' in notification_columns:
@@ -163,6 +163,12 @@ class ForexNewsService:
                         columns.append('notification_impact_levels')
                     if 'timezone' in notification_columns:
                         columns.append('timezone')
+                    if 'charts_enabled' in notification_columns:
+                        columns.append('charts_enabled')
+                    if 'chart_type' in notification_columns:
+                        columns.append('chart_type')
+                    if 'chart_window_hours' in notification_columns:
+                        columns.append('chart_window_hours')
 
                     columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
                     sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
@@ -181,8 +187,8 @@ class ForexNewsService:
                         if key in columns:
                             update_parts.append(f"{key} = :{key}")
                             update_values[key] = value
-                        elif key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone']:
-                            # Skip notification fields that don't exist
+                        elif key in ['notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone', 'charts_enabled', 'chart_type', 'chart_window_hours']:
+                            # Skip notification and chart fields that don't exist
                             continue
 
                     if update_parts:
