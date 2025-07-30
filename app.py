@@ -772,6 +772,55 @@ def test_settings(user_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/test_digest_timezone', methods=['POST'])
+def test_digest_timezone():
+    """Test timezone-aware digest functionality."""
+    if not digest_scheduler:
+        return jsonify({"error": "Digest scheduler not initialized"}), 500
+
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        # Test sending a digest to the specified user
+        success = digest_scheduler.send_test_digest(user_id)
+
+        return jsonify({
+            "status": "success" if success else "failed",
+            "message": "Test digest sent successfully" if success else "Failed to send test digest",
+            "user_id": user_id
+        })
+    except Exception as e:
+        logger.error(f"Error testing digest timezone: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/refresh_digest_jobs', methods=['POST'])
+def refresh_digest_jobs():
+    """Refresh digest jobs with current user preferences."""
+    if not digest_scheduler:
+        return jsonify({"error": "Digest scheduler not initialized"}), 500
+
+    try:
+        # Refresh digest jobs
+        digest_scheduler.refresh_digest_jobs()
+
+        # Get updated scheduler status
+        status = digest_scheduler.get_scheduler_status()
+
+        return jsonify({
+            "status": "success",
+            "message": "Digest jobs refreshed successfully",
+            "scheduler_status": status
+        })
+    except Exception as e:
+        logger.error(f"Error refreshing digest jobs: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/notification_stats', methods=['GET'])
 def notification_stats():
     """Get notification statistics and deduplication status."""
