@@ -5,6 +5,7 @@ import asyncio
 import time
 from datetime import datetime, date, timedelta
 from typing import Optional
+import hashlib
 
 from flask import Flask, request, jsonify
 import telebot
@@ -15,6 +16,7 @@ from bot.scraper import ChatGPTAnalyzer, ForexNewsScraper, process_forex_news, M
 from bot.database_service import ForexNewsService
 from bot.daily_digest import DailyDigestScheduler
 from bot.notification_scheduler import NotificationScheduler
+from bot.notification_service import notification_deduplication
 from sqlalchemy import text
 
 config = Config()
@@ -301,7 +303,42 @@ def webhook():
 
         # Log the update type for debugging
         if hasattr(update, 'message') and update.message:
-            logger.info(f"Processing message from user {update.message.from_user.id if update.message.from_user else 'unknown'}")
+            user_id = update.message.from_user.id if update.message.from_user else 'unknown'
+            chat_type = update.message.chat.type if update.message.chat else 'unknown'
+            logger.info(f"Processing message from user {user_id} in chat type: {chat_type}")
+
+            # Handle group events
+            if chat_type in ['group', 'supergroup']:
+                logger.info("📢 GROUP EVENT detected")
+
+                # Generate a hash for the message to prevent duplicate notifications
+                message_text = update.message.text or "No text"
+                message_hash = hashlib.md5(message_text.encode()).hexdigest()
+                group_id = str(update.message.chat.id)
+                user_id_str = str(user_id)
+
+                # Check if we should send a group notification (prevents spam)
+                if notification_deduplication.should_send_group_notification(group_id, user_id_str, message_hash):
+                    try:
+                        group_name = update.message.chat.title or "Unknown Group"
+                        user_name = update.message.from_user.first_name or "Unknown"
+                        message = f"📢 **GROUP EVENT NOTIFICATION**\n\nGroup: {group_name}\nUser: {user_name}\nMessage: {message_text[:100]}{'...' if len(message_text) > 100 else ''}"
+
+                        # Send to the configured chat_id (not the group)
+                        if config.telegram_chat_id:
+                            bot.send_message(config.telegram_chat_id, message, parse_mode="Markdown")
+                            logger.info("Group event notification sent successfully")
+                        else:
+                            logger.warning("No telegram_chat_id configured for group notifications")
+                    except Exception as e:
+                        logger.error(f"Failed to send group event notification: {e}")
+                else:
+                    logger.info("Group notification skipped (duplicate)")
+
+                # Still process the message normally
+                bot.process_new_updates([update])
+                return jsonify({"status": "ok", "group_event": True})
+
         elif hasattr(update, 'callback_query') and update.callback_query:
             logger.info(f"Processing callback query from user {update.callback_query.from_user.id if update.callback_query.from_user else 'unknown'}")
 
@@ -311,6 +348,28 @@ def webhook():
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
         logger.error(f"Webhook data: {request.get_data().decode('UTF-8')[:500]}...")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/test_webhook', methods=['POST'])
+def test_webhook():
+    """Test webhook endpoint that doesn't process the full update."""
+    if not bot:
+        logger.error("Test webhook called but bot not initialized")
+        return jsonify({"error": "Bot not initialized"}), 500
+
+    try:
+        json_str = request.get_data().decode('UTF-8')
+        logger.info(f"Test webhook received data: {json_str[:200]}...")
+
+        # Just log the data without processing it through telebot
+        return jsonify({
+            "status": "ok",
+            "message": "Test webhook received data successfully",
+            "data_length": len(json_str)
+        })
+    except Exception as e:
+        logger.error(f"Error in test webhook: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -710,6 +769,21 @@ def test_settings(user_id):
 
     except Exception as e:
         logger.error(f"Error testing settings for user {user_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/notification_stats', methods=['GET'])
+def notification_stats():
+    """Get notification statistics and deduplication status."""
+    try:
+        stats = notification_deduplication.get_notification_stats()
+        return jsonify({
+            "status": "success",
+            "notification_stats": stats,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting notification stats: {e}")
         return jsonify({"error": str(e)}), 500
 
 
