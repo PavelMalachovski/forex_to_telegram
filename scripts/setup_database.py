@@ -35,10 +35,10 @@ def setup_database():
         with db_manager.get_session() as session:
             # Check if forex_news table exists
             result = session.execute(text("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public'
-                AND table_name IN ('forex_news', 'users')
+                SELECT name
+                FROM sqlite_master
+                WHERE type='table'
+                AND name IN ('forex_news', 'users')
             """))
             tables = [row[0] for row in result]
 
@@ -57,35 +57,30 @@ def setup_database():
 
             # Check forex_news table structure
             result = session.execute(text("""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_name = 'forex_news'
-                ORDER BY ordinal_position
+                PRAGMA table_info(forex_news)
             """))
             print("forex_news table columns:")
             for row in result:
-                nullable = "NULL" if row[2] == "YES" else "NOT NULL"
-                print(f"  - {row[0]}: {row[1]} ({nullable})")
+                nullable = "NULL" if row[3] == 0 else "NOT NULL"
+                print(f"  - {row[1]}: {row[2]} ({nullable})")
 
             # Check users table structure
             result = session.execute(text("""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_name = 'users'
-                ORDER BY ordinal_position
+                PRAGMA table_info(users)
             """))
             print("\nusers table columns:")
             for row in result:
-                nullable = "NULL" if row[2] == "YES" else "NOT NULL"
-                print(f"  - {row[0]}: {row[1]} ({nullable})")
+                nullable = "NULL" if row[3] == 0 else "NOT NULL"
+                print(f"  - {row[1]}: {row[2]} ({nullable})")
 
             # Check indexes
             print("\n🔍 Indexes:")
             result = session.execute(text("""
-                SELECT indexname, tablename, indexdef
-                FROM pg_indexes
-                WHERE tablename IN ('forex_news', 'users')
-                ORDER BY tablename, indexname
+                SELECT name, tbl_name, sql
+                FROM sqlite_master
+                WHERE type='index'
+                AND tbl_name IN ('forex_news', 'users')
+                ORDER BY tbl_name, name
             """))
             for row in result:
                 print(f"  - {row[0]} on {row[1]}")
@@ -113,10 +108,9 @@ def test_database_connection():
         with db_manager.get_session() as session:
             # Check if notification columns exist
             result = session.execute(text("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'users'
-                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                SELECT name
+                FROM pragma_table_info('users')
+                WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
             """))
             notification_columns = [row[0] for row in result]
 
@@ -145,13 +139,15 @@ def test_database_connection():
 
             insert_sql = f"""
                 INSERT INTO users ({columns}, created_at, updated_at)
-                VALUES ({placeholders}, NOW(), NOW())
-                RETURNING id
+                VALUES ({placeholders}, datetime('now'), datetime('now'))
             """
 
-            result = session.execute(text(insert_sql), test_user_data)
-            user_id = result.scalar()
+            session.execute(text(insert_sql), test_user_data)
             session.commit()
+
+            # Get the user ID using lastrowid for SQLite
+            result = session.execute(text("SELECT last_insert_rowid()"))
+            user_id = result.scalar()
 
             if user_id:
                 print("✅ User creation test passed")
