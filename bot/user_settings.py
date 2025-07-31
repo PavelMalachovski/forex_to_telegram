@@ -53,9 +53,8 @@ class UserSettingsHandler:
             try:
                 with self.db_service.db_manager.get_session() as session:
                     result = session.execute(text("""
-                        SELECT column_name
-                        FROM information_schema.columns
-                        WHERE table_name = 'users'
+                        SELECT name
+                    FROM pragma_table_info('users')
                         AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
                     """))
                     notification_columns = [row[0] for row in result]
