@@ -347,6 +347,31 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
             pick_date(call)
             return
 
+        # Handle visualize callbacks
+        if (call.data.startswith("viz_currency_") or
+            call.data.startswith("viz_event_") or
+            call.data.startswith("viz_chart_") or
+            call.data == "viz_back_currencies"):
+
+            if not db_service:
+                bot.answer_callback_query(call.id, "❌ Database service not available")
+                return
+
+            # Import and initialize visualize handler
+            from .visualize_handler import VisualizeHandler
+            viz_handler = VisualizeHandler(db_service, config)
+
+            # Handle different visualize callbacks
+            if call.data.startswith("viz_currency_"):
+                viz_handler.handle_currency_selection(call, bot)
+            elif call.data.startswith("viz_event_"):
+                viz_handler.handle_event_selection(call, bot)
+            elif call.data.startswith("viz_chart_"):
+                viz_handler.handle_chart_generation(call, bot)
+            elif call.data == "viz_back_currencies":
+                viz_handler.handle_back_to_currencies(call, bot)
+            return
+
         # Handle classic news flow callbacks
         if call.data in ["ANALYSIS_YES", "ANALYSIS_NO"]:
             analysis_choice_callback(call)
@@ -400,6 +425,40 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
         markup = TelegramHandlers.generate_calendar(today.year, today.month)
 
         bot.reply_to(message, "Please pick a date:", reply_markup=markup)
+
+    @bot.message_handler(commands=["visualize"])
+    def show_visualize(message):
+        chat_id = message.chat.id
+        if not db_service:
+            bot.send_message(chat_id, "❌ Database service not available.")
+            return
+
+        # Import and initialize visualize handler
+        from .visualize_handler import VisualizeHandler
+        viz_handler = VisualizeHandler(db_service, config)
+
+        # Create currency selection keyboard
+        keyboard = []
+        row = []
+
+        for currency in viz_handler.available_currencies:
+            row.append(InlineKeyboardButton(currency, callback_data=f"viz_currency_{currency}"))
+            if len(row) == 3:  # 3 buttons per row
+                keyboard.append(row)
+                row = []
+
+        if row:  # Add remaining buttons
+            keyboard.append(row)
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        bot.send_message(
+            chat_id,
+            "📊 **Chart Visualization**\n\n"
+            "Select a currency to view available events and generate charts:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("cal_"))
     def calendar_nav(call):
@@ -578,6 +637,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 • /today - Get today's news
 • /tomorrow - Get tomorrow's news
 • /calendar - Select a specific date
+• /visualize - Generate charts for events
 
 <b>Features:</b>
 • 📊 Personalized news filtering
@@ -586,12 +646,18 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 • 🤖 AI-powered analysis
 • ⏰ Daily digest scheduling
 • ⚙️ User settings management
+• 📊 Chart visualization for events
 
 <b>Settings:</b>
 • Choose preferred currencies
 • Select impact levels (High/Medium/Low)
 • Enable/disable AI analysis
 • Set daily digest time
+
+<b>Visualization:</b>
+• Select currency and view events
+• Generate charts with customizable time windows
+• View price movements around news events
 
 Use /settings to customize your experience!
         """
