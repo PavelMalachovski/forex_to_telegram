@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from sqlalchemy import text
+from io import BytesIO
 
 from .database_service import ForexNewsService
 from .chart_service import chart_service
@@ -162,21 +163,20 @@ class VisualizeHandler:
 
         try:
             # Generate the chart
-            chart_path = self._generate_event_chart(event, currency, window_hours)
+            chart_buffer = self._generate_event_chart(event, currency, window_hours)
 
-            if chart_path:
+            if chart_buffer:
                 # Send the chart
-                with open(chart_path, 'rb') as photo:
-                    bot.send_photo(
-                        chat_id=call.from_user.id,
-                        photo=photo,
-                        caption=f"📊 **Chart for {currency}**\n\n"
-                               f"**Event:** {event['event']}\n"
-                               f"**Date:** {event['date']} {event['time']}\n"
-                               f"**Time window:** ±{window_hours}h\n"
-                               f"**Impact:** {event['impact_level']}",
-                        parse_mode='Markdown'
-                    )
+                bot.send_photo(
+                    chat_id=call.from_user.id,
+                    photo=chart_buffer,
+                    caption=f"📊 **Chart for {currency}**\n\n"
+                           f"**Event:** {event['event']}\n"
+                           f"**Date:** {event['date']} {event['time']}\n"
+                           f"**Time window:** ±{window_hours}h\n"
+                           f"**Impact:** {event['impact_level']}",
+                    parse_mode='Markdown'
+                )
 
                 # Show success message with options
                 keyboard = [
@@ -304,32 +304,22 @@ class VisualizeHandler:
             logger.error(f"Error getting event by ID {event_id}: {e}")
             return None
 
-    def _generate_event_chart(self, event: Dict[str, Any], currency: str, window_hours: float) -> Optional[str]:
+    def _generate_event_chart(self, event: Dict[str, Any], currency: str, window_hours: float) -> Optional[BytesIO]:
         """Generate a chart for the specified event."""
         try:
             # Parse event date and time
             event_date = datetime.strptime(f"{event['date']} {event['time']}", "%Y-%m-%d %H:%M")
 
-            # Calculate time window
-            start_time = event_date - timedelta(hours=window_hours)
-            end_time = event_date + timedelta(hours=window_hours)
-
-            # Get currency pair for the event
-            currency_pair = chart_service.get_currency_pair_for_currency(currency)
-            if not currency_pair:
-                logger.error(f"No currency pair found for {currency}")
-                return None
-
             # Generate the chart
-            chart_path = chart_service.create_event_chart(
-                currency_pair=currency_pair,
+            chart_buffer = chart_service.create_event_chart(
+                currency=currency,
                 event_time=event_date,
                 window_hours=window_hours,
                 event_name=event['event'],
                 impact_level=event['impact_level']
             )
 
-            return chart_path
+            return chart_buffer
 
         except Exception as e:
             logger.error(f"Error generating event chart: {e}")
