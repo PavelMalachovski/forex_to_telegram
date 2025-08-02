@@ -659,7 +659,7 @@ def add_notification_columns_endpoint():
             result = session.execute(text("""
                 SELECT name
                     FROM pragma_table_info('users')
-                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
             """))
             existing_columns = [row[0] for row in result]
 
@@ -718,7 +718,7 @@ def check_notification_columns():
             result = session.execute(text("""
                 SELECT name
                     FROM pragma_table_info('users')
-                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
             """))
             existing_columns = [row[0] for row in result]
 
@@ -748,7 +748,7 @@ def test_settings(user_id):
             result = session.execute(text("""
                 SELECT name
                     FROM pragma_table_info('users')
-                AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
             """))
             notification_columns = [row[0] for row in result]
 

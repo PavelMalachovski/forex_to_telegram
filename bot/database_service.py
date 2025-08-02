@@ -25,7 +25,7 @@ class ForexNewsService:
                 result = session.execute(text("""
                     SELECT name
                     FROM pragma_table_info('users')
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -124,7 +124,7 @@ class ForexNewsService:
                 result = session.execute(text("""
                     SELECT name
                     FROM pragma_table_info('users')
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone', 'charts_enabled', 'chart_type', 'chart_window_hours')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone', 'charts_enabled', 'chart_type', 'chart_window_hours')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -216,7 +216,7 @@ class ForexNewsService:
                 result = session.execute(text("""
                     SELECT name
                     FROM pragma_table_info('users')
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -281,7 +281,7 @@ class ForexNewsService:
                 result = session.execute(text("""
                     SELECT name
                     FROM pragma_table_info('users')
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -362,7 +362,7 @@ class ForexNewsService:
                 result = session.execute(text("""
                     SELECT name
                     FROM pragma_table_info('users')
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -430,7 +430,7 @@ class ForexNewsService:
                 result = session.execute(text("""
                     SELECT name
                     FROM pragma_table_info('users')
-                    AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 

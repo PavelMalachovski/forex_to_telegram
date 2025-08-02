@@ -55,7 +55,7 @@ class UserSettingsHandler:
                     result = session.execute(text("""
                         SELECT name
                     FROM pragma_table_info('users')
-                        AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                        WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
                     """))
                     notification_columns = [row[0] for row in result]
                     # Show notification button if at least notifications_enabled column exists
