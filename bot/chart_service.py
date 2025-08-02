@@ -22,24 +22,24 @@ class ChartService:
         self.cache_dir = cache_dir or os.path.join(tempfile.gettempdir(), 'forex_charts')
         self._ensure_cache_dir()
 
-        # Currency pair mappings for different currencies
+        # Currency pair mappings for different currencies with alternatives
         self.currency_pairs = {
-            'USD': 'EURUSD=X',  # EUR/USD as benchmark for USD events
-            'EUR': 'EURUSD=X',  # EUR/USD for EUR events
-            'GBP': 'GBPUSD=X',  # GBP/USD for GBP events
-            'JPY': 'USDJPY=X',  # USD/JPY for JPY events
-            'AUD': 'AUDUSD=X',  # AUD/USD for AUD events
-            'CAD': 'USDCAD=X',  # USD/CAD for CAD events
-            'CHF': 'USDCHF=X',  # USD/CHF for CHF events
-            'NZD': 'NZDUSD=X',  # NZD/USD for NZD events
-            'CNY': 'USDCNY=X',  # USD/CNY for CNY events
-            'INR': 'USDINR=X',  # USD/INR for INR events
-            'BRL': 'USDBRL=X',  # USD/BRL for BRL events
-            'RUB': 'USDRUB=X',  # USD/RUB for RUB events
-            'KRW': 'USDKRW=X',  # USD/KRW for KRW events
-            'MXN': 'USDMXN=X',  # USD/MXN for MXN events
-            'SGD': 'USDSGD=X',  # USD/SGD for SGD events
-            'HKD': 'USDHKD=X',  # USD/HKD for HKD events
+            'USD': ['EURUSD=X', 'GBPUSD=X'],  # EUR/USD and GBP/USD for USD events
+            'EUR': ['EURUSD=X', 'EURGBP=X'],  # EUR/USD and EUR/GBP for EUR events
+            'GBP': ['GBPUSD=X', 'EURGBP=X'],  # GBP/USD and EUR/GBP for GBP events
+            'JPY': ['USDJPY=X', 'EURJPY=X'],  # USD/JPY and EUR/JPY for JPY events
+            'AUD': ['AUDUSD=X', 'AUDJPY=X'],  # AUD/USD and AUD/JPY for AUD events
+            'CAD': ['USDCAD=X', 'EURCAD=X'],  # USD/CAD and EUR/CAD for CAD events
+            'CHF': ['USDCHF=X', 'EURCHF=X'],  # USD/CHF and EUR/CHF for CHF events
+            'NZD': ['NZDUSD=X', 'NZDJPY=X'],  # NZD/USD and NZD/JPY for NZD events
+            'CNY': ['USDCNY=X', 'EURCNY=X'],  # USD/CNY and EUR/CNY for CNY events
+            'INR': ['USDINR=X', 'EURINR=X'],  # USD/INR and EUR/INR for INR events
+            'BRL': ['USDBRL=X', 'EURBRL=X'],  # USD/BRL and EUR/BRL for BRL events
+            'RUB': ['USDRUB=X', 'EURRUB=X'],  # USD/RUB and EUR/RUB for RUB events
+            'KRW': ['USDKRW=X', 'EURKRW=X'],  # USD/KRW and EUR/KRW for KRW events
+            'MXN': ['USDMXN=X', 'EURMXN=X'],  # USD/MXN and EUR/MXN for MXN events
+            'SGD': ['USDSGD=X', 'EURSGD=X'],  # USD/SGD and EUR/SGD for SGD events
+            'HKD': ['USDHKD=X', 'EURHKD=X'],  # USD/HKD and EUR/HKD for HKD events
         }
 
         # Alternative indices for broader market context
@@ -99,12 +99,18 @@ class ChartService:
 
             for interval in intervals:
                 try:
-                    # Fetch data from Yahoo Finance
+                    # Fetch data from Yahoo Finance with retry mechanism
                     ticker = yf.Ticker(symbol)
+
+                    # Add a small delay to avoid rate limiting
+                    import time
+                    time.sleep(0.1)
+
                     data = ticker.history(
                         start=start_time,
                         end=end_time,
-                        interval=interval
+                        interval=interval,
+                        timeout=30  # Add timeout
                     )
 
                     if not data.empty:
@@ -130,7 +136,8 @@ class ChartService:
                 data = ticker.history(
                     start=broader_start,
                     end=broader_end,
-                    interval='1d'
+                    interval='1d',
+                    timeout=30
                 )
 
                 if not data.empty:
@@ -141,6 +148,28 @@ class ChartService:
             except Exception as e:
                 logger.error(f"Failed to fetch data with broader range for {symbol}: {e}")
 
+            # Try alternative symbols if the original fails
+            alternative_symbols = self._get_alternative_symbols(symbol)
+            for alt_symbol in alternative_symbols:
+                logger.info(f"Trying alternative symbol: {alt_symbol}")
+                try:
+                    ticker = yf.Ticker(alt_symbol)
+                    data = ticker.history(
+                        start=start_time,
+                        end=end_time,
+                        interval='1h',
+                        timeout=30
+                    )
+
+                    if not data.empty:
+                        logger.info(f"Successfully fetched {len(data)} data points for alternative symbol {alt_symbol}")
+                        self._cache_data(symbol, data, start_time, end_time)
+                        return data
+
+                except Exception as e:
+                    logger.warning(f"Failed to fetch data for alternative symbol {alt_symbol}: {e}")
+                    continue
+
             logger.warning(f"No data found for {symbol} in the specified time range with any method")
             return None
 
@@ -148,13 +177,34 @@ class ChartService:
             logger.error(f"Error fetching price data for {symbol}: {e}")
             return None
 
+    def _get_alternative_symbols(self, symbol: str) -> list:
+        """Get alternative symbols for a given currency pair."""
+        # Map common forex pairs to alternatives
+        alternatives = {
+            'GBPUSD=X': ['GBPUSD=X', 'GBPUSD=X', 'EURUSD=X'],  # Try EUR/USD as fallback
+            'EURUSD=X': ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X'],
+            'USDJPY=X': ['USDJPY=X', 'EURJPY=X', 'EURUSD=X'],
+            'AUDUSD=X': ['AUDUSD=X', 'AUDJPY=X', 'EURUSD=X'],
+            'USDCAD=X': ['USDCAD=X', 'EURCAD=X', 'EURUSD=X'],
+            'USDCHF=X': ['USDCHF=X', 'EURCHF=X', 'EURUSD=X'],
+            'NZDUSD=X': ['NZDUSD=X', 'NZDJPY=X', 'EURUSD=X'],
+        }
+
+        return alternatives.get(symbol, [])
+
     def get_currency_pair_for_event(self, currency: str) -> str:
         """Get the appropriate currency pair symbol for a given currency."""
-        return self.currency_pairs.get(currency, 'EURUSD=X')  # Default to EUR/USD
+        pairs = self.currency_pairs.get(currency, ['EURUSD=X'])
+        return pairs[0] if isinstance(pairs, list) else pairs  # Return first pair
 
     def get_currency_pair_for_currency(self, currency: str) -> str:
         """Get the appropriate currency pair symbol for a given currency (alias for compatibility)."""
         return self.get_currency_pair_for_event(currency)
+
+    def get_currency_pairs_for_currency(self, currency: str) -> list:
+        """Get all available currency pairs for a given currency."""
+        pairs = self.currency_pairs.get(currency, ['EURUSD=X'])
+        return pairs if isinstance(pairs, list) else [pairs]
 
     def create_event_chart(self,
                           currency: str,
@@ -170,8 +220,8 @@ class ChartService:
                 logger.warning(f"Event time {event_time} is in the future, cannot fetch price data")
                 return None
 
-            # Get the appropriate currency pair
-            symbol = self.get_currency_pair_for_event(currency)
+            # Get all available currency pairs for this currency
+            symbols = self.get_currency_pairs_for_currency(currency)
 
             # Calculate time window (1 hour before to 1 hour after by default)
             start_time = event_time - timedelta(hours=window_hours)
@@ -182,10 +232,22 @@ class ChartService:
                 end_time = now
                 logger.info(f"Adjusted end time to current time: {end_time}")
 
-            # Fetch price data
-            price_data = self.fetch_price_data(symbol, start_time, end_time)
+            # Try each currency pair until we find one with data
+            price_data = None
+            successful_symbol = None
+
+            for symbol in symbols:
+                logger.info(f"Trying currency pair: {symbol}")
+                price_data = self.fetch_price_data(symbol, start_time, end_time)
+                if price_data is not None and not price_data.empty:
+                    successful_symbol = symbol
+                    logger.info(f"Successfully found data for {symbol}")
+                    break
+                else:
+                    logger.warning(f"No price data available for {symbol} around {event_time}")
+
             if price_data is None or price_data.empty:
-                logger.warning(f"No price data available for {symbol} around {event_time}")
+                logger.warning(f"No price data available for any currency pairs for {currency} around {event_time}")
                 return None
 
             # Create the chart
@@ -194,7 +256,7 @@ class ChartService:
                 event_time,
                 event_name,
                 currency,
-                symbol,
+                successful_symbol,
                 impact_level
             )
 
