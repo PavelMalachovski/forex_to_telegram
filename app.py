@@ -649,88 +649,150 @@ def home():
 
 @app.route('/add_notification_columns', methods=['POST'])
 def add_notification_columns_endpoint():
-    """Add notification columns to the database."""
+    """Add notification and chart columns to the database."""
     try:
         if not db_service:
             return jsonify({"error": "Database service not available"}), 500
 
-        # Check if columns already exist
+        # Check if notification columns already exist
         with db_service.db_manager.get_session() as session:
-            result = session.execute(text("""
-                SELECT column_name
-                    FROM information_schema.columns
-                WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
-            """))
-            existing_columns = [row[0] for row in result]
+            # Try PostgreSQL first, then fallback to SQLite
+            try:
+                result = session.execute(text("""
+                    SELECT column_name
+                        FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'charts_enabled', 'chart_type', 'chart_window_hours')
+                """))
+                existing_columns = [row[0] for row in result]
+            except Exception:
+                # Fallback to SQLite pragma
+                result = session.execute(text("""
+                    SELECT name
+                        FROM pragma_table_info('users')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'charts_enabled', 'chart_type', 'chart_window_hours')
+                """))
+                existing_columns = [row[0] for row in result]
 
-            if len(existing_columns) == 3:
+            notification_columns = ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']
+            chart_columns = ['charts_enabled', 'chart_type', 'chart_window_hours']
+            
+            existing_notification_columns = [col for col in existing_columns if col in notification_columns]
+            existing_chart_columns = [col for col in existing_columns if col in chart_columns]
+
+            if len(existing_notification_columns) == 3 and len(existing_chart_columns) == 3:
                 return jsonify({
                     "status": "success",
-                    "message": "Notification columns already exist",
-                    "existing_columns": existing_columns
+                    "message": "All notification and chart columns already exist",
+                    "existing_notification_columns": existing_notification_columns,
+                    "existing_chart_columns": existing_chart_columns
                 })
 
-            # Add missing columns
-            columns_added = []
+            # Add missing notification columns
+            notification_columns_added = []
 
             if 'notifications_enabled' not in existing_columns:
                 session.execute(text("""
                     ALTER TABLE users
                     ADD COLUMN notifications_enabled BOOLEAN DEFAULT FALSE
                 """))
-                columns_added.append('notifications_enabled')
+                notification_columns_added.append('notifications_enabled')
 
             if 'notification_minutes' not in existing_columns:
                 session.execute(text("""
                     ALTER TABLE users
                     ADD COLUMN notification_minutes INTEGER DEFAULT 30
                 """))
-                columns_added.append('notification_minutes')
+                notification_columns_added.append('notification_minutes')
 
             if 'notification_impact_levels' not in existing_columns:
                 session.execute(text("""
                     ALTER TABLE users
                     ADD COLUMN notification_impact_levels TEXT DEFAULT 'high'
                 """))
-                columns_added.append('notification_impact_levels')
+                notification_columns_added.append('notification_impact_levels')
+
+            # Add missing chart columns
+            chart_columns_added = []
+
+            if 'charts_enabled' not in existing_columns:
+                session.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN charts_enabled BOOLEAN DEFAULT FALSE
+                """))
+                chart_columns_added.append('charts_enabled')
+
+            if 'chart_type' not in existing_columns:
+                session.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN chart_type VARCHAR(20) DEFAULT 'single'
+                """))
+                chart_columns_added.append('chart_type')
+
+            if 'chart_window_hours' not in existing_columns:
+                session.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN chart_window_hours INTEGER DEFAULT 2
+                """))
+                chart_columns_added.append('chart_window_hours')
 
             session.commit()
 
             return jsonify({
                 "status": "success",
-                "message": f"Added notification columns: {columns_added}",
-                "columns_added": columns_added
+                "message": f"Added notification columns: {notification_columns_added}, chart columns: {chart_columns_added}",
+                "notification_columns_added": notification_columns_added,
+                "chart_columns_added": chart_columns_added
             })
 
     except Exception as e:
-        logger.error(f"Error adding notification columns: {e}")
+        logger.error(f"Error adding notification and chart columns: {e}")
         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/check_notification_columns', methods=['GET'])
 def check_notification_columns():
-    """Check if notification columns exist in the database."""
+    """Check if notification and chart columns exist in the database."""
     try:
         if not db_service:
             return jsonify({"error": "Database service not available"}), 500
 
         with db_service.db_manager.get_session() as session:
-            result = session.execute(text("""
-                SELECT column_name
-                    FROM information_schema.columns
-                WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
-            """))
-            existing_columns = [row[0] for row in result]
+            # Try PostgreSQL first, then fallback to SQLite
+            try:
+                result = session.execute(text("""
+                    SELECT column_name
+                        FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'charts_enabled', 'chart_type', 'chart_window_hours')
+                """))
+                existing_columns = [row[0] for row in result]
+            except Exception:
+                # Fallback to SQLite pragma
+                result = session.execute(text("""
+                    SELECT name
+                        FROM pragma_table_info('users')
+                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'charts_enabled', 'chart_type', 'chart_window_hours')
+                """))
+                existing_columns = [row[0] for row in result]
+
+            notification_columns = ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']
+            chart_columns = ['charts_enabled', 'chart_type', 'chart_window_hours']
+            
+            existing_notification_columns = [col for col in existing_columns if col in notification_columns]
+            existing_chart_columns = [col for col in existing_columns if col in chart_columns]
 
             return jsonify({
                 "status": "success",
-                "existing_columns": existing_columns,
-                "all_columns_exist": len(existing_columns) == 3,
-                "notifications_enabled_exists": 'notifications_enabled' in existing_columns
+                "existing_notification_columns": existing_notification_columns,
+                "existing_chart_columns": existing_chart_columns,
+                "all_notification_columns_exist": len(existing_notification_columns) == 3,
+                "all_chart_columns_exist": len(existing_chart_columns) == 3,
+                "all_columns_exist": len(existing_notification_columns) == 3 and len(existing_chart_columns) == 3,
+                "notifications_enabled_exists": 'notifications_enabled' in existing_columns,
+                "charts_enabled_exists": 'charts_enabled' in existing_columns
             })
 
     except Exception as e:
-        logger.error(f"Error checking notification columns: {e}")
+        logger.error(f"Error checking notification and chart columns: {e}")
         return jsonify({"error": str(e)}), 500
 
 
