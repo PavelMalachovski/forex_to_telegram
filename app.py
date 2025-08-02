@@ -675,7 +675,7 @@ def add_notification_columns_endpoint():
 
             notification_columns = ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']
             chart_columns = ['charts_enabled', 'chart_type', 'chart_window_hours']
-            
+
             existing_notification_columns = [col for col in existing_columns if col in notification_columns]
             existing_chart_columns = [col for col in existing_columns if col in chart_columns]
 
@@ -776,7 +776,7 @@ def check_notification_columns():
 
             notification_columns = ['notifications_enabled', 'notification_minutes', 'notification_impact_levels']
             chart_columns = ['charts_enabled', 'chart_type', 'chart_window_hours']
-            
+
             existing_notification_columns = [col for col in existing_columns if col in notification_columns]
             existing_chart_columns = [col for col in existing_columns if col in chart_columns]
 
