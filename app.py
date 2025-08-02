@@ -3,7 +3,7 @@
 
 import asyncio
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional
 import hashlib
 
@@ -148,7 +148,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 
     try:
         if target_date is None:
-            target_date = datetime.now()
+            target_date = datetime.now(timezone(config.timezone))
         target_date_obj = target_date.date()
 
         # Always check/store all news for the date in the DB
@@ -485,7 +485,7 @@ def manual_scrape():
         target_date = None
         if date_str:
             try:
-                target_date = datetime.strptime(date_str, "%Y-%m-%d")
+                target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone(config.timezone))
             except ValueError:
                 return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
@@ -628,7 +628,7 @@ async def bulk_import_news(start_date: date, end_date: date, impact_level: str =
                 continue
 
             # Scrape news for the date
-            target_datetime = datetime.combine(current_date, datetime.min.time())
+            target_datetime = datetime.combine(current_date, datetime.min.time()).replace(tzinfo=timezone(config.timezone))
             news_items = await scraper.scrape_news(target_datetime, analysis_required=False, debug=True)
 
             if news_items:

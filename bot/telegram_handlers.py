@@ -2,7 +2,7 @@ import logging
 import asyncio
 import time
 import threading
-from datetime import datetime, timedelta, date as dt_date
+from datetime import datetime, timedelta, date as dt_date, timezone
 from typing import Callable
 
 import telebot
@@ -221,7 +221,7 @@ class TelegramHandlers:
         next_month = first_day.replace(day=28) + timedelta(days=4)
         days_in_month = (next_month - timedelta(days=next_month.day)).day
 
-        today = datetime.now().date()
+        today = datetime.now(timezone(config.timezone)).date()
 
         for day in range(1, days_in_month + 1):
             date_str = f"{year}-{month:02d}-{day:02d}"
@@ -255,9 +255,9 @@ class TelegramHandlers:
         markup.row(*nav_buttons)
 
         # Quick access buttons
-        today_str = datetime.today().strftime('%Y-%m-%d')
-        tomorrow_str = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
-        yesterday_str = (datetime.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+        today_str = datetime.now(timezone(config.timezone)).strftime('%Y-%m-%d')
+        tomorrow_str = (datetime.now(timezone(config.timezone)) + timedelta(days=1)).strftime('%Y-%m-%d')
+        yesterday_str = (datetime.now(timezone(config.timezone)) - timedelta(days=1)).strftime('%Y-%m-%d')
 
         quick_buttons = [
             InlineKeyboardButton("📅 Yesterday", callback_data=f"pickdate_{yesterday_str.replace('-', '_')}"),
@@ -386,7 +386,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
     def get_today_news(message):
         chat_id = message.chat.id
         user_id = message.from_user.id
-        user_state[chat_id] = {'date': datetime.now().date(), 'impact_level': 'high'}
+        user_state[chat_id] = {'date': datetime.now(timezone(config.timezone)).date(), 'impact_level': 'high'}
 
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
@@ -402,7 +402,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
     def get_tomorrow_news(message):
         chat_id = message.chat.id
         user_id = message.from_user.id
-        tomorrow = datetime.now().date() + timedelta(days=1)
+        tomorrow = datetime.now(timezone(config.timezone)).date() + timedelta(days=1)
         user_state[chat_id] = {'date': tomorrow, 'impact_level': 'high'}
 
         markup = InlineKeyboardMarkup(row_width=2)
@@ -421,7 +421,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
         user_id = message.from_user.id
         user_state[chat_id] = {'date': None, 'impact_level': 'high'}
 
-        today = datetime.now().date()
+        today = datetime.now(timezone(config.timezone)).date()
         markup = TelegramHandlers.generate_calendar(today.year, today.month)
 
         bot.reply_to(message, "Please pick a date:", reply_markup=markup)
@@ -485,7 +485,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
 
     @bot.callback_query_handler(func=lambda call: call.data == "pickdate_today")
     def pick_today(call):
-        today = datetime.now().date()
+        today = datetime.now(timezone(config.timezone)).date()
         user_state[call.message.chat.id] = {'date': today}
 
         # Check if user has saved preferences
@@ -510,7 +510,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                     # Fetch news directly with saved preferences
                     import asyncio
                     asyncio.run(process_news_func(
-                        datetime.combine(today, datetime.min.time()),
+                        datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone(config.timezone)),
                         impact_level,
                         saved_analysis,
                         False,
