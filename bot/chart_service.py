@@ -94,23 +94,55 @@ class ChartService:
 
             logger.info(f"Fetching price data for {symbol} from {start_time} to {end_time}")
 
-            # Fetch data from Yahoo Finance
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(
-                start=start_time,
-                end=end_time,
-                interval='1m'  # 1-minute intervals for detailed view
-            )
+            # Try different intervals if 1m fails
+            intervals = ['1m', '5m', '15m', '1h']
 
-            if data.empty:
-                logger.warning(f"No data found for {symbol} in the specified time range")
-                return None
+            for interval in intervals:
+                try:
+                    # Fetch data from Yahoo Finance
+                    ticker = yf.Ticker(symbol)
+                    data = ticker.history(
+                        start=start_time,
+                        end=end_time,
+                        interval=interval
+                    )
 
-            # Cache the data
-            self._cache_data(symbol, data, start_time, end_time)
+                    if not data.empty:
+                        logger.info(f"Successfully fetched {len(data)} data points for {symbol} using {interval} interval")
+                        # Cache the data
+                        self._cache_data(symbol, data, start_time, end_time)
+                        return data
+                    else:
+                        logger.warning(f"No data found for {symbol} with {interval} interval")
 
-            logger.info(f"Successfully fetched {len(data)} data points for {symbol}")
-            return data
+                except Exception as e:
+                    logger.warning(f"Failed to fetch data for {symbol} with {interval} interval: {e}")
+                    continue
+
+            # If all intervals fail, try with a broader time range
+            logger.info(f"Trying broader time range for {symbol}")
+            try:
+                ticker = yf.Ticker(symbol)
+                # Try with 1-day interval and broader range
+                broader_start = start_time - timedelta(days=1)
+                broader_end = end_time + timedelta(days=1)
+
+                data = ticker.history(
+                    start=broader_start,
+                    end=broader_end,
+                    interval='1d'
+                )
+
+                if not data.empty:
+                    logger.info(f"Successfully fetched {len(data)} data points for {symbol} with broader range")
+                    self._cache_data(symbol, data, start_time, end_time)
+                    return data
+
+            except Exception as e:
+                logger.error(f"Failed to fetch data with broader range for {symbol}: {e}")
+
+            logger.warning(f"No data found for {symbol} in the specified time range with any method")
+            return None
 
         except Exception as e:
             logger.error(f"Error fetching price data for {symbol}: {e}")
@@ -132,12 +164,23 @@ class ChartService:
                           window_hours: int = 2) -> Optional[BytesIO]:
         """Create a chart showing price movement around a news event."""
         try:
+            # Validate event time - don't try to fetch future data
+            now = datetime.now()
+            if event_time > now:
+                logger.warning(f"Event time {event_time} is in the future, cannot fetch price data")
+                return None
+
             # Get the appropriate currency pair
             symbol = self.get_currency_pair_for_event(currency)
 
             # Calculate time window (1 hour before to 1 hour after by default)
             start_time = event_time - timedelta(hours=window_hours)
             end_time = event_time + timedelta(hours=window_hours)
+
+            # Ensure we don't request future data
+            if end_time > now:
+                end_time = now
+                logger.info(f"Adjusted end time to current time: {end_time}")
 
             # Fetch price data
             price_data = self.fetch_price_data(symbol, start_time, end_time)

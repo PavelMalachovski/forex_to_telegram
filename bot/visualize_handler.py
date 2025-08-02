@@ -71,7 +71,10 @@ class VisualizeHandler:
         # Create keyboard with events
         keyboard = []
         for event in events[:10]:  # Limit to 10 events to avoid keyboard size issues
-            event_text = f"{event['date']} {event['time']} - {event['event'][:30]}..."
+            if event.get('is_future', False):
+                event_text = f"⏰ {event['date']} {event['time']} - {event['event'][:25]}... (Future)"
+            else:
+                event_text = f"📊 {event['date']} {event['time']} - {event['event'][:25]}..."
             callback_data = f"viz_event_{currency}_{event['id']}"
             keyboard.append([InlineKeyboardButton(event_text, callback_data=callback_data)])
 
@@ -104,6 +107,26 @@ class VisualizeHandler:
                 "❌ Event not found.",
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id
+            )
+            bot.answer_callback_query(call.id)
+            return
+
+        # Check if this is a future event
+        event_date = datetime.strptime(f"{event['date']} {event['time']}", "%Y-%m-%d %H:%M")
+        now = datetime.now()
+        is_future = event_date > now
+
+        if is_future:
+            # For future events, show a warning message
+            bot.edit_message_text(
+                f"⏰ **Future Event**\n\n"
+                f"**Event:** {event['event']}\n"
+                f"**Date:** {event['date']} {event['time']}\n"
+                f"**Currency:** {currency}\n\n"
+                f"⚠️ This event is in the future. Charts can only be generated for past events.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                parse_mode='Markdown'
             )
             bot.answer_callback_query(call.id)
             return
@@ -195,13 +218,26 @@ class VisualizeHandler:
                     parse_mode='Markdown'
                 )
             else:
+                # Check if it's a future event
+                event_date = datetime.strptime(f"{event['date']} {event['time']}", "%Y-%m-%d %H:%M")
+                now = datetime.now()
+
+                if event_date > now:
+                    error_message = f"❌ **Chart Generation Failed**\n\n" \
+                                  f"Cannot generate chart for future events.\n" \
+                                  f"Event date: {event['date']} {event['time']}\n" \
+                                  f"Current time: {now.strftime('%Y-%m-%d %H:%M')}"
+                else:
+                    error_message = f"❌ **Chart Generation Failed**\n\n" \
+                                  f"Could not generate chart for {currency}.\n" \
+                                  f"This might be due to:\n" \
+                                  f"• No price data available for this time period\n" \
+                                  f"• Network issues with data provider\n" \
+                                  f"• Market was closed during this period\n" \
+                                  f"• Try selecting a different time window"
+
                 bot.edit_message_text(
-                    f"❌ **Chart Generation Failed**\n\n"
-                    f"Could not generate chart for {currency}.\n"
-                    f"This might be due to:\n"
-                    f"• No price data available\n"
-                    f"• Network issues\n"
-                    f"• Invalid currency pair",
+                    error_message,
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                     parse_mode='Markdown'
@@ -259,16 +295,32 @@ class VisualizeHandler:
                 """), {'currency': currency})
 
                 events = []
+                now = datetime.now()
+
                 for row in result:
+                    event_date = row[1]
+                    event_time_str = row[2]
+
+                    # Parse the full datetime
+                    if event_date and event_time_str:
+                        try:
+                            event_datetime = datetime.strptime(f"{event_date.strftime('%Y-%m-%d')} {event_time_str}", "%Y-%m-%d %H:%M")
+                            is_future = event_datetime > now
+                        except ValueError:
+                            is_future = False
+                    else:
+                        is_future = False
+
                     events.append({
                         'id': row[0],
-                        'date': row[1].strftime('%Y-%m-%d') if row[1] else '',
-                        'time': row[2],
+                        'date': event_date.strftime('%Y-%m-%d') if event_date else '',
+                        'time': event_time_str,
                         'event': row[3],
                         'impact_level': row[4],
                         'actual': row[5],
                         'forecast': row[6],
-                        'previous': row[7]
+                        'previous': row[7],
+                        'is_future': is_future
                     })
 
                 return events
