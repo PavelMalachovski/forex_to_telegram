@@ -108,9 +108,9 @@ def test_database_connection():
         with db_manager.get_session() as session:
             # Check if notification columns exist
             result = session.execute(text("""
-                SELECT name
-                FROM pragma_table_info('users')
-                WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
             """))
             notification_columns = [row[0] for row in result]
 

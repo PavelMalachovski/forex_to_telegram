@@ -23,9 +23,9 @@ class ForexNewsService:
             with self.db_manager.get_session() as session:
                 # Check if notification columns exist
                 result = session.execute(text("""
-                    SELECT name
-                    FROM pragma_table_info('users')
-                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -122,9 +122,9 @@ class ForexNewsService:
             with self.db_manager.get_session() as session:
                 # Check if notification and chart columns exist
                 result = session.execute(text("""
-                    SELECT name
-                    FROM pragma_table_info('users')
-                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone', 'charts_enabled', 'chart_type', 'chart_window_hours')
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone', 'charts_enabled', 'chart_type', 'chart_window_hours')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -214,9 +214,9 @@ class ForexNewsService:
             with self.db_manager.get_session() as session:
                 # Check if notification columns exist
                 result = session.execute(text("""
-                    SELECT name
-                    FROM pragma_table_info('users')
-                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -279,9 +279,9 @@ class ForexNewsService:
             with self.db_manager.get_session() as session:
                 # Check if notification columns exist
                 result = session.execute(text("""
-                    SELECT name
-                    FROM pragma_table_info('users')
-                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -360,9 +360,9 @@ class ForexNewsService:
             with self.db_manager.get_session() as session:
                 # Check if notification columns exist
                 result = session.execute(text("""
-                    SELECT name
-                    FROM pragma_table_info('users')
-                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
@@ -428,9 +428,9 @@ class ForexNewsService:
             with self.db_manager.get_session() as session:
                 # Check if notification columns exist
                 result = session.execute(text("""
-                    SELECT name
-                    FROM pragma_table_info('users')
-                    WHERE name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name IN ('notifications_enabled', 'notification_minutes', 'notification_impact_levels', 'timezone')
                 """))
                 notification_columns = [row[0] for row in result]
 
