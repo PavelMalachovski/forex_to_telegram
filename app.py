@@ -23,6 +23,71 @@ config = Config()
 logger = setup_logging()
 app = Flask(__name__)
 
+def run_chart_migration():
+    """Run chart migration to add missing columns to users table."""
+    try:
+        from sqlalchemy import create_engine
+        database_url = config.get_database_url()
+
+        if not database_url:
+            logger.error("DATABASE_URL not configured. Cannot run chart migration.")
+            return False
+
+        engine = create_engine(database_url)
+
+        with engine.connect() as conn:
+            # Check if chart columns already exist
+            result = conn.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                AND column_name IN ('charts_enabled', 'chart_type', 'chart_window_hours')
+            """))
+
+            existing_columns = [row[0] for row in result]
+
+            # Add charts_enabled column if it doesn't exist
+            if 'charts_enabled' not in existing_columns:
+                conn.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN charts_enabled BOOLEAN DEFAULT FALSE
+                """))
+                logger.info("✅ Added charts_enabled column")
+            else:
+                logger.info("✅ charts_enabled column already exists")
+
+            # Add chart_type column if it doesn't exist
+            if 'chart_type' not in existing_columns:
+                conn.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN chart_type VARCHAR(20) DEFAULT 'single'
+                """))
+                logger.info("✅ Added chart_type column")
+            else:
+                logger.info("✅ chart_type column already exists")
+
+            # Add chart_window_hours column if it doesn't exist
+            if 'chart_window_hours' not in existing_columns:
+                conn.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN chart_window_hours INTEGER DEFAULT 2
+                """))
+                logger.info("✅ Added chart_window_hours column")
+            else:
+                logger.info("✅ chart_window_hours column already exists")
+
+            conn.commit()
+            logger.info("✅ Chart settings migration completed successfully!")
+            return True
+
+    except Exception as e:
+        logger.error(f"❌ Chart settings migration failed: {e}")
+        return False
+
+# Run chart migration before initializing services
+logger.info("🔄 Running chart migration...")
+chart_migration_success = run_chart_migration()
+
 bot_manager = TelegramBotManager(config)
 bot = bot_manager.bot
 
