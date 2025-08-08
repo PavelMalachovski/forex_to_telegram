@@ -19,6 +19,8 @@ from selenium.webdriver.common.keys import Keys
 import random
 import time
 import os
+import sys
+import subprocess
 
 class CloudflareBypassError(Exception):
     """Custom exception for Cloudflare challenge detection."""
@@ -151,26 +153,23 @@ class ForexNewsScraper:
     async def _scrape_with_selenium(self, url: str) -> str:
         """Scrape using undetected-chromedriver with human-like behavior."""
         try:
-            # Find Chrome binary
-            chrome_paths = [
-                "/usr/bin/google-chrome-stable",
-                "/usr/bin/google-chrome",
-                "/usr/bin/chromium-browser",
-                "/usr/bin/chromium",
-            ]
-            chrome_binary = None
-            for path in chrome_paths:
-                if os.path.exists(path):
-                    chrome_binary = path
-                    break
+            # Resolve Chrome binary cross-platform
+            chrome_binary = self._find_chrome_binary()
+            if chrome_binary:
+                logger.info(f"Using Chrome binary: {chrome_binary}")
+            else:
+                logger.warning("Chrome binary not found via known paths; proceeding without explicit binary_location")
 
-            if not chrome_binary:
-                raise CloudflareBypassError("Chrome binary not found")
-
-            logger.info(f"Using Chrome binary: {chrome_binary}")
+            # Try to detect installed Chrome major version for matching driver
+            chrome_major_version = self._get_chrome_major_version(chrome_binary)
+            if chrome_major_version:
+                logger.info(f"Detected Chrome major version: {chrome_major_version}")
+            else:
+                logger.warning("Could not detect Chrome version; letting undetected-chromedriver decide")
 
             options = uc.ChromeOptions()
-            options.binary_location = chrome_binary
+            if chrome_binary:
+                options.binary_location = chrome_binary
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
@@ -193,14 +192,18 @@ class ForexNewsScraper:
             options.add_argument("--no-default-browser-check")
             options.add_argument("--disable-blink-features=AutomationControlled")
             # Add headless mode
-            options.add_argument("--headless")
+            options.add_argument("--headless=new")
             # Add user agent
             options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             # Remove problematic experimental options
             # options.add_experimental_option("excludeSwitches", ["enable-automation"])
             # options.add_experimental_option("useAutomationExtension", False)
 
-            driver = uc.Chrome(options=options)
+            # Pin driver to installed Chrome major version when known to avoid mismatch
+            if chrome_major_version:
+                driver = uc.Chrome(options=options, version_main=int(chrome_major_version))
+            else:
+                driver = uc.Chrome(options=options)
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
             try:
@@ -295,13 +298,21 @@ class ForexNewsScraper:
         options.add_argument("--disable-software-rasterizer")
         options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--remote-debugging-port=9222")
-        # Set Google Chrome Stable binary location for Docker/Render.com
-        chrome_path = os.environ.get("CHROME_BINARY", "/usr/bin/google-chrome")
-        options.binary_location = chrome_path
-        logger.info(f"Launching Google Chrome with binary: {options.binary_location}")
+        # Resolve Chrome binary from env or OS defaults
+        chrome_binary = os.environ.get("CHROME_BINARY") or self._find_chrome_binary()
+        if chrome_binary:
+            options.binary_location = chrome_binary
+            logger.info(f"Launching Google Chrome with binary: {options.binary_location}")
+        else:
+            logger.warning("CHROME_BINARY not set and Chrome binary not found via known paths; proceeding without explicit binary_location")
         logger.info(f"ChromeOptions: {options.arguments}")
         logger.info("use_subprocess set to False for compatibility")
-        driver = uc.Chrome(options=options, use_subprocess=False)
+        # Match driver version to installed Chrome if known
+        chrome_major_version = self._get_chrome_major_version(chrome_binary)
+        if chrome_major_version:
+            driver = uc.Chrome(options=options, use_subprocess=False, version_main=int(chrome_major_version))
+        else:
+            driver = uc.Chrome(options=options, use_subprocess=False)
         try:
             driver.get(url)
             actions = ActionChains(driver)
@@ -341,6 +352,67 @@ class ForexNewsScraper:
             return html
         finally:
             driver.quit()
+
+    def _find_chrome_binary(self) -> str:
+        """Attempt to find the Chrome/Chromium binary across platforms."""
+        candidate_paths: List[str] = []
+        if sys.platform.startswith("linux"):
+            candidate_paths = [
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/google-chrome",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium",
+            ]
+        elif sys.platform.startswith("win"):
+            program_files = os.environ.get("PROGRAMFILES", r"C:\\Program Files")
+            program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\\Program Files (x86)")
+            local_app_data = os.environ.get("LOCALAPPDATA", r"C:\\Users\\%USERNAME%\\AppData\\Local")
+            candidate_paths = [
+                os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(local_app_data, "Google", "Chrome", "Application", "chrome.exe"),
+            ]
+        elif sys.platform == "darwin":
+            candidate_paths = [
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            ]
+        for path in candidate_paths:
+            try:
+                if os.path.exists(path):
+                    return path
+            except Exception:
+                continue
+        return ""
+
+    def _get_chrome_major_version(self, chrome_binary_path: Optional[str]) -> str:
+        """Return Chrome major version as string if detectable, else empty string."""
+        try:
+            version_output = ""
+            if chrome_binary_path and os.path.exists(chrome_binary_path):
+                # On Windows and Mac/Linux, Chrome supports --version
+                proc = subprocess.run([chrome_binary_path, "--version"], capture_output=True, text=True, timeout=5)
+                version_output = (proc.stdout or proc.stderr or "").strip()
+            else:
+                # Try generic 'google-chrome --version' in PATH
+                for cmd in ["google-chrome", "google-chrome-stable", "chrome", "chromium", "chromium-browser"]:
+                    try:
+                        proc = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=3)
+                        if proc.returncode == 0 and (proc.stdout or proc.stderr):
+                            version_output = (proc.stdout or proc.stderr).strip()
+                            if version_output:
+                                break
+                    except Exception:
+                        continue
+            if not version_output:
+                return ""
+            # version_output examples:
+            # "Google Chrome 138.0.7204.183" or "Chromium 120.0.0.0"
+            import re as _re
+            m = _re.search(r"(\d+)\.\d+\.\d+\.\d+", version_output)
+            return m.group(1) if m else ""
+        except Exception:
+            return ""
 
     def _parse_news_from_html(self, html: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, 'html.parser')
@@ -623,8 +695,13 @@ class MessageFormatter:
             # Group event highlight
             if len(items) > 1:
                 message_parts.append(f"<b>🚨 GROUP EVENT at {time} ({len(items)} events)</b>\n")
-                if analysis_required and items[0].get('analysis'):
-                    message_parts.append(f"🔍 <b>Group Analysis:</b> {items[0]['analysis']}\n")
+                group_analysis_text = ''
+                if analysis_required:
+                    candidate = items[0].get('analysis')
+                    if candidate:
+                        group_analysis_text = str(candidate).replace('\\', '')
+                if group_analysis_text:
+                    message_parts.append(f"🔍 <b>Group Analysis:</b> {group_analysis_text}\n")
             for idx, item in enumerate(items):
                 impact_emoji = {
                     'high': '🔴',
@@ -634,19 +711,22 @@ class MessageFormatter:
                     'none': '⚪️',
                     'unknown': '❓',
                 }.get(item.get('impact', 'unknown'), '❓')
-                # Remove unnecessary backslashes in Actual, Forecast and Previous
+                # Remove unnecessary backslashes from all fields when displaying in HTML
+                event = str(item['event']).replace('\\', '') if item['event'] else 'N/A'
                 actual = str(item['actual']).replace('\\', '') if item['actual'] else 'N/A'
                 forecast = str(item['forecast']).replace('\\', '') if item['forecast'] else 'N/A'
                 previous = str(item['previous']).replace('\\', '') if item['previous'] else 'N/A'
+                analysis = str(item.get('analysis', '')).replace('\\', '') if item.get('analysis') else ''
+
                 part = (
                     f"⏰ <b>{item['time']}</b> {impact_emoji} <b>Impact:</b> {item.get('impact', 'unknown').capitalize()}\n"
-                    f"📰 <b>Event:</b> {item['event']}\n"
+                    f"📰 <b>Event:</b> {event}\n"
                     f"📊 <b>Actual:</b> {actual}\n"
                     f"📈 <b>Forecast:</b> {forecast}\n"
                     f"📉 <b>Previous:</b> {previous}\n"
                 )
-                if analysis_required and not item.get('group_analysis', False) and item.get('analysis'):
-                    part += f"🔍 <b>Analysis:</b> {item['analysis']}\n"
+                if analysis_required and not item.get('group_analysis', False) and analysis:
+                    part += f"🔍 <b>Analysis:</b> {analysis}\n"
                 # Add new line between events in group, but not after the last one
                 if len(items) > 1 and idx < len(items) - 1:
                     part += "\n"
