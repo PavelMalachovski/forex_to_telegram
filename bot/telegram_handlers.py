@@ -68,8 +68,11 @@ class TelegramBotManager:
                 except Exception as e:
                     logger.warning("Failed to remove existing webhook: %s", e)
 
-                # Set new webhook
-                result = self.bot.set_webhook(url=webhook_url)
+                # Set new webhook (include secret token if configured)
+                webhook_kwargs = {"url": webhook_url}
+                if getattr(self.config, "telegram_webhook_secret", None):
+                    webhook_kwargs["secret_token"] = self.config.telegram_webhook_secret
+                result = self.bot.set_webhook(**webhook_kwargs)
                 if result:
                     logger.info("Webhook setup returned True")
 
@@ -365,6 +368,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
         # Handle visualize callbacks
         if (call.data.startswith("viz_currency_") or
             call.data.startswith("viz_event_name_") or
+            call.data.startswith("viz_events_") or
             call.data.startswith("viz_event_") or
             call.data.startswith("viz_chart_") or
             call.data.startswith("viz_multi_") or
@@ -389,6 +393,9 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                 elif call.data.startswith("viz_event_name_"):
                     logger.info("Handling event name selection")
                     viz_handler.handle_event_name_selection(call, bot)
+                elif call.data.startswith("viz_events_"):
+                    logger.info("Handling events pagination")
+                    viz_handler.handle_events_page(call, bot)
                 elif call.data.startswith("viz_event_"):
                     logger.info("Handling event selection")
                     viz_handler.handle_event_selection(call, bot)

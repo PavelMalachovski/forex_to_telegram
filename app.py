@@ -8,7 +8,8 @@ from typing import Optional
 import hashlib
 import pytz
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
+import html
 import telebot
 
 from bot.config import Config, setup_logging
@@ -34,7 +35,7 @@ def run_chart_migration():
             logger.error("DATABASE_URL not configured. Cannot run chart migration.")
             return False
 
-        engine = create_engine(database_url)
+        engine = create_engine(database_url, pool_pre_ping=True)
 
         with engine.connect() as conn:
             # Check if chart columns already exist
@@ -87,7 +88,10 @@ def run_chart_migration():
 
 # Run chart migration before initializing services
 logger.info("🔄 Running chart migration...")
-chart_migration_success = run_chart_migration()
+try:
+    chart_migration_success = run_chart_migration()
+except Exception:
+    chart_migration_success = False
 
 bot_manager = TelegramBotManager(config)
 bot = bot_manager.bot
@@ -149,7 +153,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 
     try:
         if target_date is None:
-            target_date = datetime.now(timezone(config.timezone))
+            target_date = datetime.now(pytz.timezone(config.timezone))
         target_date_obj = target_date.date()
 
         # Always check/store all news for the date in the DB
@@ -219,6 +223,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 @app.route('/webhook_debug', methods=['GET'])
 def webhook_debug():
     """Debug endpoint to check webhook status."""
+    _require_api_key()
     if not bot:
         return jsonify({"error": "Bot not initialized"}), 500
 
@@ -250,6 +255,7 @@ def webhook_debug():
 @app.route('/bot_status', methods=['GET'])
 def bot_status():
     """Comprehensive bot status check."""
+    _require_api_key()
     if not bot_manager:
         return jsonify({"error": "Bot manager not initialized"}), 500
 
@@ -285,6 +291,7 @@ def bot_status():
 @app.route('/force_webhook_setup', methods=['POST'])
 def force_webhook_setup():
     """Force webhook setup with detailed logging."""
+    _require_api_key()
     if not bot_manager:
         return jsonify({"error": "Bot manager not initialized"}), 500
 
@@ -313,6 +320,7 @@ def force_webhook_setup():
 @app.route('/test_bot', methods=['POST'])
 def test_bot():
     """Test endpoint to verify bot functionality."""
+    _require_api_key()
     if not bot:
         return jsonify({"error": "Bot not initialized"}), 500
 
@@ -355,8 +363,26 @@ def setup_webhook_manual():
         return jsonify({"error": str(e)}), 500
 
 
+def _require_api_key():
+    """Abort 401 if API_KEY is configured and request lacks valid key."""
+    if config.api_key:
+        key = request.headers.get('X-API-Key') or request.args.get('api_key')
+        if key != config.api_key:
+            abort(401)
+
+
+def _verify_webhook_secret():
+    """Abort 401 if TELEGRAM_WEBHOOK_SECRET is configured and request lacks a matching header."""
+    secret = config.telegram_webhook_secret
+    if secret:
+        received = request.headers.get('X-Telegram-Secret-Token') or request.headers.get('X-Telegram-Bot-Api-Secret-Token')
+        if received != secret:
+            abort(401)
+
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    _verify_webhook_secret()
     if not bot:
         logger.error("Webhook called but bot not initialized")
         return jsonify({"error": "Bot not initialized"}), 500
@@ -388,11 +414,18 @@ def webhook():
                     try:
                         group_name = update.message.chat.title or "Unknown Group"
                         user_name = update.message.from_user.first_name or "Unknown"
-                        message = f"📢 **GROUP EVENT NOTIFICATION**\n\nGroup: {group_name}\nUser: {user_name}\nMessage: {message_text[:100]}{'...' if len(message_text) > 100 else ''}"
+                        # Escape for HTML to prevent injection
+                        safe_message_text = html.escape(message_text[:100]) + ("..." if len(message_text) > 100 else "")
+                        message = (
+                            f"📢 <b>GROUP EVENT NOTIFICATION</b>\n\n"
+                            f"Group: {html.escape(group_name)}\n"
+                            f"User: {html.escape(user_name)}\n"
+                            f"Message: {safe_message_text}"
+                        )
 
                         # Send to the configured chat_id (not the group)
                         if config.telegram_chat_id:
-                            bot.send_message(config.telegram_chat_id, message, parse_mode="Markdown")
+                            bot.send_message(config.telegram_chat_id, message, parse_mode="HTML")
                             logger.info("Group event notification sent successfully")
                         else:
                             logger.warning("No telegram_chat_id configured for group notifications")
@@ -419,6 +452,7 @@ def webhook():
 
 @app.route('/test_webhook', methods=['POST'])
 def test_webhook():
+    _verify_webhook_secret()
     """Test webhook endpoint that doesn't process the full update."""
     if not bot:
         logger.error("Test webhook called but bot not initialized")
@@ -476,6 +510,7 @@ def health():
 
 @app.route('/manual_scrape', methods=['POST'])
 def manual_scrape():
+    _require_api_key()
     """Manual scraping endpoint for testing."""
     try:
         data = request.get_json() or {}
@@ -507,6 +542,7 @@ def manual_scrape():
 
 @app.route('/db/stats', methods=['GET'])
 def db_stats():
+    _require_api_key()
     """Get database statistics."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -533,6 +569,7 @@ def db_stats():
 
 @app.route('/db/check/<date_str>', methods=['GET'])
 def db_check_date(date_str):
+    _require_api_key()
     """Check if news exists for a specific date."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -572,6 +609,7 @@ def db_check_date(date_str):
 
 @app.route('/db/import', methods=['POST'])
 def db_import():
+    _require_api_key()
     """Bulk import news for a date range."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -715,6 +753,7 @@ def home():
 
 @app.route('/add_notification_columns', methods=['POST'])
 def add_notification_columns_endpoint():
+    _require_api_key()
     """Add notification and chart columns to the database."""
     try:
         if not db_service:
@@ -817,6 +856,7 @@ def add_notification_columns_endpoint():
 
 @app.route('/check_notification_columns', methods=['GET'])
 def check_notification_columns():
+    _require_api_key()
     """Check if notification and chart columns exist in the database."""
     try:
         if not db_service:
@@ -864,6 +904,7 @@ def check_notification_columns():
 
 @app.route('/test_settings/<int:user_id>', methods=['GET'])
 def test_settings(user_id):
+    _require_api_key()
     """Test settings for a specific user."""
     try:
         if not db_service:
@@ -899,6 +940,7 @@ def test_settings(user_id):
 
 @app.route('/test_digest_timezone', methods=['POST'])
 def test_digest_timezone():
+    _require_api_key()
     """Test timezone-aware digest functionality."""
     if not digest_scheduler:
         return jsonify({"error": "Digest scheduler not initialized"}), 500
@@ -925,6 +967,7 @@ def test_digest_timezone():
 
 @app.route('/refresh_digest_jobs', methods=['POST'])
 def refresh_digest_jobs():
+    _require_api_key()
     """Refresh digest jobs with current user preferences."""
     if not digest_scheduler:
         return jsonify({"error": "Digest scheduler not initialized"}), 500
@@ -948,6 +991,7 @@ def refresh_digest_jobs():
 
 @app.route('/notification_stats', methods=['GET'])
 def notification_stats():
+    _require_api_key()
     """Get notification statistics and deduplication status."""
     try:
         stats = notification_deduplication.get_notification_stats()
@@ -1024,6 +1068,7 @@ def initialize_application():
 
 @app.route('/initialize', methods=['POST'])
 def manual_initialize():
+    _require_api_key()
     """Manually trigger application initialization."""
     try:
         logger.info("🔄 Manual initialization triggered")

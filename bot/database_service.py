@@ -611,17 +611,20 @@ class ForexNewsService:
         """Store news items in the database."""
         try:
             with self.db_manager.get_session() as session:
-                # Delete existing news for this date and impact level
+                # Delete existing news for this date. If impact_level == 'all', remove all rows for the date
+                # to avoid duplicates across repeated imports.
                 start_datetime = datetime.combine(target_date, datetime.min.time())
                 end_datetime = datetime.combine(target_date, datetime.max.time())
 
-                session.query(ForexNews).filter(
+                delete_query = session.query(ForexNews).filter(
                     and_(
                         ForexNews.date >= start_datetime,
                         ForexNews.date <= end_datetime,
-                        ForexNews.impact_level == impact_level
                     )
-                ).delete()
+                )
+                if impact_level != "all":
+                    delete_query = delete_query.filter(ForexNews.impact_level == impact_level)
+                delete_query.delete(synchronize_session=False)
 
                 # Insert new news items
                 for item in news_items:

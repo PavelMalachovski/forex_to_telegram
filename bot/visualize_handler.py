@@ -18,27 +18,19 @@ class VisualizeHandler:
     def __init__(self, db_service: ForexNewsService, config: Config):
         self.db_service = db_service
         self.config = config
+        # Pruned currency list per request
         self.available_currencies = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]
+        # Limit to only 1h and 2h symmetric windows
         self.time_windows = [
-            ("30min", 0.5),
             ("1h", 1),
-            ("2h", 2),
-            ("3h", 3)
+            ("2h", 2)
         ]
 
         # Asymmetric time windows for cross-rate analysis
+        # Limit to only 1h before → 1h after and 2h before → 2h after
         self.cross_rate_windows = [
-            # (name, before_hours, after_hours)
-            ("30m before → 1h after", 0.5, 1),
-            ("30m before → 2h after", 0.5, 2),
-            ("30m before → 3h after", 0.5, 3),
-            ("1h before → 30m after", 1, 0.5),
             ("1h before → 1h after", 1, 1),
-            ("1h before → 2h after", 1, 2),
-            ("1h before → 3h after", 1, 3),
-            ("2h before → 1h after", 2, 1),
             ("2h before → 2h after", 2, 2),
-            ("3h before → 1h after", 3, 1),
         ]
 
     def handle_visualize_command(self, message, bot):
@@ -82,36 +74,25 @@ class VisualizeHandler:
             )
             bot.answer_callback_query(call.id)
             return
-
-        # Create keyboard with unique events (no dates/times)
-        keyboard = []
-        for event_name in unique_events[:10]:  # Limit to 10 events to avoid keyboard size issues
-            # Truncate long event names for button display
-            display_name = event_name[:40] + "..." if len(event_name) > 40 else event_name
-            callback_data = f"viz_event_name_{currency}_{event_name[:50]}"  # Limit callback data length
-            keyboard.append([InlineKeyboardButton(f"📊 {display_name}", callback_data=callback_data)])
-
-        # Add back button
-        keyboard.append([InlineKeyboardButton("🔙 Back to Currencies", callback_data="viz_back_currencies")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        bot.edit_message_text(
-            f"📈 **Events for {currency}**\n\n"
-            f"Found {len(unique_events)} unique events. Select an event to see available dates:",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        # Show first page
+        self._render_events_page(bot, call, currency, unique_events, page=0)
         bot.answer_callback_query(call.id)
 
     def handle_event_name_selection(self, call: CallbackQuery, bot):
         """Handle event name selection - show dates for this specific event."""
-        # Parse callback data: viz_event_name_CURRENCY_EVENTNAME
-        callback_parts = call.data.replace("viz_event_name_", "").split("_", 1)
+        # Parse callback data: viz_event_name_CURRENCY_EVENTNAME[__pgN]
+        payload = call.data.replace("viz_event_name_", "")
+        callback_parts = payload.split("_", 1)
         currency = callback_parts[0]
-        event_name = callback_parts[1] if len(callback_parts) > 1 else ""
+        raw_event = callback_parts[1] if len(callback_parts) > 1 else ""
+        page = 0
+        if raw_event.endswith("__pg0") or "__pg" in raw_event:
+            try:
+                raw_event, pg = raw_event.rsplit("__pg", 1)
+                page = int(pg)
+            except Exception:
+                page = 0
+        event_name = raw_event
 
         # Get dates for this specific event
         event_dates = self._get_dates_for_event(currency, event_name)
@@ -128,9 +109,15 @@ class VisualizeHandler:
             bot.answer_callback_query(call.id)
             return
 
-        # Create keyboard with event dates
+        # Create keyboard with event dates (paginated)
+        PAGE_SIZE = 12
+        total = len(event_dates)
+        start = page * PAGE_SIZE
+        end = start + PAGE_SIZE
+        page_items = event_dates[start:end]
+
         keyboard = []
-        for event_data in event_dates[:15]:  # Limit to 15 dates
+        for event_data in page_items:
             date_time_str = f"{event_data['date']} {event_data['time']}"
             impact_emoji = {
                 'high': '🔴',
@@ -141,6 +128,16 @@ class VisualizeHandler:
             button_text = f"{impact_emoji} {date_time_str}"
             callback_data = f"viz_event_{currency}_{event_data['id']}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+
+        # Add pagination row if needed
+        max_page = (total - 1) // PAGE_SIZE if total else 0
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"viz_event_name_{currency}_{event_name}__pg{page-1}"))
+        if page < max_page:
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"viz_event_name_{currency}_{event_name}__pg{page+1}"))
+        if nav_row:
+            keyboard.append(nav_row)
 
         # Add back buttons
         keyboard.append([InlineKeyboardButton("🔙 Back to Events", callback_data=f"viz_currency_{currency}")])
@@ -161,6 +158,55 @@ class VisualizeHandler:
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
+        bot.answer_callback_query(call.id)
+
+    def _render_events_page(self, bot, call: CallbackQuery, currency: str, unique_events: List[str], page: int):
+        PAGE_SIZE = 10
+        total = len(unique_events)
+        start = page * PAGE_SIZE
+        end = start + PAGE_SIZE
+        page_events = unique_events[start:end]
+
+        keyboard = []
+        for event_name in page_events:
+            display_name = event_name[:40] + "..." if len(event_name) > 40 else event_name
+            callback_data = f"viz_event_name_{currency}_{event_name[:50]}"
+            keyboard.append([InlineKeyboardButton(f"📊 {display_name}", callback_data=callback_data)])
+
+        # Pagination controls
+        max_page = (total - 1) // PAGE_SIZE if total else 0
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"viz_events_{currency}_{page-1}"))
+        if page < max_page:
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"viz_events_{currency}_{page+1}"))
+        if nav_row:
+            keyboard.append(nav_row)
+
+        # Back
+        keyboard.append([InlineKeyboardButton("🔙 Back to Currencies", callback_data="viz_back_currencies")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        bot.edit_message_text(
+            f"📈 **Events for {currency}**\n\n"
+            f"Found {total} unique events. Select an event to see available dates (page {page+1}/{max_page+1}):",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+    def handle_events_page(self, call: CallbackQuery, bot):
+        # Parse callback data: viz_events_CURRENCY_PAGE
+        payload = call.data.replace("viz_events_", "")
+        try:
+            currency, page_str = payload.rsplit("_", 1)
+            page = int(page_str)
+        except Exception:
+            currency, page = payload, 0
+        unique_events = self._get_unique_events_for_currency(currency)
+        self._render_events_page(bot, call, currency, unique_events, page)
         bot.answer_callback_query(call.id)
 
     def handle_event_selection(self, call: CallbackQuery, bot):
@@ -558,7 +604,6 @@ class VisualizeHandler:
                     FROM forex_news
                     WHERE currency = :currency
                     ORDER BY event
-                    LIMIT 20
                 """), {'currency': currency})
 
                 unique_events = [row[0] for row in result]
@@ -652,7 +697,6 @@ class VisualizeHandler:
                     FROM forex_news
                     WHERE currency = :currency AND event = :event_name
                     ORDER BY date DESC, time DESC
-                    LIMIT 30
                 """), {'currency': currency, 'event_name': event_name})
 
                 events = []
@@ -694,7 +738,11 @@ class VisualizeHandler:
         """Generate a chart for the specified event."""
         try:
             # Parse event date and time
-            event_date = datetime.strptime(f"{event['date']} {event['time']}", "%Y-%m-%d %H:%M")
+            # Interpret DB times in display timezone to avoid UTC shifts
+            import pytz
+            tz = pytz.timezone(self.config.timezone)
+            naive_dt = datetime.strptime(f"{event['date']} {event['time']}", "%Y-%m-%d %H:%M")
+            event_date = tz.localize(naive_dt)
 
             # Generate the chart
             chart_buffer = chart_service.create_event_chart(
@@ -715,7 +763,10 @@ class VisualizeHandler:
         """Generate a multi-currency chart for the specified event."""
         try:
             # Parse event date and time
-            event_date = datetime.strptime(f"{event['date']} {event['time']}", "%Y-%m-%d %H:%M")
+            import pytz
+            tz = pytz.timezone(self.config.timezone)
+            naive_dt = datetime.strptime(f"{event['date']} {event['time']}", "%Y-%m-%d %H:%M")
+            event_date = tz.localize(naive_dt)
 
             # Generate the multi-currency chart with asymmetric time windows
             chart_buffer = chart_service.create_multi_currency_chart(
@@ -738,6 +789,7 @@ class VisualizeHandler:
         """Get callback handlers for this module."""
         return {
             'viz_currency_': self.handle_currency_selection,
+            'viz_events_': self.handle_events_page,
             'viz_event_': self.handle_event_selection,
             'viz_chart_': self.handle_chart_generation,
             'viz_multi_': self.handle_multi_currency_selection,

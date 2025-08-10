@@ -27,6 +27,11 @@ class ChartService:
     def __init__(self, cache_dir: str = None, allow_mock_data: Optional[bool] = None, enable_alpha_vantage: Optional[bool] = None, enable_alternative_symbols: Optional[bool] = None):
         self.cache_dir = cache_dir or os.path.join(tempfile.gettempdir(), 'forex_charts')
         self._ensure_cache_dir()
+        # Persistent charts directory and retention policy
+        self.charts_dir = os.path.join(self.cache_dir, 'charts')
+        self._ensure_charts_dir()
+        self.chart_retention_days = int(os.getenv('CHART_RETENTION_DAYS', '3'))
+        self._last_chart_prune = datetime.min
 
         # Control whether mock data is allowed as a last resort
         if allow_mock_data is None:
@@ -74,12 +79,7 @@ class ChartService:
             'CHF': ['USDCHF=X', 'EURCHF=X'],  # USD/CHF and EUR/CHF for CHF events
             'NZD': ['NZDUSD=X', 'NZDJPY=X'],  # NZD/USD and NZD/JPY for NZD events
             'CNY': ['USDCNY=X', 'EURCNY=X'],  # USD/CNY and EUR/CNY for CNY events
-            'INR': ['USDINR=X', 'EURINR=X'],  # USD/INR and EUR/INR for INR events
-            'BRL': ['USDBRL=X', 'EURBRL=X'],  # USD/BRL and EUR/BRL for BRL events
-            'RUB': ['USDRUB=X', 'EURRUB=X'],  # USD/RUB and EUR/RUB for RUB events
-            'KRW': ['USDKRW=X', 'EURKRW=X'],  # USD/KRW and EUR/KRW for KRW events
-            'MXN': ['USDMXN=X', 'EURMXN=X'],  # USD/MXN and EUR/MXN for MXN events
-            'SGD': ['USDSGD=X', 'EURSGD=X'],  # USD/SGD and EUR/SGD for SGD events
+            # Removed: INR, BRL, RUB, KRW, MXN, SGD per request
             'HKD': ['USDHKD=X', 'EURHKD=X'],  # USD/HKD and EUR/HKD for HKD events
         }
 
@@ -175,6 +175,15 @@ class ChartService:
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
             logger.info(f"Created chart cache directory: {self.cache_dir}")
+
+    def _ensure_charts_dir(self):
+        """Ensure the charts directory exists for persisted images."""
+        try:
+            if not os.path.exists(self.charts_dir):
+                os.makedirs(self.charts_dir)
+                logger.info(f"Created charts directory: {self.charts_dir}")
+        except Exception as e:
+            logger.error(f"Failed to create charts directory: {e}")
 
     def _get_cached_data(self, symbol: str, start_time: datetime, end_time: datetime) -> Optional[pd.DataFrame]:
         """Get cached price data if available and fresh."""
@@ -619,13 +628,17 @@ class ChartService:
                           window_hours: int = 2) -> Optional[BytesIO]:
         """Create a chart showing price movement around a news event."""
         try:
-            # Ensure event_time is timezone-aware
+            # Ensure event_time is timezone-aware; assume stored times are in display timezone (e.g., Prague)
             if event_time.tzinfo is None:
-                event_time = pytz.UTC.localize(event_time)
+                try:
+                    event_time = self.display_tz.localize(event_time)
+                except Exception:
+                    event_time = pytz.UTC.localize(event_time)
 
             # Validate event time - don't try to fetch future data
-            now = datetime.now(pytz.UTC)
-            if event_time > now:
+            # Convert to display tz for comparison to local current time
+            now = datetime.now(self.display_tz)
+            if event_time.astimezone(self.display_tz) > now:
                 logger.warning(f"Event time {event_time} is in the future, cannot fetch price data")
                 return None
 
@@ -637,9 +650,9 @@ class ChartService:
             end_time = event_time + timedelta(hours=window_hours)
 
             # Ensure we don't request future data
-            now = datetime.now(pytz.UTC)
-            if end_time > now:
-                end_time = now
+            now = datetime.now(self.display_tz)
+            if end_time.astimezone(self.display_tz) > now:
+                end_time = now.astimezone(event_time.tzinfo)
                 logger.info(f"Adjusted end time to current time: {end_time}")
 
             # Try each currency pair until we find one with data
@@ -667,7 +680,8 @@ class ChartService:
                 event_name,
                 currency,
                 successful_symbol,
-                impact_level
+                impact_level,
+                window_hours
             )
 
         except Exception as e:
@@ -680,7 +694,8 @@ class ChartService:
                        event_name: str,
                        currency: str,
                        symbol: str,
-                       impact_level: str) -> BytesIO:
+                       impact_level: str,
+                       window_hours: int) -> BytesIO:
         """Generate a matplotlib chart with the price data and event marker."""
         try:
             # Set up the plot
@@ -694,8 +709,14 @@ class ChartService:
             local_index = price_data.index.tz_convert(self.display_tz) if price_data.index.tzinfo else price_data.index.tz_localize(self.display_tz)
             event_time_local = event_time.astimezone(self.display_tz)
 
-            # Plot price data
-            ax1.plot(local_index, price_data['Close'], linewidth=1.5, color='#1f77b4', alpha=0.8)
+            # Plot price data as candlesticks when OHLC is available
+            try:
+                ohlc = price_data[['Open', 'High', 'Low', 'Close']].copy()
+                ohlc.index = local_index
+                self._plot_candlesticks(ax1, ohlc, f'{currency}/{symbol.split("=")[0][-3:]}')
+            except Exception as e:
+                logger.warning(f"Candlestick plot failed, falling back to line chart: {e}")
+                ax1.plot(local_index, price_data['Close'], linewidth=1.5, color='#1f77b4', alpha=0.8)
             ax1.set_ylabel('Price', fontsize=12)
             ax1.grid(True, alpha=0.3)
 
@@ -723,9 +744,11 @@ class ChartService:
                 ax2.grid(True, alpha=0.3)
 
             # Format x-axis
+            # X-axis: show ticks every 30 minutes for consistency
+            major_interval = 30
             for ax in [ax1, ax2]:
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M', tz=self.display_tz))
-                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=major_interval))
                 plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
 
             # Add legend
@@ -751,6 +774,12 @@ class ChartService:
             plt.close()
 
             logger.info(f"Successfully generated chart for {currency} event: {event_name}")
+            # Persist chart to disk and prune old ones
+            try:
+                filename = f"{event_time_local.strftime('%Y%m%d_%H%M')}_{currency}_{symbol}_w{window_hours}h_{self._slugify(event_name)}.png"
+                self._save_chart_buffer(img_buffer, filename)
+            except Exception as e:
+                logger.warning(f"Failed to persist chart image: {e}")
             return img_buffer
 
         except Exception as e:
@@ -766,9 +795,12 @@ class ChartService:
                                window_hours: int = 2) -> Optional[BytesIO]:
         """Create a chart showing multiple currency pairs for broader market context."""
         try:
-            # Ensure event_time is timezone-aware
+            # Ensure event_time is timezone-aware; assume times from UI/DB are in display timezone
             if event_time.tzinfo is None:
-                event_time = pytz.UTC.localize(event_time)
+                try:
+                    event_time = self.display_tz.localize(event_time)
+                except Exception:
+                    event_time = pytz.UTC.localize(event_time)
 
             # Get primary currency pair
             primary_symbol = self.get_currency_pair_for_currency(currency)
@@ -816,19 +848,23 @@ class ChartService:
                                   event_time: datetime,
                                   event_name: str,
                                   currency: str,
-                                  impact_level: str) -> BytesIO:
+                                   impact_level: str) -> BytesIO:
         """Generate a chart showing multiple currency pairs."""
         try:
             fig, ax = plt.subplots(figsize=(12, 8))
 
-            # Plot each currency pair
+            # Plot each currency pair as candlesticks in small multiples for clarity
             colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
             for i, (pair, data) in enumerate(all_data.items()):
                 color = colors[i % len(colors)]
                 local_index = data.index.tz_convert(self.display_tz) if data.index.tzinfo else data.index.tz_localize(self.display_tz)
-                # Normalize prices to start at 100 for easier comparison
-                normalized_data = (data['Close'] / data['Close'].iloc[0]) * 100
-                ax.plot(local_index, normalized_data, label=pair, linewidth=1.5, color=color, alpha=0.8)
+                try:
+                    ohlc = data[['Open', 'High', 'Low', 'Close']].copy()
+                    ohlc.index = local_index
+                    self._plot_candlesticks(ax, ohlc, pair)
+                except Exception as e:
+                    logger.warning(f"Candlestick plot failed for {pair}, using line chart: {e}")
+                    ax.plot(local_index, data['Close'], label=pair, linewidth=1.2, color=color, alpha=0.8)
 
             # Add event marker in display timezone
             event_time_local = event_time.astimezone(self.display_tz)
@@ -865,6 +901,12 @@ class ChartService:
             img_buffer.seek(0)
             plt.close()
 
+            try:
+                filename = f"{event_time_local.strftime('%Y%m%d_%H%M')}_{currency}_multi_w{window_hours}h_{self._slugify(event_name)}.png"
+                self._save_chart_buffer(img_buffer, filename)
+            except Exception as e:
+                logger.warning(f"Failed to persist multi-pair chart image: {e}")
+
             return img_buffer
 
         except Exception as e:
@@ -883,9 +925,12 @@ class ChartService:
                                    after_hours: float = None) -> Optional[BytesIO]:
         """Create a chart showing price movement for two currencies around a news event."""
         try:
-            # Ensure event_time is timezone-aware
+            # Ensure event_time is timezone-aware; assume stored times are in display timezone
             if event_time.tzinfo is None:
-                event_time = pytz.UTC.localize(event_time)
+                try:
+                    event_time = self.display_tz.localize(event_time)
+                except Exception:
+                    event_time = pytz.UTC.localize(event_time)
 
             # Validate event time - don't try to fetch future data
             now = datetime.now(pytz.UTC)
@@ -908,8 +953,8 @@ class ChartService:
                 logger.info(f"Using symmetric time window: ±{window_hours}h")
 
             # Ensure we don't request future data
-            if end_time > now:
-                end_time = now
+            if end_time.astimezone(self.display_tz) > now:
+                end_time = now.astimezone(event_time.tzinfo)
                 logger.info(f"Adjusted end time to current time: {end_time}")
 
             # Try to find a direct pair between the two currencies
@@ -1144,6 +1189,11 @@ class ChartService:
             plt.close()
 
             logger.info(f"Successfully generated cross-rate chart for {primary_currency}/{secondary_currency} event: {event_name}")
+            try:
+                filename = f"{event_time_local.strftime('%Y%m%d_%H%M')}_{primary_currency}_{secondary_currency}_cross_{self._slugify(event_name)}.png"
+                self._save_chart_buffer(img_buffer, filename)
+            except Exception as e:
+                logger.warning(f"Failed to persist cross-rate chart image: {e}")
             return img_buffer
 
         except Exception as e:
@@ -1182,32 +1232,21 @@ class ChartService:
             else:
                 plot_data = data
 
-            # Create candlestick chart instead of line chart
-            if len(plot_data) >= 4:  # Need at least 4 points for candlesticks
-                # Use mplfinance for candlestick chart
-                try:
-                    # Prepare data for mplfinance (needs proper OHLC columns)
-                    candlestick_data = plot_data[['Open', 'High', 'Low', 'Close']].copy()
-
-                    # Create the candlestick plot
-                    fig, ax = plt.subplots(figsize=(12, 8))
-
-                    # Plot candlesticks manually for more control
-                    self._plot_candlesticks(ax, candlestick_data, f'{primary_currency}/{secondary_currency}')
-
-                    ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
-                    ax.set_xlabel('Time', fontsize=12)
-                    ax.grid(True, alpha=0.3)
-
-                except Exception as e:
-                    logger.warning(f"Failed to create candlestick chart, falling back to line chart: {e}")
-                    # Fallback to line chart
-                    ax.plot(plot_data.index, plot_data['Close'], linewidth=2, color='#1f77b4', alpha=0.8,
-                           label=f'{primary_currency}/{secondary_currency}')
-                    ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
-                    ax.set_xlabel('Time', fontsize=12)
-                    ax.grid(True, alpha=0.3)
-                    ax.legend(loc='upper right')
+            # Prefer candlesticks; fallback to line chart
+            try:
+                candlestick_data = plot_data[['Open', 'High', 'Low', 'Close']].copy()
+                self._plot_candlesticks(ax, candlestick_data, f'{primary_currency}/{secondary_currency}')
+                ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
+                ax.set_xlabel('Time', fontsize=12)
+                ax.grid(True, alpha=0.3)
+            except Exception as e:
+                logger.warning(f"Failed to create candlestick chart, falling back to line chart: {e}")
+                ax.plot(plot_data.index, plot_data['Close'], linewidth=2, color='#1f77b4', alpha=0.8,
+                        label=f'{primary_currency}/{secondary_currency}')
+                ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
+                ax.set_xlabel('Time', fontsize=12)
+                ax.grid(True, alpha=0.3)
+                ax.legend(loc='upper right')
             else:
                 # Not enough data for candlesticks, use line chart
                 ax.plot(plot_data.index, plot_data['Close'], linewidth=2, color='#1f77b4', alpha=0.8,
@@ -1239,7 +1278,7 @@ class ChartService:
                         fontsize=14, fontweight='bold')
 
             # Format x-axis
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M', tz=self.display_tz))
             ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
 
@@ -1263,6 +1302,11 @@ class ChartService:
             plt.close()
 
             logger.info(f"Successfully generated direct pair chart for {primary_currency}/{secondary_currency} event: {event_name}")
+            try:
+                filename = f"{event_time.strftime('%Y%m%d_%H%M')}_{primary_currency}_{secondary_currency}_direct_{self._slugify(event_name)}.png"
+                self._save_chart_buffer(img_buffer, filename)
+            except Exception as e:
+                logger.warning(f"Failed to persist direct chart image: {e}")
             return img_buffer
 
         except Exception as e:
@@ -1337,6 +1381,73 @@ class ChartService:
 
         except Exception as e:
             logger.error(f"Error cleaning up cache: {e}")
+
+    def _slugify(self, text_val: str) -> str:
+        """Make a safe filename component from text."""
+        try:
+            import re as _re
+            text_val = (text_val or "").lower()
+            text_val = _re.sub(r"[^a-z0-9]+", "_", text_val)
+            return text_val.strip('_')[:80]
+        except Exception:
+            return "chart"
+
+    def _save_chart_buffer(self, img_buffer: BytesIO, filename: str) -> Optional[str]:
+        """Save chart buffer to charts directory and trigger pruning."""
+        try:
+            self._ensure_charts_dir()
+            # Keep caller buffer position
+            current_pos = img_buffer.tell()
+            img_buffer.seek(0)
+            filepath = os.path.join(self.charts_dir, filename)
+            with open(filepath, 'wb') as f:
+                f.write(img_buffer.read())
+            # Restore buffer position
+            try:
+                img_buffer.seek(current_pos)
+            except Exception:
+                pass
+            logger.info(f"Saved chart image: {filepath}")
+            self._maybe_prune_charts()
+            return filepath
+        except Exception as e:
+            logger.warning(f"Failed to save chart to disk: {e}")
+            return None
+
+    def _maybe_prune_charts(self):
+        """Prune charts periodically (every ~6 hours)."""
+        try:
+            now = datetime.now()
+            if (now - self._last_chart_prune).total_seconds() < 6 * 3600:
+                return
+            self._last_chart_prune = now
+            self.prune_old_charts()
+        except Exception as e:
+            logger.warning(f"Chart prune check failed: {e}")
+
+    def prune_old_charts(self) -> int:
+        """Delete charts older than retention period. Returns number deleted."""
+        try:
+            self._ensure_charts_dir()
+            cutoff = datetime.now() - timedelta(days=self.chart_retention_days)
+            deleted = 0
+            for name in os.listdir(self.charts_dir):
+                path = os.path.join(self.charts_dir, name)
+                try:
+                    if not os.path.isfile(path):
+                        continue
+                    mtime = datetime.fromtimestamp(os.path.getmtime(path))
+                    if mtime < cutoff:
+                        os.remove(path)
+                        deleted += 1
+                except Exception:
+                    continue
+            if deleted:
+                logger.info(f"Pruned {deleted} chart image(s) older than {self.chart_retention_days} days")
+            return deleted
+        except Exception as e:
+            logger.error(f"Failed to prune old charts: {e}")
+            return 0
 
 
 # Global chart service instance

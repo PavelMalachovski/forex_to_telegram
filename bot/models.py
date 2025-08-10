@@ -3,6 +3,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import os
+from sqlalchemy.engine import Engine
+from sqlalchemy.pool import QueuePool
 
 Base = declarative_base()
 
@@ -156,7 +158,15 @@ class DatabaseManager:
         if not self.database_url:
             raise ValueError("Database URL not provided. Set DATABASE_URL environment variable.")
 
-        self.engine = create_engine(self.database_url)
+        # Use pre-ping to avoid stale connections; configure a small pool for web workloads
+        self.engine: Engine = create_engine(
+            self.database_url,
+            poolclass=QueuePool,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            pool_size=5,
+            max_overflow=10,
+        )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
     def create_tables(self):

@@ -18,10 +18,9 @@ from typing import List, Optional
 # Add the parent directory to the Python path so we can import from bot
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from bot.config import Config
+from bot.config import Config, setup_logging
 from bot.scraper import ForexNewsScraper, ChatGPTAnalyzer
 from bot.database_service import ForexNewsService
-from bot.utils import setup_logging
 
 logger = logging.getLogger(__name__)
 
