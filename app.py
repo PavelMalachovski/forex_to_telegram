@@ -370,11 +370,12 @@ def setup_webhook_manual():
 
 def _require_api_key():
     """Abort 401 if API_KEY is configured and request lacks valid key."""
-    # Only enforce when a key is explicitly presented; otherwise allow
+    # Only enforce when a non-empty key is explicitly presented; otherwise allow
     # unauthenticated access (helps CI tests without secrets).
-    key_provided = (request.headers.get('X-API-Key') is not None) or (request.args.get('api_key') is not None)
-    if key_provided and config.api_key:
-        key = request.headers.get('X-API-Key') or request.args.get('api_key')
+    header_key = request.headers.get('X-API-Key')
+    query_key = request.args.get('api_key')
+    key = header_key if (header_key is not None and header_key != '') else (query_key if (query_key is not None and query_key != '') else None)
+    if key is not None and config.api_key:
         if key != config.api_key:
             abort(401)
 
