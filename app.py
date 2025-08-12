@@ -98,7 +98,7 @@ bot = bot_manager.bot
 
 keep_alive = RenderKeepAlive(config)
 
-analyzer = ChatGPTAnalyzer(config.chatgpt_api_key)
+analyzer = ChatGPTAnalyzer(None)  # Deprecated for news
 scraper = ForexNewsScraper(config, analyzer)
 
 # Initialize database service
@@ -131,7 +131,7 @@ if bot:
     register_handlers(bot, lambda date, impact, analysis, debug, user_id=None: process_forex_news_with_db(scraper, bot, config, db_service, date, impact, analysis, debug, user_id), config, db_service, digest_scheduler)
 
 
-async def process_forex_news_with_db(scraper, bot, config, db_service, target_date: Optional[datetime] = None, impact_level: str = "high", analysis_required: bool = True, debug: bool = False, user_id: Optional[int] = None):
+async def process_forex_news_with_db(scraper, bot, config, db_service, target_date: Optional[datetime] = None, impact_level: str = "high", analysis_required: bool = False, debug: bool = False, user_id: Optional[int] = None):
     """Process forex news with database integration. Always store all news for the date in the DB."""
     if not bot:
         logger.error("Cannot process news: Bot not configured")
@@ -147,7 +147,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
             user = db_service.get_or_create_user(user_id)
             user_currencies = user.get_currencies_list()
             user_impact_levels = user.get_impact_levels_list()
-            user_analysis_required = user.analysis_required
+            user_analysis_required = False
         except Exception as e:
             logger.error(f"Error getting user preferences for {user_id}: {e}")
 
@@ -159,7 +159,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
         # Always check/store all news for the date in the DB
         if db_service and not db_service.has_news_for_date(target_date_obj, 'all'):
             logger.info(f"No data in database for {target_date_obj}, scraping all impacts...")
-            all_news_items = await scraper.scrape_news(target_date, analysis_required, debug)
+            all_news_items = await scraper.scrape_news(target_date, False, debug)
             if all_news_items and db_service:
                 db_service.store_news_items(all_news_items, target_date_obj, 'all')
                 logger.info(f"Stored all news for {target_date_obj} in database.")
@@ -223,9 +223,7 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 @app.route('/webhook_debug', methods=['GET'])
 def webhook_debug():
     """Debug endpoint to check webhook status."""
-    # Allow unauthenticated for tests unless API key is explicitly provided
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     if not bot:
         return jsonify({"error": "Bot not initialized"}), 500
 
@@ -233,12 +231,25 @@ def webhook_debug():
         # Get webhook info from Telegram
         webhook_info = bot.get_webhook_info()
 
+        # Normalize last_error_date which may be int (unix ts) or datetime/None
+        last_error_iso = None
+        try:
+            ts = getattr(webhook_info, 'last_error_date', None)
+            if ts:
+                if hasattr(ts, 'isoformat'):
+                    last_error_iso = ts.isoformat()
+                else:
+                    from datetime import datetime as _dt
+                    last_error_iso = _dt.utcfromtimestamp(int(ts)).isoformat()
+        except Exception:
+            last_error_iso = None
+
         return jsonify({
             "webhook_info": {
                 "url": webhook_info.url,
                 "has_custom_certificate": webhook_info.has_custom_certificate,
                 "pending_update_count": webhook_info.pending_update_count,
-                "last_error_date": webhook_info.last_error_date.isoformat() if webhook_info.last_error_date else None,
+                "last_error_date": last_error_iso,
                 "last_error_message": webhook_info.last_error_message,
                 "max_connections": webhook_info.max_connections,
                 "allowed_updates": webhook_info.allowed_updates
@@ -257,8 +268,7 @@ def webhook_debug():
 @app.route('/bot_status', methods=['GET'])
 def bot_status():
     """Comprehensive bot status check."""
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     if not bot_manager:
         return jsonify({"error": "Bot manager not initialized"}), 500
 
@@ -294,8 +304,7 @@ def bot_status():
 @app.route('/force_webhook_setup', methods=['POST'])
 def force_webhook_setup():
     """Force webhook setup with detailed logging."""
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     if not bot_manager:
         return jsonify({"error": "Bot manager not initialized"}), 500
 
@@ -324,8 +333,7 @@ def force_webhook_setup():
 @app.route('/test_bot', methods=['POST'])
 def test_bot():
     """Test endpoint to verify bot functionality."""
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     if not bot:
         return jsonify({"error": "Bot not initialized"}), 500
 
@@ -354,6 +362,7 @@ def test_bot():
 @app.route('/setup_webhook', methods=['POST'])
 def setup_webhook_manual():
     """Manually trigger webhook setup."""
+    _require_api_key()
     if not bot_manager:
         return jsonify({"error": "Bot manager not initialized"}), 500
 
@@ -369,15 +378,14 @@ def setup_webhook_manual():
 
 
 def _require_api_key():
-    """Abort 401 if API_KEY is configured and request lacks valid key."""
-    # Only enforce when a non-empty key is explicitly presented; otherwise allow
-    # unauthenticated access (helps CI tests without secrets).
-    header_key = request.headers.get('X-API-Key')
-    query_key = request.args.get('api_key')
-    key = header_key if (header_key is not None and header_key != '') else (query_key if (query_key is not None and query_key != '') else None)
-    if key is not None and config.api_key:
-        if key != config.api_key:
-            abort(401)
+    """Abort 401 if API_KEY is configured and request lacks a matching key."""
+    expected = config.api_key
+    if not expected:
+        # No API key configured → allow
+        return
+    provided = request.headers.get('X-API-Key') or request.args.get('api_key')
+    if not provided or provided != expected:
+        abort(401)
 
 
 def _verify_webhook_secret():
@@ -397,7 +405,8 @@ def webhook():
         return jsonify({"error": "Bot not initialized"}), 500
     try:
         json_str = request.get_data().decode('UTF-8')
-        logger.info(f"Received webhook data: {json_str[:200]}...")  # Log first 200 chars
+        # Avoid logging user content; log size only
+        logger.info(f"Received webhook update bytes: {len(json_str)}")
 
         # Parse the update
         update = telebot.types.Update.de_json(json_str)
@@ -519,8 +528,7 @@ def health():
 
 @app.route('/manual_scrape', methods=['POST'])
 def manual_scrape():
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Manual scraping endpoint for testing."""
     try:
         data = request.get_json() or {}
@@ -552,8 +560,7 @@ def manual_scrape():
 
 @app.route('/db/stats', methods=['GET'])
 def db_stats():
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Get database statistics."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -580,8 +587,7 @@ def db_stats():
 
 @app.route('/db/check/<date_str>', methods=['GET'])
 def db_check_date(date_str):
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Check if news exists for a specific date."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -621,8 +627,7 @@ def db_check_date(date_str):
 
 @app.route('/db/import', methods=['POST'])
 def db_import():
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Bulk import news for a date range."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -917,8 +922,7 @@ def check_notification_columns():
 
 @app.route('/test_settings/<int:user_id>', methods=['GET'])
 def test_settings(user_id):
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Test settings for a specific user."""
     try:
         if not db_service:
@@ -954,8 +958,7 @@ def test_settings(user_id):
 
 @app.route('/test_digest_timezone', methods=['POST'])
 def test_digest_timezone():
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Test timezone-aware digest functionality."""
     if not digest_scheduler:
         return jsonify({"error": "Digest scheduler not initialized"}), 500
@@ -982,8 +985,7 @@ def test_digest_timezone():
 
 @app.route('/refresh_digest_jobs', methods=['POST'])
 def refresh_digest_jobs():
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Refresh digest jobs with current user preferences."""
     if not digest_scheduler:
         return jsonify({"error": "Digest scheduler not initialized"}), 500
@@ -1007,8 +1009,7 @@ def refresh_digest_jobs():
 
 @app.route('/notification_stats', methods=['GET'])
 def notification_stats():
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Get notification statistics and deduplication status."""
     try:
         stats = notification_deduplication.get_notification_stats()
@@ -1085,8 +1086,7 @@ def initialize_application():
 
 @app.route('/initialize', methods=['POST'])
 def manual_initialize():
-    if request.headers.get('X-API-Key') or request.args.get('api_key'):
-        _require_api_key()
+    _require_api_key()
     """Manually trigger application initialization."""
     try:
         logger.info("🔄 Manual initialization triggered")

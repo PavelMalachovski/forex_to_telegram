@@ -721,8 +721,13 @@ class ChartService:
                 ohlc.index = local_index
                 self._plot_candlesticks(ax1, ohlc, f'{currency}/{symbol.split("=")[0][-3:]}')
             except Exception as e:
-                logger.warning(f"Candlestick plot failed, falling back to line chart: {e}")
-                ax1.plot(local_index, price_data['Close'], linewidth=1.5, color='#1f77b4', alpha=0.8)
+                logger.warning(f"Candlestick plot failed; synthesizing OHLC: {e}")
+                try:
+                    synth = self._synthesize_ohlc_from_close(price_data)
+                    synth.index = local_index
+                    self._plot_candlesticks(ax1, synth, f'{currency}/{symbol.split("=")[0][-3:]}')
+                except Exception as e2:
+                    logger.error(f"Failed to synthesize candlesticks: {e2}")
             ax1.set_ylabel('Price', fontsize=12)
             ax1.grid(True, alpha=0.3)
 
@@ -870,8 +875,13 @@ class ChartService:
                     ohlc.index = local_index
                     self._plot_candlesticks(ax, ohlc, pair)
                 except Exception as e:
-                    logger.warning(f"Candlestick plot failed for {pair}, using line chart: {e}")
-                    ax.plot(local_index, data['Close'], label=pair, linewidth=1.2, color=color, alpha=0.8)
+                    logger.warning(f"Candlestick plot failed for {pair}; synthesizing OHLC: {e}")
+                    try:
+                        synth = self._synthesize_ohlc_from_close(data)
+                        synth.index = local_index
+                        self._plot_candlesticks(ax, synth, pair)
+                    except Exception as e2:
+                        logger.error(f"Failed to synthesize candlesticks for {pair}: {e2}")
 
             # Add event marker in display timezone
             event_time_local = event_time.astimezone(self.display_tz)
@@ -1222,8 +1232,8 @@ class ChartService:
             # Create the chart
             fig, ax = plt.subplots(figsize=(12, 8))
 
-            # Convert timezone to UTC for consistent plotting
-            event_time_utc = event_time.astimezone(pytz.UTC)
+            # Work in display timezone for user-friendly axes/labels
+            event_time_local = event_time.astimezone(self.display_tz)
 
             # Handle data inversion if needed
             if invert_data:
@@ -1239,32 +1249,46 @@ class ChartService:
             else:
                 plot_data = data
 
-            # Prefer candlesticks; fallback to line chart
+            # Prefer candlesticks; fallback to synthesized candlesticks
             try:
                 candlestick_data = plot_data[['Open', 'High', 'Low', 'Close']].copy()
+                # Ensure index is in display timezone for consistent plotting
+                try:
+                    if candlestick_data.index.tzinfo:
+                        candlestick_data.index = candlestick_data.index.tz_convert(self.display_tz)
+                    else:
+                        candlestick_data.index = candlestick_data.index.tz_localize(self.display_tz)
+                except Exception:
+                    pass
+                # If we have too few points, skip plotting
+                if len(candlestick_data) < 2:
+                    raise ValueError("Not enough data points for candlesticks")
                 self._plot_candlesticks(ax, candlestick_data, f'{primary_currency}/{secondary_currency}')
                 ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
                 ax.set_xlabel('Time', fontsize=12)
                 ax.grid(True, alpha=0.3)
             except Exception as e:
-                logger.warning(f"Failed to create candlestick chart, falling back to line chart: {e}")
-                ax.plot(plot_data.index, plot_data['Close'], linewidth=2, color='#1f77b4', alpha=0.8,
-                        label=f'{primary_currency}/{secondary_currency}')
-                ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
-                ax.set_xlabel('Time', fontsize=12)
-                ax.grid(True, alpha=0.3)
-                ax.legend(loc='upper right')
-            else:
-                # Not enough data for candlesticks, use line chart
-                ax.plot(plot_data.index, plot_data['Close'], linewidth=2, color='#1f77b4', alpha=0.8,
-                       label=f'{primary_currency}/{secondary_currency}')
-                ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
-                ax.set_xlabel('Time', fontsize=12)
-                ax.grid(True, alpha=0.3)
-                ax.legend(loc='upper right')
+                logger.warning(f"Failed to create candlestick chart; synthesizing OHLC: {e}")
+                try:
+                    synth = self._synthesize_ohlc_from_close(plot_data)
+                    try:
+                        if synth.index.tzinfo:
+                            synth.index = synth.index.tz_convert(self.display_tz)
+                        else:
+                            synth.index = synth.index.tz_localize(self.display_tz)
+                    except Exception:
+                        pass
+                    if len(synth) < 2:
+                        raise ValueError("Not enough data points for synthesized candlesticks")
+                    self._plot_candlesticks(ax, synth, f'{primary_currency}/{secondary_currency}')
+                    ax.set_ylabel(f'{primary_currency} Price (in {secondary_currency})', fontsize=12)
+                    ax.set_xlabel('Time', fontsize=12)
+                    ax.grid(True, alpha=0.3)
+                except Exception as e2:
+                    logger.error(f"Failed to synthesize candlesticks for direct pair: {e2}")
 
             # Add event marker
-            ax.axvline(x=event_time_utc, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Event Time')
+            ax.axvline(x=event_time_local, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Event Time')
 
             # Add impact level shading
             impact_colors = {'high': '#d62728', 'medium': '#ff7f0e', 'low': '#2ca02c'}
@@ -1272,8 +1296,8 @@ class ChartService:
 
             event_window = timedelta(minutes=30)
             ax.axvspan(
-                event_time_utc - event_window,
-                event_time_utc + event_window,
+                event_time_local - event_window,
+                event_time_local + event_window,
                 alpha=0.2,
                 color=impact_color,
                 label=f'{impact_level.title()} Impact'
@@ -1367,10 +1391,37 @@ class ChartService:
 
         except Exception as e:
             logger.error(f"Error plotting candlesticks: {e}")
-            # Fallback to line chart
-            ax.plot(ohlc_data.index, ohlc_data['Close'], linewidth=2, color='#1f77b4', alpha=0.8,
-                   label=pair_name)
-            ax.legend(loc='upper right')
+            # As a last resort, try synthesizing from Close and replot
+            try:
+                synth = self._synthesize_ohlc_from_close(ohlc_data)
+                self._plot_candlesticks(ax, synth, pair_name)
+            except Exception:
+                # Give up silently to avoid infinite recursion; caller handles logging
+                pass
+
+    def _synthesize_ohlc_from_close(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Build a minimal OHLC frame from Close (ensures candlestick rendering).
+
+        - Open: previous close (first equals close)
+        - High/Low: max/min of Open/Close per bar
+        """
+        try:
+            if 'Close' not in data.columns:
+                raise ValueError('No Close column available to synthesize OHLC')
+            closes = data['Close']
+            opens = closes.shift(1).fillna(closes)
+            highs = pd.concat([opens, closes], axis=1).max(axis=1)
+            lows = pd.concat([opens, closes], axis=1).min(axis=1)
+            synth = pd.DataFrame({
+                'Open': opens,
+                'High': highs,
+                'Low': lows,
+                'Close': closes
+            }, index=data.index)
+            return synth
+        except Exception as e:
+            logger.error(f"Failed to synthesize OHLC: {e}")
+            raise
 
     def cleanup_cache(self):
         """Clean up old cached data."""

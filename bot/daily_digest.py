@@ -42,6 +42,27 @@ class DailyDigestScheduler:
         except Exception as e:
             logger.error(f"Error setting up daily digest scheduler: {e}")
 
+        # Also add a channel digest at 07:00 if a channel/chat ID is configured
+        try:
+            if getattr(self.config, 'telegram_chat_id', None):
+                from apscheduler.triggers.cron import CronTrigger
+                self.scheduler.add_job(
+                    func=self._send_channel_digest,
+                    trigger=CronTrigger(
+                        hour=7,
+                        minute=0,
+                        timezone=getattr(self.config, 'timezone', 'Europe/Prague')
+                    ),
+                    id='channel_daily_digest_07_00',
+                    name='Channel Daily Digest at 07:00',
+                    replace_existing=True
+                )
+                logger.info("Added channel daily digest at 07:00")
+            else:
+                logger.info("telegram_chat_id not configured; skipping channel daily digest job")
+        except Exception as e:
+            logger.error(f"Error adding channel daily digest job: {e}")
+
     def _get_users_with_digest_times(self) -> List[dict]:
         """Get all users with their digest times and timezones."""
         try:
@@ -266,6 +287,45 @@ class DailyDigestScheduler:
         except Exception as e:
             logger.error(f"Error sending test digest to user {user_id}: {e}")
             return False
+
+    def _send_channel_digest(self):
+        """Send a high-impact daily digest to the configured channel at 07:00."""
+        try:
+            chat_id = getattr(self.config, 'telegram_chat_id', None)
+            if not chat_id:
+                return
+
+            today = date.today()
+            # High-impact only per request
+            high_impact_news = self.db_service.get_news_for_date(today, 'high')
+
+            # If nothing in DB yet, inform briefly
+            if not high_impact_news:
+                message = (
+                    f"📅 <b>Daily High-Impact Digest for {today.strftime('%d.%m.%Y')}</b>\n\n"
+                    f"No high-impact events found for today."
+                )
+                self.bot.send_message(chat_id, message, parse_mode="HTML")
+                return
+
+            target_date = datetime.combine(today, datetime.min.time())
+            # Format digest (no currency filter; include all high-impact)
+            message = MessageFormatter.format_news_message(
+                high_impact_news,
+                target_date,
+                'high',
+                analysis_required=False,
+                currencies=None
+            )
+
+            header = (
+                f"📅 <b>Daily High-Impact Digest for {today.strftime('%d.%m.%Y')}</b>\n\n"
+            )
+            send_long_message(self.bot, chat_id, header + message, parse_mode="HTML")
+            logger.info("Sent channel daily high-impact digest")
+
+        except Exception as e:
+            logger.error(f"Error sending channel daily digest: {e}")
 
     def stop_scheduler(self):
         """Stop the scheduler."""

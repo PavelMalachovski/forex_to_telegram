@@ -93,7 +93,7 @@ class ForexNewsScraper:
         self.analyzer = analyzer
         self.base_url = "https://www.forexfactory.com/calendar"
 
-    async def scrape_news(self, target_date: Optional[datetime] = None, analysis_required: bool = True, debug: bool = False) -> List[Dict[str, Any]]:
+    async def scrape_news(self, target_date: Optional[datetime] = None, analysis_required: bool = False, debug: bool = False) -> List[Dict[str, Any]]:
         if target_date is None:
             target_date = datetime.now(timezone(self.config.timezone))
         url = self._build_url(target_date)
@@ -115,6 +115,8 @@ class ForexNewsScraper:
                 raise CloudflareBypassError(f"All scraping methods failed: {e}, fallback: {fallback_e}")
 
         news_items = self._parse_news_from_html(html)
+        # Disable ChatGPT analysis globally
+        analysis_required = False
         if analysis_required:
             # Group by (currency, time)
             grouped = {}
