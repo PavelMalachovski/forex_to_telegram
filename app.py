@@ -381,7 +381,7 @@ def _require_api_key():
 
 
 def _verify_webhook_secret():
-    """Abort 401 if TELEGRAM_WEBHOOK_SECRET is configured and request lacks a matching header."""
+    """Abort 401 if TELEGRAM_WEBHOOK_SECRET is configured and request lacks a matching header..."""
     secret = config.telegram_webhook_secret
     if secret:
         received = request.headers.get('X-Telegram-Secret-Token') or request.headers.get('X-Telegram-Bot-Api-Secret-Token')
