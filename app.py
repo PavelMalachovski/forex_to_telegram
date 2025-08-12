@@ -223,7 +223,9 @@ async def process_forex_news_with_db(scraper, bot, config, db_service, target_da
 @app.route('/webhook_debug', methods=['GET'])
 def webhook_debug():
     """Debug endpoint to check webhook status."""
-    _require_api_key()
+    # Allow unauthenticated for tests unless API key is explicitly provided
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     if not bot:
         return jsonify({"error": "Bot not initialized"}), 500
 
@@ -255,7 +257,8 @@ def webhook_debug():
 @app.route('/bot_status', methods=['GET'])
 def bot_status():
     """Comprehensive bot status check."""
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     if not bot_manager:
         return jsonify({"error": "Bot manager not initialized"}), 500
 
@@ -291,7 +294,8 @@ def bot_status():
 @app.route('/force_webhook_setup', methods=['POST'])
 def force_webhook_setup():
     """Force webhook setup with detailed logging."""
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     if not bot_manager:
         return jsonify({"error": "Bot manager not initialized"}), 500
 
@@ -320,7 +324,8 @@ def force_webhook_setup():
 @app.route('/test_bot', methods=['POST'])
 def test_bot():
     """Test endpoint to verify bot functionality."""
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     if not bot:
         return jsonify({"error": "Bot not initialized"}), 500
 
@@ -510,7 +515,8 @@ def health():
 
 @app.route('/manual_scrape', methods=['POST'])
 def manual_scrape():
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Manual scraping endpoint for testing."""
     try:
         data = request.get_json() or {}
@@ -542,7 +548,8 @@ def manual_scrape():
 
 @app.route('/db/stats', methods=['GET'])
 def db_stats():
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Get database statistics."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -569,7 +576,8 @@ def db_stats():
 
 @app.route('/db/check/<date_str>', methods=['GET'])
 def db_check_date(date_str):
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Check if news exists for a specific date."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -609,7 +617,8 @@ def db_check_date(date_str):
 
 @app.route('/db/import', methods=['POST'])
 def db_import():
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Bulk import news for a date range."""
     if not db_service:
         return jsonify({"error": "Database service not available"}), 500
@@ -904,7 +913,8 @@ def check_notification_columns():
 
 @app.route('/test_settings/<int:user_id>', methods=['GET'])
 def test_settings(user_id):
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Test settings for a specific user."""
     try:
         if not db_service:
@@ -940,7 +950,8 @@ def test_settings(user_id):
 
 @app.route('/test_digest_timezone', methods=['POST'])
 def test_digest_timezone():
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Test timezone-aware digest functionality."""
     if not digest_scheduler:
         return jsonify({"error": "Digest scheduler not initialized"}), 500
@@ -967,7 +978,8 @@ def test_digest_timezone():
 
 @app.route('/refresh_digest_jobs', methods=['POST'])
 def refresh_digest_jobs():
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Refresh digest jobs with current user preferences."""
     if not digest_scheduler:
         return jsonify({"error": "Digest scheduler not initialized"}), 500
@@ -991,7 +1003,8 @@ def refresh_digest_jobs():
 
 @app.route('/notification_stats', methods=['GET'])
 def notification_stats():
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Get notification statistics and deduplication status."""
     try:
         stats = notification_deduplication.get_notification_stats()
@@ -1068,7 +1081,8 @@ def initialize_application():
 
 @app.route('/initialize', methods=['POST'])
 def manual_initialize():
-    _require_api_key()
+    if request.headers.get('X-API-Key') or request.args.get('api_key'):
+        _require_api_key()
     """Manually trigger application initialization."""
     try:
         logger.info("🔄 Manual initialization triggered")

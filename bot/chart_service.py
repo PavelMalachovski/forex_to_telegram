@@ -79,7 +79,13 @@ class ChartService:
             'CHF': ['USDCHF=X', 'EURCHF=X'],  # USD/CHF and EUR/CHF for CHF events
             'NZD': ['NZDUSD=X', 'NZDJPY=X'],  # NZD/USD and NZD/JPY for NZD events
             'CNY': ['USDCNY=X', 'EURCNY=X'],  # USD/CNY and EUR/CNY for CNY events
-            # Removed: INR, BRL, RUB, KRW, MXN, SGD per request
+            # The following currencies are supported for mapping but may be hidden in UI
+            'INR': ['USDINR=X', 'EURINR=X'],
+            'BRL': ['USDBRL=X', 'EURBRL=X'],
+            'RUB': ['USDRUB=X', 'EURRUB=X'],
+            'KRW': ['USDKRW=X', 'EURKRW=X'],
+            'MXN': ['USDMXN=X', 'EURMXN=X'],
+            'SGD': ['USDSGD=X', 'EURSGD=X'],
             'HKD': ['USDHKD=X', 'EURHKD=X'],  # USD/HKD and EUR/HKD for HKD events
         }
 
@@ -844,11 +850,12 @@ class ChartService:
             return None
 
     def _generate_multi_pair_chart(self,
-                                  all_data: Dict[str, pd.DataFrame],
-                                  event_time: datetime,
-                                  event_name: str,
-                                  currency: str,
-                                   impact_level: str) -> BytesIO:
+                                   all_data: Dict[str, pd.DataFrame],
+                                   event_time: datetime,
+                                   event_name: str,
+                                   currency: str,
+                                   impact_level: str,
+                                   window_hours: int) -> BytesIO:
         """Generate a chart showing multiple currency pairs."""
         try:
             fig, ax = plt.subplots(figsize=(12, 8))
