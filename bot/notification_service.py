@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Set
 from io import BytesIO
 import hashlib
+import threading
+import html
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import text
@@ -20,9 +22,11 @@ class NotificationDeduplicationService:
 
     def __init__(self):
         self.sent_notifications: Dict[str, datetime] = {}
-        self.group_notifications: Set[str] = set()
+        # Track group notifications with timestamps for cleanup
+        self.group_notifications: Dict[str, datetime] = {}
         self.cleanup_interval = timedelta(hours=24)  # Clean up old notifications every 24 hours
         self.last_cleanup = datetime.now()
+        self._lock = threading.Lock()
 
     def _generate_notification_id(self, event_type: str, **kwargs) -> str:
         """Generate a unique ID for a notification based on its parameters."""
@@ -42,44 +46,51 @@ class NotificationDeduplicationService:
             for notification_id in old_notifications:
                 del self.sent_notifications[notification_id]
 
+            old_group = [key for key, ts in self.group_notifications.items() if ts < cutoff_time]
+            for key in old_group:
+                del self.group_notifications[key]
+
             self.last_cleanup = now
-            logger.info(f"Cleaned up {len(old_notifications)} old notifications")
+            logger.info(f"Cleaned up {len(old_notifications)} old notifications and {len(old_group)} old group notifications")
 
     def should_send_notification(self, event_type: str, **kwargs) -> bool:
         """Check if a notification should be sent (prevents duplicates)."""
-        self._cleanup_old_notifications()
+        with self._lock:
+            self._cleanup_old_notifications()
 
-        notification_id = self._generate_notification_id(event_type, **kwargs)
+            notification_id = self._generate_notification_id(event_type, **kwargs)
 
-        if notification_id in self.sent_notifications:
-            logger.info(f"Notification already sent for {event_type} with params {kwargs}")
-            return False
+            if notification_id in self.sent_notifications:
+                logger.info(f"Notification already sent for {event_type} with params {kwargs}")
+                return False
 
-        # Mark as sent
-        self.sent_notifications[notification_id] = datetime.now()
-        logger.info(f"New notification approved for {event_type} with params {kwargs}")
-        return True
+            # Mark as sent
+            self.sent_notifications[notification_id] = datetime.now()
+            logger.info(f"New notification approved for {event_type} with params {kwargs}")
+            return True
 
     def should_send_group_notification(self, group_id: str, user_id: str, message_hash: str) -> bool:
         """Check if a group notification should be sent (prevents spam)."""
         group_key = f"{group_id}:{user_id}:{message_hash}"
 
-        if group_key in self.group_notifications:
-            logger.info(f"Group notification already sent for {group_key}")
-            return False
+        with self._lock:
+            if group_key in self.group_notifications:
+                logger.info(f"Group notification already sent for {group_key}")
+                return False
 
-        # Mark as sent (keep for 1 hour to prevent spam)
-        self.group_notifications.add(group_key)
-        logger.info(f"New group notification approved for {group_key}")
-        return True
+            # Mark as sent with timestamp
+            self.group_notifications[group_key] = datetime.now()
+            logger.info(f"New group notification approved for {group_key}")
+            return True
 
     def get_notification_stats(self) -> Dict:
         """Get notification statistics."""
-        return {
-            "active_notifications": len(self.sent_notifications),
-            "group_notifications": len(self.group_notifications),
-            "last_cleanup": self.last_cleanup.isoformat()
-        }
+        with self._lock:
+            return {
+                "active_notifications": len(self.sent_notifications),
+                "group_notifications": len(self.group_notifications),
+                "last_cleanup": self.last_cleanup.isoformat()
+            }
 
 
 # Global notification deduplication service instance
@@ -111,9 +122,9 @@ class NotificationService:
                 'low': '🟡'
             }.get(impact, '⚪')
 
-            # Format the notification message
-            message = f"⚠️ In {minutes_before} minutes: {impact} news!\n"
-            message += f"{time_str} | {currency} | {event} | {impact_emoji} {impact.capitalize()} Impact"
+            # Format the notification message (escape for HTML)
+            message = f"⚠️ In {minutes_before} minutes: {html.escape(str(impact))} news!\n"
+            message += f"{html.escape(str(time_str))} | {html.escape(str(currency))} | {html.escape(str(event))} | {impact_emoji} {html.escape(str(impact).capitalize())} Impact"
 
             return message
         except Exception as e:
@@ -147,12 +158,12 @@ class NotificationService:
             # Add events by impact level (high first, then medium, then low)
             for impact_level, items, emoji in [('high', high_impact, '🔴'), ('medium', medium_impact, '🟠'), ('low', low_impact, '🟡')]:
                 if items:
-                    message += f"{emoji} {impact_level.capitalize()} Impact:\n"
+                    message += f"{emoji} {html.escape(impact_level.capitalize())} Impact:\n"
                     for item in items:
                         time_str = item.get('time', 'N/A')
                         currency = item.get('currency', 'N/A')
                         event = item.get('event', 'N/A')
-                        message += f"• {time_str} | {currency} | {event}\n"
+                        message += f"• {html.escape(str(time_str))} | {html.escape(str(currency))} | {html.escape(str(event))}\n"
                     message += "\n"
 
             return message.strip()

@@ -8,26 +8,35 @@ class Config:
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
         self.chatgpt_api_key = os.getenv("CHATGPT_API_KEY")  # Only this variable
+        # Admin API key for protecting internal endpoints
         self.api_key = os.getenv("API_KEY")
+        # Optional Telegram webhook secret to verify incoming webhook requests
+        self.telegram_webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
         self.render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
         self.port = int(os.getenv("PORT", 10000))
         self.timezone = "Europe/Prague"
 
         # Database configuration
         self.database_url = os.getenv("DATABASE_URL")
-        self.database_host = os.getenv("DB_HOST", "dpg-d1mkim2li9vc73c7toi0-a")
+        # Do not hardcode secrets; rely on env vars. Provide no insecure defaults.
+        self.database_host = os.getenv("DB_HOST")
         self.database_port = os.getenv("DB_PORT", "5432")
-        self.database_name = os.getenv("DB_NAME", "forex_db_0myg")
-        self.database_user = os.getenv("DB_USER", "forex_user")
-        self.database_password = os.getenv("DB_PASSWORD", "0VGr0I02HDKaiVUVT21Z3ORnEiCBAYtC")
+        self.database_name = os.getenv("DB_NAME")
+        self.database_user = os.getenv("DB_USER")
+        self.database_password = os.getenv("DB_PASSWORD")
 
         # Build database URL if not provided
         if not self.database_url:
-            # Try to use local SQLite for testing if remote database is not available
+            # Prefer explicit DATABASE_URL. For local/dev, opt-in to SQLite with USE_LOCAL_DB=true
             if os.getenv("USE_LOCAL_DB", "false").lower() == "true":
                 self.database_url = "sqlite:///./forex_bot.db"
+            elif all([self.database_user, self.database_password, self.database_host, self.database_name]):
+                self.database_url = (
+                    f"postgresql://{self.database_user}:{self.database_password}@{self.database_host}:{self.database_port}/{self.database_name}"
+                )
             else:
-                self.database_url = f"postgresql://{self.database_user}:{self.database_password}@{self.database_host}:{self.database_port}/{self.database_name}"
+                # Leave unset to force explicit configuration
+                self.database_url = None
 
     def validate_required_vars(self):
         required_vars = {
