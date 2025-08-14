@@ -1,4 +1,5 @@
 import logging
+import hashlib
 import asyncio
 import subprocess
 import sys
@@ -219,8 +220,17 @@ class NotificationScheduler:
                         f"Window: 2h before → 2h after\n"
                         f"Pair: {symbol.replace('=X','')}"
                     )
+                    # Enforce 1 chart per 2 hours for the channel
                     try:
+                        if not notification_deduplication.can_send_chart(str(chat_id)):
+                            logger.info("Skipping chart due to 2h channel rate limit")
+                            continue
                         self.bot.send_photo(chat_id, img, caption=caption)
+                        # Mark chart sent for rate limit window
+                        try:
+                            notification_deduplication.mark_chart_sent(str(chat_id))
+                        except Exception:
+                            pass
                         logger.info(f"Sent post-event chart for {currency} {event_name}")
                     except Exception as e:
                         logger.error(f"Failed sending post-event chart: {e}")
@@ -254,6 +264,8 @@ class NotificationScheduler:
             except Exception:
                 minutes_before = 30
 
+            # Group channel items happening at the same time into a single alert
+            grouped: dict = {}
             for item in items:
                 t = item.get('time', '')
                 if not t:
@@ -268,36 +280,39 @@ class NotificationScheduler:
                     continue
 
                 minutes_until = (event_dt - now).total_seconds() / 60.0
-                # Fire when within ±2.5 minutes of desired lead time
                 if abs(minutes_until - minutes_before) <= 2.5:
-                    # Dedup per event
-                    if not notification_deduplication.should_send_notification(
-                        'channel_high_event',
-                        currency=item.get('currency'),
-                        event=item.get('event'),
-                        event_time_iso=event_dt.isoformat()
-                    ):
-                        continue
+                    grouped.setdefault(t, []).append({
+                        'item': item,
+                        'minutes_until': max(int(round(minutes_until)), 0),
+                        'event_time': event_dt
+                    })
 
-                    # Reuse NotificationService formatter for consistency
-                    try:
-                        msg = self.notification_service.format_notification_message(item, minutes_before=max(int(round(minutes_until)), 0), user_timezone=tz_name)
-                    except Exception:
-                        # Minimal fallback
-                        msg = f"⚠️ Now: {item.get('currency')} | {item.get('event')} | High Impact"
-                    try:
-                        self.bot.send_message(chat_id, msg, parse_mode="HTML")
-                        logger.info("Sent channel high-impact alert")
-                        # Chain a poll after channel alert
-                        try:
-                            from .notification_service import NotificationService
-                            # Use a lightweight temp instance that shares bot/config
-                            temp_service = NotificationService(self.db_service, self.bot, self.config)
-                            temp_service._send_direction_poll(chat_id, item.get('currency'), item.get('event'))
-                        except Exception as pe:
-                            logger.error(f"Error sending channel poll: {pe}")
-                    except Exception as e:
-                        logger.error(f"Failed to send channel high-impact alert: {e}")
+            # Send grouped alerts
+            for t, events in grouped.items():
+                # Dedup group by ids hash
+                event_ids = sorted([e['item'].get('id', '') for e in events])
+                events_hash = hashlib.md5(str(event_ids).encode()).hexdigest()
+                if not notification_deduplication.should_send_notification(
+                    'channel_group_high_event',
+                    time=t,
+                    events_hash=events_hash,
+                    minutes_before=minutes_before
+                ):
+                    continue
+                try:
+                    msg = self.notification_service.format_group_notification_message(
+                        events,
+                        minutes_before=events[0]['minutes_until'],
+                        user_timezone=tz_name
+                    )
+                except Exception:
+                    # Minimal fallback summary
+                    msg = f"⚠️ In {minutes_before} minutes: {len(events)} high/medium impact events"
+                try:
+                    self.bot.send_message(chat_id, msg, parse_mode="HTML")
+                    logger.info(f"Sent grouped channel alert for {len(events)} events at {t}")
+                except Exception as e:
+                    logger.error(f"Failed to send grouped channel alert: {e}")
         except Exception as e:
             logger.error(f"Error in channel high-impact alerts: {e}")
 

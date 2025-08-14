@@ -24,6 +24,8 @@ class NotificationDeduplicationService:
         self.sent_notifications: Dict[str, datetime] = {}
         # Track group notifications with timestamps for cleanup
         self.group_notifications: Dict[str, datetime] = {}
+        # Track last chart sent per target (user/channel) to rate-limit charts
+        self.last_chart_sent: Dict[str, datetime] = {}
         self.cleanup_interval = timedelta(hours=24)  # Clean up old notifications every 24 hours
         self.last_cleanup = datetime.now()
         self._lock = threading.Lock()
@@ -49,6 +51,12 @@ class NotificationDeduplicationService:
             old_group = [key for key, ts in self.group_notifications.items() if ts < cutoff_time]
             for key in old_group:
                 del self.group_notifications[key]
+
+            # Cleanup old chart rate-limit records (older than 12 hours)
+            chart_cutoff = now - timedelta(hours=12)
+            old_charts = [key for key, ts in self.last_chart_sent.items() if ts < chart_cutoff]
+            for key in old_charts:
+                del self.last_chart_sent[key]
 
             self.last_cleanup = now
             logger.info(f"Cleaned up {len(old_notifications)} old notifications and {len(old_group)} old group notifications")
@@ -89,8 +97,21 @@ class NotificationDeduplicationService:
             return {
                 "active_notifications": len(self.sent_notifications),
                 "group_notifications": len(self.group_notifications),
+                "chart_rate_limits": len(self.last_chart_sent),
                 "last_cleanup": self.last_cleanup.isoformat()
             }
+
+    def can_send_chart(self, target_id: str, min_minutes: int = 120) -> bool:
+        """Return True if we can send a chart to this target based on cooldown."""
+        with self._lock:
+            last = self.last_chart_sent.get(str(target_id))
+            if not last:
+                return True
+            return (datetime.now() - last) >= timedelta(minutes=min_minutes)
+
+    def mark_chart_sent(self, target_id: str):
+        with self._lock:
+            self.last_chart_sent[str(target_id)] = datetime.now()
 
 
 # Global notification deduplication service instance
@@ -356,10 +377,15 @@ class NotificationService:
                         # Check if user has charts enabled
                         if getattr(user, 'charts_enabled', False):
                             chart_buffer = self._generate_event_chart(item, user)
-                            if chart_buffer:
+                            if chart_buffer and self.deduplication.can_send_chart(user_id):
                                 # Send message with chart
                                 self.bot.send_photo(user_id, chart_buffer, caption=message, parse_mode="HTML")
                                 logger.info(f"Sent notification with chart to user {user_id} for event at {item.get('time')}")
+                                # Mark chart sent for rate limit
+                                try:
+                                    self.deduplication.mark_chart_sent(user_id)
+                                except Exception:
+                                    pass
                             else:
                                 # Fallback to text-only if chart generation fails
                                 self.bot.send_message(user_id, message, parse_mode="HTML")

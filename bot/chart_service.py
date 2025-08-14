@@ -79,6 +79,10 @@ class ChartService:
             'CHF': ['USDCHF=X', 'EURCHF=X'],  # USD/CHF and EUR/CHF for CHF events
             'NZD': ['NZDUSD=X', 'NZDJPY=X'],  # NZD/USD and NZD/JPY for NZD events
             'CNY': ['USDCNY=X', 'EURCNY=X'],  # USD/CNY and EUR/CNY for CNY events
+            # Added commodity and crypto support
+            'XAU': ['XAUUSD=X'],              # Gold vs USD
+            'BTC': ['BTC-USD'],               # Bitcoin vs USD (Yahoo symbol)
+            'ETH': ['ETH-USD'],               # Ethereum vs USD (Yahoo symbol)
             # The following currencies are supported for mapping but may be hidden in UI
             'INR': ['USDINR=X', 'EURINR=X'],
             'BRL': ['USDBRL=X', 'EURBRL=X'],
@@ -122,6 +126,9 @@ class ChartService:
             'USDCAD=X': ['USDCAD=X', 'EURCAD=X', 'EURUSD=X'],
             'USDCHF=X': ['USDCHF=X', 'EURCHF=X', 'EURUSD=X'],
             'NZDUSD=X': ['NZDUSD=X', 'NZDJPY=X', 'EURUSD=X'],
+            'XAUUSD=X': ['XAUUSD=X', 'GC=F'],
+            'BTC-USD': ['BTC-USD'],
+            'ETH-USD': ['ETH-USD'],
         }
 
     def _init_yf_session(self) -> requests.Session:
