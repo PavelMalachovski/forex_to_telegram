@@ -172,6 +172,30 @@ class NotificationService:
             logger.error(f"Error formatting group notification message: {e}")
             return f"⚠️ Multiple news events in {minutes_before} minutes!"
 
+    def _send_direction_poll(self, chat_id: int, currency: str, event_name: str) -> bool:
+        """Send a direction poll for the given currency/event with two options (down/up)."""
+        try:
+            if not self.bot:
+                return False
+
+            currency = (currency or '').upper()
+            pair_map = {
+                'USD': 'USDJPY',
+                'EUR': 'EURUSD',
+                'GBP': 'GBPUSD',
+                'CAD': 'USDCAD',
+            }
+            pair = pair_map.get(currency, currency)
+            question = f"Do you think {pair} will go down or up?"
+            options = ["⬇️ Down", "⬆️ Up"]
+            # Use anonymous poll with single choice, no callbacks
+            self.bot.send_poll(chat_id, question, options, is_anonymous=True, allows_multiple_answers=False)
+            logger.info(f"Sent direction poll for {pair} to {chat_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send direction poll: {e}")
+            return False
+
     def get_upcoming_events(self, target_date: datetime, impact_levels: List[str],
                            minutes_before: int, user_timezone: str = "Europe/Prague") -> List[Dict[str, Any]]:
         """Get events that are coming up within the specified time window."""
@@ -344,6 +368,11 @@ class NotificationService:
                             # Send text-only notification
                             self.bot.send_message(user_id, message, parse_mode="HTML")
                             logger.info(f"Sent notification to user {user_id} for event at {item.get('time')}")
+                        # Send a follow-up poll for direction
+                        try:
+                            self._send_direction_poll(user_id, item.get('currency'), item.get('event'))
+                        except Exception as e:
+                            logger.error(f"Error sending poll to user {user_id}: {e}")
                     except Exception as e:
                         logger.error(f"Error sending notification to user {user_id}: {e}")
 

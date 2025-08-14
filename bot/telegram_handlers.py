@@ -1,4 +1,5 @@
 import logging
+import os
 import asyncio
 import time
 import threading
@@ -8,7 +9,7 @@ import pytz
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from calendar import monthrange, month_name
+
 
 from .config import Config
 from bot.utils import escape_markdown_v2
@@ -416,15 +417,85 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                 bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
             return
 
-        # Handle classic news flow callbacks
+        # Handle GPT analysis callbacks inline to avoid unknown callback
+        if call.data.startswith("gpt_base_"):
+            base = call.data.replace("gpt_base_", "")
+            from .visualize_handler import VisualizeHandler
+            viz_handler = VisualizeHandler(db_service, config) if db_service else None
+            choices = [c for c in (viz_handler.available_currencies if viz_handler else ["USD","EUR","GBP","JPY"]) if c != base]
+            keyboard = []
+            row = []
+            for c in choices:
+                row.append(InlineKeyboardButton(c, callback_data=f"gpt_quote_{base}_{c}"))
+                if len(row) == 3:
+                    keyboard.append(row)
+                    row = []
+            if row:
+                keyboard.append(row)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            bot.edit_message_text(
+                f"🤖 Base: {base}\nChoose quote currency:",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=reply_markup
+            )
+            bot.answer_callback_query(call.id)
+            return
+
+        if call.data.startswith("gpt_quote_"):
+            try:
+                # Expected format: gpt_quote_BASE_QUOTE
+                parts = call.data.split("_")
+                # parts -> ["gpt", "quote", BASE, QUOTE]
+                if len(parts) != 4:
+                    raise ValueError("Malformed callback data")
+                _, _, base, quote = parts
+            except Exception:
+                bot.answer_callback_query(call.id, "Invalid selection")
+                return
+            bot.answer_callback_query(call.id, "🔄 Computing features...")
+            bot.edit_message_text(
+                f"🔄 Computing local features for {base}/{quote}...",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+            try:
+                from .gpt_analysis import run_pair_analysis
+                api_key = os.getenv("OPENAI_API_KEY") or os.getenv("CHATGPT_API_KEY")
+                text = run_pair_analysis(base, quote, api_key, config.timezone, call.from_user.id)
+                if not text:
+                    bot.edit_message_text(
+                        f"❌ Could not compute analysis for {base}/{quote}.",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id
+                    )
+                    return
+                bot.edit_message_text(
+                    f"📈 {base}/{quote} analysis\n\n" + text,
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.error(f"GPT analysis failed: {e}")
+                bot.edit_message_text(
+                    f"❌ Error: {str(e)[:200]}",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id
+                )
+            return
+
+        # Handle classic news flow callbacks (AI analysis prompt removed)
         if call.data in ["ANALYSIS_YES", "ANALYSIS_NO"]:
-            analysis_choice_callback(call)
+            bot.answer_callback_query(call.id, "AI analysis is disabled.")
+            return
         elif call.data.startswith("impact_"):
             select_impact_callback(call)
         elif call.data == "IGNORE":
             bot.answer_callback_query(call.id)
         else:
-            bot.answer_callback_query(call.id, "❌ Unknown callback")
+            # Gracefully ignore unknown callbacks to avoid user-facing errors
+            bot.answer_callback_query(call.id)
 
     @bot.message_handler(commands=["today"])
     def get_today_news(message):
@@ -503,6 +574,31 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
+
+    @bot.message_handler(commands=["gptanalysis"])
+    def show_gpt_analysis(message):
+        chat_id = message.chat.id
+        # Step 1: Choose base currency
+        from .visualize_handler import VisualizeHandler
+        if not db_service:
+            bot.send_message(chat_id, "❌ Database service not available.")
+            return
+        viz_handler = VisualizeHandler(db_service, config)
+        currencies = viz_handler.available_currencies
+
+        keyboard = []
+        row = []
+        for c in currencies:
+            row.append(InlineKeyboardButton(c, callback_data=f"gpt_base_{c}"))
+            if len(row) == 3:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        bot.send_message(chat_id, "🤖 Choose base currency:", reply_markup=reply_markup)
+
+
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("cal_"))
     def calendar_nav(call):
@@ -606,7 +702,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                         # Fetch news directly with saved preferences
                         import asyncio
                         asyncio.run(process_news_func(
-                            datetime.combine(picked, datetime.min.time()),
+                            datetime.combine(picked, datetime.min.time()).replace(tzinfo=pytz.timezone(config.timezone)),
                             impact_level,
                             saved_analysis,
                             False,
@@ -636,74 +732,64 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
         logger.info(f"select_impact_callback: chat_id={chat_id}, impact_level={impact_level}")
         if chat_id in user_state:
             user_state[chat_id]['impact_level'] = impact_level
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton("🤖 With AI Analysis", callback_data="ANALYSIS_YES"),
-            InlineKeyboardButton("📊 Without Analysis", callback_data="ANALYSIS_NO")
-        )
-        bot.edit_message_text(
-            "Do you want AI analysis with the news?",
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            reply_markup=markup
-        )
-        bot.answer_callback_query(call.id)
-
-    @bot.callback_query_handler(func=lambda call: call.data in ["ANALYSIS_YES", "ANALYSIS_NO"])
-    def analysis_choice_callback(call):
-        chat_id = call.message.chat.id
-        user_id = call.from_user.id
-        analysis_required = (call.data == "ANALYSIS_YES")
+        # AI analysis removed: proceed directly to fetch with no analysis, using selected date
         state = user_state.get(chat_id, {})
         date_obj = state.get('date')
-        impact_level = state.get('impact_level', 'high')
-        logger.info(f"analysis_choice_callback: chat_id={chat_id}, date={date_obj}, impact={impact_level}, analysis={analysis_required}")
         if not date_obj:
-            bot.send_message(chat_id, "Please start with /today, /tomorrow, or /calendar.")
-            return
+            date_obj = datetime.now(pytz.timezone(config.timezone)).date()
         bot.edit_message_text(
-            f"Fetching news for {date_obj.strftime('%Y-%m-%d')} with impact: {impact_level.capitalize()} (AI analysis: {'Yes' if analysis_required else 'No'})...",
+            f"Fetching news for {date_obj.strftime('%Y-%m-%d')} with impact: {impact_level.capitalize()}...",
             chat_id=chat_id,
             message_id=call.message.message_id
         )
         import asyncio
-        asyncio.run(process_news_func(datetime.combine(date_obj, datetime.min.time()), impact_level, analysis_required, False, user_id))
-        user_state.pop(chat_id, None)
+        tz = pytz.timezone(config.timezone)
+        aware_dt = datetime.combine(date_obj, datetime.min.time()).replace(tzinfo=tz)
+        asyncio.run(process_news_func(aware_dt, impact_level, False, False, call.from_user.id))
+        # Clear state
+        try:
+            user_state.pop(chat_id, None)
+        except Exception:
+            pass
         bot.answer_callback_query(call.id)
+
+    # Removed analysis_choice_callback (AI analysis disabled)
 
     def get_help_text():
         return """
-🤖 <b>Forex News Bot</b>
+🤖 <b>Forex News Bot — Command Guide</b>
 
-<b>Commands:</b>
-• /start, /help - Show this help
-• /settings - Configure your preferences
-• /today - Get today's news
-• /tomorrow - Get tomorrow's news
-• /calendar - Select a specific date
-• /visualize - Generate charts for events
+<b>📌 Main Commands:</b>
+/start – Welcome & help menu
+/help – Show this guide
+/today – Today’s forex news
+/tomorrow – Tomorrow’s news
+/calendar – Pick a date from calendar
+/visualize – Charts of news events
+/settings – Configure preferences
+/gptanalysis – AI pair analysis
 
-<b>Features:</b>
-• 📊 Personalized news filtering
-• 💰 Currency preferences
-• 📈 Impact level selection
-• 🤖 AI-powered analysis
-• ⏰ Daily digest scheduling
-• ⚙️ User settings management
-• 📊 Chart visualization for events
+<b>✨ Key Features:</b>
+📊 Personalized news by currency & impact level
+💰 Currency filter (e.g., USD, EUR, JPY)
+📈 Impact selection (High / Medium / Low)
+🤖 AI analysis of currency pairs
+⏰ Daily digest at your chosen time
+⚙️ Full settings control
+📊 Charts for price vs news events
 
-<b>Settings:</b>
-• Choose preferred currencies
-• Select impact levels (High/Medium/Low)
-• Enable/disable AI analysis
-• Set daily digest time
+<b>⚙️ Settings Menu Includes:</b>
+Pick currencies you care about
+Choose impact levels (High/Medium/Low)
+Schedule daily digest
+Quick /gptanalysis for any pair
 
-<b>Visualization:</b>
-• Select currency and view events
-• Generate charts with customizable time windows
-• View price movements around news events
+<b>📊 Visualization Mode:</b>
+Select currency & events
+Generate price movement charts around news
+Set your own time window for analysis
 
-Use /settings to customize your experience!
+💡 Tip: Use /settings to customize everything for your trading style.
         """
 
     logger.info("All handlers registered successfully")

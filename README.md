@@ -1,6 +1,6 @@
 # 📊 Forex News & Chart Visualization Bot
 
-**A comprehensive Telegram bot for personalized forex news, real-time notifications, and advanced chart analysis with AI-powered insights.**
+**A comprehensive Telegram bot for personalized forex news, real-time notifications, and advanced chart analysis. Optional pair analysis via GPT is available with minimal token usage.**
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)](https://postgresql.org)
@@ -22,7 +22,7 @@
 
 ### 📰 **Smart News Delivery**
 - **Real-Time Scraping**: Economic news from ForexFactory
-- **AI-Powered Analysis**: Optional ChatGPT integration
+- **Clean Output**: News messages do not include AI text and are not stored with new AI analysis
 - **Personalized Filtering**: Currency and impact preferences
 - **Custom Notifications**: 15/30/60 minutes before events
 - **Daily Digest**: Automated delivery at your chosen time
@@ -99,37 +99,96 @@ TELEGRAM_BOT_TOKEN=your_bot_token
 DATABASE_URL=postgresql://user:pass@host:port/db
 API_KEY=your_secure_api_key
 
-# Optional
-CHATGPT_API_KEY=your_openai_key
+# Optional (charts/data)
 ALPHA_VANTAGE_API_KEY=your_av_key
 WEBHOOK_URL=your_webhook_url
+
+# Optional (GPT pair analysis via /gptanalysis)
+# Preferred variable name:
+OPENAI_API_KEY=your_openai_key
+# Backward-compatible fallback (if set, used when OPENAI_API_KEY is not set):
+CHATGPT_API_KEY=your_openai_key
+# Optional model tuning (with sensible defaults)
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_TEMPERATURE=0.25
+OPENAI_MAX_TOKENS=500
+# Toggle external GPT call on/off at runtime (local-only when false)
+OPENAI_ENABLED=true
+# Per user+symbol cooldown to control costs (seconds)
+OPENAI_RATE_LIMIT_SECONDS=15
+
+# Optional (data & charts)
+# Use Alpha Vantage as a fallback source (requires ALPHA_VANTAGE_API_KEY)
+ENABLE_ALPHA_VANTAGE=0
+# Try alternate Yahoo symbols (e.g., USDJPY=X → EURJPY=X)
+ENABLE_ALT_SYMBOLS=0
+# Allow synthetic mock data as last resort (useful for demos/tests)
+ALLOW_MOCK_DATA=0
+# Display timezone for charts and summaries
+DISPLAY_TIMEZONE=Europe/Prague
+# yfinance request pacing to avoid 429s
+YF_MIN_REQUEST_INTERVAL_SEC=3.0
+# Custom user agent / proxy for yfinance session
+YF_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36"
+YF_PROXY=
+# Persisted charts retention (days)
+CHART_RETENTION_DAYS=3
 ```
 
 ## 📋 **Bot Commands**
 
-### **Core Commands**
-- `/start` - Welcome message and setup
-- `/help` - Comprehensive help guide
-- `/today` - Today's economic news
-- `/tomorrow` - Tomorrow's events
-- `/calendar` - Interactive date picker
-- `/visualize` - **📊 Chart generation interface**
-- `/settings` - Configure preferences
+### 🤖 Forex News Bot — Command Guide
 
-### **Chart Commands**
-```
-/visualize
-├── Select Currency (EUR, USD, GBP, JPY...)
-├── Choose Event (CPI, NFP, PMI...)
-├── Pick Chart Type:
-│   ├── 📊 Single Currency (30min, 1h, 2h, 3h)
-│   └── 📈 Cross-Rate Charts:
-│       ├── 30m before → 1h after
-│       ├── 30m before → 2h after
-│       ├── 1h before → 3h after
-│       └── ...10 total options
-└── Select Secondary Currency → Generate Chart
-```
+**📌 Main Commands:**
+/start – Welcome & help menu
+/help – Show this guide
+/today – Today’s forex news
+/tomorrow – Tomorrow’s news
+/calendar – Pick a date from calendar
+/visualize – Charts of news events
+/settings – Configure preferences
+/gptanalysis – AI pair analysis
+
+**✨ Key Features:**
+- 📊 Personalized news by currency & impact level
+- 💰 Currency filter (e.g., USD, EUR, JPY)
+- 📈 Impact selection (High / Medium / Low)
+- 🤖 AI analysis of currency pairs
+- ⏰ Daily digest at your chosen time
+- ⚙️ Full settings control
+- 📊 Charts for price vs news events
+
+**⚙️ Settings Menu Includes:**
+- Pick currencies you care about
+- Choose impact levels (High/Medium/Low)
+- Schedule daily digest
+- Quick /gptanalysis for any pair
+
+**📊 Visualization Mode:**
+- Select currency & events
+- Generate price movement charts around news
+- Set your own time window for analysis
+
+💡 Tip: Use /settings to customize everything for your trading style.
+
+## 🤖 **GPT Pair Analysis (/gptanalysis)**
+
+- **Two-step selection**: 1) Choose base currency (e.g., USD) → 2) Choose quote currency (e.g., JPY)
+- **Human-readable output**: "Quick Overview" layout with Markdown for Telegram
+- **Local features pre-computed** (minimize tokens):
+  - Timeframe: last 1–2 days on 1H & 5m
+  - Price: current price and change vs previous session open
+  - Market structure: recent swing high/low, last BOS/CHOCH with timestamps
+  - Order blocks: last up/down candle before BOS (O/H/L/C, time)
+  - FVGs: compact ranges where price may react
+  - Liquidity zones: equal highs/lows, previous-day H/L, round numbers (00/50)
+  - Momentum: price change %, EMA20/EMA50 distance and slope (up/down/flat), ATR(14), ADR(5)
+- **Cost control**:
+  - Model: `gpt-4o-mini` (configurable via `OPENAI_MODEL`)
+  - Temperature: 0.2–0.3 (default `0.25`)
+  - Max tokens: ~400–600 (default `500`)
+  - Runtime toggle with `OPENAI_ENABLED`, per-user cooldown via `OPENAI_RATE_LIMIT_SECONDS`
+- **Privacy**: Only concise numeric summaries are sent to GPT. No data is stored in the DB from /gptanalysis.
 
 ## ⚙️ **User Settings**
 
@@ -162,7 +221,8 @@ forex_to_telegram/
 │   ├── telegram_handlers.py    # 🤖 Bot message handling
 │   ├── database_service.py     # 💾 Database operations
 │   ├── notification_service.py # 🔔 Real-time notifications
-│   ├── scraper.py             # 🌐 News scraping & AI analysis
+│   ├── scraper.py             # 🌐 News scraping (no AI text added to news)
+│   ├── gpt_analysis.py        # 🤖 Local features + GPT pair analysis
 │   └── user_settings.py       # ⚙️ User preference management
 ├── 📂 tests/                   # Test suite (32 test files)
 │   ├── test_chart_service.py   # Chart generation tests
@@ -211,7 +271,7 @@ CREATE TABLE forex_news (
     forecast VARCHAR(100),
     previous VARCHAR(100),
     impact_level VARCHAR(20) NOT NULL,
-    analysis TEXT,
+    analysis TEXT, -- legacy column; existing values preserved, no new AI analysis is stored
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -360,6 +420,12 @@ curl https://your-app-url/status
 - ✅ **Performance**: Parallel processing and caching
 
 ### **User Experience** 🎨
+### **/gptanalysis Improvements** 🤖
+- ✅ Fixed callback parsing to avoid malformed symbols (no more `quoteUSD_JPY=X`)
+- ✅ Added Markdown “Quick Overview” layout for clean, readable analysis
+- ✅ Local features enriched: equal highs/lows, last BOS/CHOCH, OB, FVGs, round levels
+- ✅ Momentum details: EMA20/EMA50 distance and slope, ATR(14), ADR(5)
+- ✅ Cost controls: runtime toggle (`OPENAI_ENABLED`) and per-user cooldown
 - ✅ **Immediate Feedback**: No more timeout errors
 - ✅ **Professional Charts**: TradingView-style visualizations
 - ✅ **Flexible Analysis**: Pre/post event timing options
