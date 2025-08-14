@@ -19,7 +19,11 @@ class VisualizeHandler:
         self.db_service = db_service
         self.config = config
         # Pruned currency list per request
-        self.available_currencies = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]
+        # Include major FX plus commodities/crypto requested
+        self.available_currencies = [
+            "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD",
+            "XAU", "BTC", "ETH"
+        ]
         # Limit to only 1h and 2h symmetric windows
         self.time_windows = [
             ("1h", 1),

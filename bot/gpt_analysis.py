@@ -17,7 +17,20 @@ _LAST_GPT_CALLS: Dict[str, float] = {}
 
 
 def _get_symbol_from_currencies(base_currency: str, quote_currency: str) -> str:
-    return f"{base_currency}{quote_currency}=X"
+    base = (base_currency or '').upper()
+    quote = (quote_currency or '').upper()
+    # Crypto pairs on Yahoo use dash notation, e.g., BTC-USD, ETH-EUR
+    crypto = {"BTC", "ETH"}
+    if base in crypto or quote in crypto:
+        # Prefer crypto as the left side (Yahoo style)
+        if base in crypto and quote not in crypto:
+            return f"{base}-{quote}"
+        if quote in crypto and base not in crypto:
+            return f"{quote}-{base}"
+        # Crypto-to-crypto (fallback dash form)
+        return f"{base}-{quote}"
+    # Metals/FX pairs use =X suffix, e.g., XAUUSD=X, EURUSD=X
+    return f"{base}{quote}=X"
 
 
 def _infer_price_decimals(symbol: str) -> int:
