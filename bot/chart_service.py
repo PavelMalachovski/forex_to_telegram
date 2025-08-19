@@ -1517,7 +1517,7 @@ class ChartService:
     def create_gpt_analysis_chart(self,
                                    symbol: str,
                                    features: Dict[str, object],
-                                   window_hours: int = 24) -> Optional[BytesIO]:
+                                   window_hours: int = 48) -> Optional[BytesIO]:
         """Create a 5-minute candle chart for the last window_hours with GPT overlays.
 
         Overlays include:
@@ -1547,7 +1547,7 @@ class ChartService:
             except Exception:
                 local_index = data.index
 
-            # Compute EMAs on Close
+            # Compute EMAs on Close (ensure alignment with price)
             ema20 = data['Close'].ewm(span=20, adjust=False).mean()
             ema50 = data['Close'].ewm(span=50, adjust=False).mean()
 
@@ -1605,6 +1605,39 @@ class ChartService:
             if features.get('recent_swing_low') is not None:
                 hline(features.get('recent_swing_low'), color='#17becf', lw=1.0, ls='--', alpha=0.85, label='Recent Low')
 
+            # Annotate swing high/low with labels and arrows
+            try:
+                swing_hi = features.get('recent_swing_high')
+                swing_hi_t = features.get('recent_swing_high_time')
+                swing_lo = features.get('recent_swing_low')
+                swing_lo_t = features.get('recent_swing_low_time')
+                # Helper to convert ISO time to local tz
+                def _to_local(ts_iso):
+                    import pandas as _pd
+                    try:
+                        ts = _pd.to_datetime(ts_iso, utc=True)
+                        return ts.tz_convert(self.display_tz)
+                    except Exception:
+                        return None
+                if swing_hi is not None and swing_hi_t:
+                    ts_loc = _to_local(swing_hi_t)
+                    if ts_loc is not None:
+                        ax.annotate(f"Swing High: {swing_hi:.4f}",
+                                    xy=(ts_loc, float(swing_hi)),
+                                    xytext=(ts_loc + timedelta(hours=6), float(swing_hi) + (abs(float(swing_hi))*0.0002)),
+                                    arrowprops=dict(arrowstyle="->", color='#d62728', lw=1.0),
+                                    fontsize=9, color='#d62728', bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+                if swing_lo is not None and swing_lo_t:
+                    ts_loc = _to_local(swing_lo_t)
+                    if ts_loc is not None:
+                        ax.annotate(f"Swing Low: {swing_lo:.4f}",
+                                    xy=(ts_loc, float(swing_lo)),
+                                    xytext=(ts_loc + timedelta(hours=6), float(swing_lo) - (abs(float(swing_lo))*0.0002)),
+                                    arrowprops=dict(arrowstyle="->", color='#17becf', lw=1.0),
+                                    fontsize=9, color='#17becf', bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+            except Exception:
+                pass
+
             # Equal highs/lows clusters as bands (liquidity)
             try:
                 eq_hi = features.get('equal_highs') or []
@@ -1634,6 +1667,39 @@ class ChartService:
             ax.grid(True, alpha=0.3)
             ax.legend(loc='upper left', ncol=3, fontsize=8)
 
+            # Psychological levels (round numbers) across visible range
+            try:
+                # Determine decimals/step by symbol
+                dec = 2 if ('JPY' in symbol or '/JPY' in self._pretty_pair_name(symbol)) else 4
+                step = 0.5 if dec == 2 else 0.005
+                # Determine min/max from plotted data and overlays
+                y_candidates = [
+                    float(data['Low'].min()), float(data['High'].max()),
+                    *(rlevels or []),
+                ]
+                if po is not None:
+                    y_candidates.append(float(po))
+                if swing_hi is not None:
+                    y_candidates.append(float(swing_hi))
+                if swing_lo is not None:
+                    y_candidates.append(float(swing_lo))
+                for g in (fvgs or []):
+                    if g.get('start') is not None and g.get('end') is not None:
+                        y_candidates.append(float(min(g['start'], g['end'])))
+                        y_candidates.append(float(max(g['start'], g['end'])))
+                y_min = min(y_candidates) if y_candidates else float(data['Low'].min())
+                y_max = max(y_candidates) if y_candidates else float(data['High'].max())
+                # Draw psych levels within range (coarse grid)
+                from math import floor, ceil
+                start_level = floor(y_min / step) * step
+                end_level = ceil(y_max / step) * step
+                lvl = start_level
+                while lvl <= end_level:
+                    ax.axhline(y=float(lvl), color='#cccccc', linewidth=0.6, linestyle=':', alpha=0.6)
+                    lvl = round(lvl + step, dec + 1)
+            except Exception:
+                pass
+
             # X-axis formatting
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M', tz=self.display_tz))
             ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
@@ -1642,6 +1708,46 @@ class ChartService:
             # Title
             pair_title = self._pretty_pair_name(symbol)
             fig.suptitle(f'{pair_title} — GPT Analysis (5m, last {window_hours}h)', fontsize=14, fontweight='bold')
+
+            # Scenario annotations based on swings
+            try:
+                x_pos = local_index[int(len(local_index) * 0.8)] if len(local_index) > 0 else None
+                if x_pos is not None:
+                    if features.get('recent_swing_low') is not None:
+                        lo = float(features['recent_swing_low'])
+                        ax.annotate('📉 Break below ' + f"{lo:.4f}" + ' → bearish continuation',
+                                    xy=(x_pos, lo), xytext=(x_pos, lo - (abs(lo) * 0.0015)),
+                                    arrowprops=dict(arrowstyle='->', color='#d62728', lw=1.0),
+                                    fontsize=9, color='#d62728', bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+                    if features.get('recent_swing_high') is not None:
+                        hi = float(features['recent_swing_high'])
+                        ax.annotate('📈 Break above ' + f"{hi:.4f}" + ' → possible reversal',
+                                    xy=(x_pos, hi), xytext=(x_pos, hi + (abs(hi) * 0.0015)),
+                                    arrowprops=dict(arrowstyle='->', color='#2ca02c', lw=1.0),
+                                    fontsize=9, color='#2ca02c', bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+            except Exception:
+                pass
+
+            # Dynamic y-limits with breathing room
+            try:
+                y_min = float(min(data['Low'].min(), *(rlevels or [data['Low'].min()]), *( [po] if po is not None else [])))
+                y_max = float(max(data['High'].max(), *(rlevels or [data['High'].max()]), *( [po] if po is not None else [])))
+                if features.get('recent_swing_low') is not None:
+                    y_min = min(y_min, float(features['recent_swing_low']))
+                if features.get('recent_swing_high') is not None:
+                    y_max = max(y_max, float(features['recent_swing_high']))
+                for g in (fvgs or []):
+                    if g.get('start') is not None and g.get('end') is not None:
+                        low = float(min(g['start'], g['end']))
+                        high = float(max(g['start'], g['end']))
+                        y_min = min(y_min, low)
+                        y_max = max(y_max, high)
+                # Padding ~0.25% of mid-price
+                mid = (y_min + y_max) / 2.0
+                pad = max((y_max - y_min) * 0.10, mid * (0.0005 if 'JPY' not in symbol and '/JPY' not in self._pretty_pair_name(symbol) else 0.05))
+                plt.ylim(y_min - pad, y_max + pad)
+            except Exception:
+                pass
 
             plt.tight_layout(rect=[0, 0.03, 1, 0.97])
 

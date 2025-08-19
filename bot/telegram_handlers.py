@@ -474,17 +474,17 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                 text = result.get("text")
                 features = result.get("features", {})
                 symbol = result.get("symbol") or _get_symbol_from_currencies(base, quote)
-                # Build annotated chart (5m, 24h)
+                # Build annotated chart (5m, 48h)
                 try:
                     from .chart_service import chart_service
-                    chart = chart_service.create_gpt_analysis_chart(symbol=symbol, features=features, window_hours=24)
+                    chart = chart_service.create_gpt_analysis_chart(symbol=symbol, features=features, window_hours=48)
                 except Exception as ce:
                     logger.error(f"Failed to create GPT analysis chart: {ce}")
                     chart = None
                 if chart:
                     # Send photo first, then a separate message with analysis to avoid caption limits
                     try:
-                        bot.send_photo(chat_id=call.message.chat.id, photo=chart, caption=f"📈 {base}/{quote} — 5m, last 24h")
+                        bot.send_photo(chat_id=call.message.chat.id, photo=chart, caption=f"📈 {base}/{quote} — 5m, last 48h")
                     except Exception:
                         # fallback without caption
                         bot.send_photo(chat_id=call.message.chat.id, photo=chart)
