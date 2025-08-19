@@ -1700,7 +1700,7 @@ class ChartService:
             except Exception:
                 pass
 
-            # X-axis formatting
+            # X-axis formatting (will apply after zoom range)
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M', tz=self.display_tz))
             ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
@@ -1728,24 +1728,46 @@ class ChartService:
             except Exception:
                 pass
 
-            # Dynamic y-limits with breathing room
+            # Dynamic zoom window (last 12 hours) and auto-fit Y-axis
             try:
-                y_min = float(min(data['Low'].min(), *(rlevels or [data['Low'].min()]), *( [po] if po is not None else [])))
-                y_max = float(max(data['High'].max(), *(rlevels or [data['High'].max()]), *( [po] if po is not None else [])))
-                if features.get('recent_swing_low') is not None:
-                    y_min = min(y_min, float(features['recent_swing_low']))
-                if features.get('recent_swing_high') is not None:
-                    y_max = max(y_max, float(features['recent_swing_high']))
-                for g in (fvgs or []):
-                    if g.get('start') is not None and g.get('end') is not None:
-                        low = float(min(g['start'], g['end']))
-                        high = float(max(g['start'], g['end']))
-                        y_min = min(y_min, low)
-                        y_max = max(y_max, high)
-                # Padding ~0.25% of mid-price
-                mid = (y_min + y_max) / 2.0
-                pad = max((y_max - y_min) * 0.10, mid * (0.0005 if 'JPY' not in symbol and '/JPY' not in self._pretty_pair_name(symbol) else 0.05))
-                plt.ylim(y_min - pad, y_max + pad)
+                from datetime import timedelta as _td
+                zoom_hours = 12
+                end_zoom = local_index[-1]
+                start_zoom = end_zoom - _td(hours=zoom_hours)
+                mask = (local_index >= start_zoom) & (local_index <= end_zoom)
+                if mask.any():
+                    # Apply X-axis zoom
+                    li = local_index[mask]
+                    ax.set_xlim(li[0], li[-1])
+
+                    # Choose a source for zoomed highs/lows aligned to local_index
+                    zoom_source = None
+                    try:
+                        zoom_source = ohlc  # defined above when candlesticks succeeded
+                    except NameError:
+                        try:
+                            zoom_source = synth
+                        except NameError:
+                            import pandas as _pd
+                            zoom_source = _pd.DataFrame({
+                                'High': data['High'].values,
+                                'Low': data['Low'].values,
+                            }, index=local_index)
+
+                    zdf = zoom_source.loc[li]
+                    z_low = float(zdf['Low'].min())
+                    z_high = float(zdf['High'].max())
+
+                    # Select buffer by pair type
+                    is_jpy = ('JPY' in symbol) or ('/JPY' in pair_title)
+                    base_buffer = 0.1 if is_jpy else 0.0015
+                    y_range = max(1e-12, z_high - z_low)
+                    y_margin = max(y_range * 0.10, base_buffer)
+                    ax.set_ylim(z_low - y_margin, z_high + y_margin)
+
+                    # Optional: highlight zoomed range
+                    ax.axvline(start_zoom, linestyle='--', color='gray', alpha=0.2)
+                    ax.axvline(end_zoom, linestyle='--', color='gray', alpha=0.2)
             except Exception:
                 pass
 
