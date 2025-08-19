@@ -1728,46 +1728,55 @@ class ChartService:
             except Exception:
                 pass
 
-            # Dynamic zoom window (last 12 hours) and auto-fit Y-axis
+            # Fit view to full 48h range (x) and auto-fit Y-axis to full price range
             try:
-                from datetime import timedelta as _td
-                zoom_hours = 12
-                end_zoom = local_index[-1]
-                start_zoom = end_zoom - _td(hours=zoom_hours)
-                mask = (local_index >= start_zoom) & (local_index <= end_zoom)
-                if mask.any():
-                    # Apply X-axis zoom
-                    li = local_index[mask]
-                    ax.set_xlim(li[0], li[-1])
+                # Full x-range
+                ax.set_xlim(local_index[0], local_index[-1])
 
-                    # Choose a source for zoomed highs/lows aligned to local_index
-                    zoom_source = None
+                # Choose a source for highs/lows aligned to local_index
+                price_source = None
+                try:
+                    price_source = ohlc
+                except NameError:
                     try:
-                        zoom_source = ohlc  # defined above when candlesticks succeeded
+                        price_source = synth
                     except NameError:
-                        try:
-                            zoom_source = synth
-                        except NameError:
-                            import pandas as _pd
-                            zoom_source = _pd.DataFrame({
-                                'High': data['High'].values,
-                                'Low': data['Low'].values,
-                            }, index=local_index)
+                        import pandas as _pd
+                        price_source = _pd.DataFrame({
+                            'High': data['High'].values,
+                            'Low': data['Low'].values,
+                        }, index=local_index)
 
-                    zdf = zoom_source.loc[li]
-                    z_low = float(zdf['Low'].min())
-                    z_high = float(zdf['High'].max())
+                p_low = float(price_source['Low'].min())
+                p_high = float(price_source['High'].max())
 
-                    # Select buffer by pair type
-                    is_jpy = ('JPY' in symbol) or ('/JPY' in pair_title)
-                    base_buffer = 0.1 if is_jpy else 0.0015
-                    y_range = max(1e-12, z_high - z_low)
-                    y_margin = max(y_range * 0.10, base_buffer)
-                    ax.set_ylim(z_low - y_margin, z_high + y_margin)
+                # Include overlays in Y fit
+                if po is not None:
+                    p_low = min(p_low, float(po))
+                    p_high = max(p_high, float(po))
+                if features.get('recent_swing_low') is not None:
+                    p_low = min(p_low, float(features['recent_swing_low']))
+                if features.get('recent_swing_high') is not None:
+                    p_high = max(p_high, float(features['recent_swing_high']))
+                for g in (fvgs or []):
+                    if g.get('start') is not None and g.get('end') is not None:
+                        gl = float(min(g['start'], g['end']))
+                        gh = float(max(g['start'], g['end']))
+                        p_low = min(p_low, gl)
+                        p_high = max(p_high, gh)
+                for lvl in (rlevels or []):
+                    try:
+                        p_low = min(p_low, float(lvl))
+                        p_high = max(p_high, float(lvl))
+                    except Exception:
+                        pass
 
-                    # Optional: highlight zoomed range
-                    ax.axvline(start_zoom, linestyle='--', color='gray', alpha=0.2)
-                    ax.axvline(end_zoom, linestyle='--', color='gray', alpha=0.2)
+                # Buffer by pair type
+                is_jpy = ('JPY' in symbol) or ('/JPY' in pair_title)
+                base_buffer = 0.1 if is_jpy else 0.0015
+                y_range = max(1e-12, p_high - p_low)
+                y_margin = max(y_range * 0.10, base_buffer)
+                ax.set_ylim(p_low - y_margin, p_high + y_margin)
             except Exception:
                 pass
 
