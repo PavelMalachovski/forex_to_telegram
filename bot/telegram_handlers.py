@@ -460,20 +460,38 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                 message_id=call.message.message_id
             )
             try:
-                from .gpt_analysis import run_pair_analysis
+                from .gpt_analysis import run_pair_analysis_with_features
+                from .gpt_analysis import _get_symbol_from_currencies  # reuse symbol mapping
                 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("CHATGPT_API_KEY")
-                text = run_pair_analysis(base, quote, api_key, config.timezone, call.from_user.id)
-                if not text:
+                result = run_pair_analysis_with_features(base, quote, api_key, config.timezone, call.from_user.id)
+                if not result:
                     bot.edit_message_text(
                         f"❌ Could not compute analysis for {base}/{quote}.",
                         chat_id=call.message.chat.id,
                         message_id=call.message.message_id
                     )
                     return
-                bot.edit_message_text(
-                    f"📈 {base}/{quote} analysis\n\n" + text,
+                text = result.get("text")
+                features = result.get("features", {})
+                symbol = result.get("symbol") or _get_symbol_from_currencies(base, quote)
+                # Build annotated chart (5m, 24h)
+                try:
+                    from .chart_service import chart_service
+                    chart = chart_service.create_gpt_analysis_chart(symbol=symbol, features=features, window_hours=24)
+                except Exception as ce:
+                    logger.error(f"Failed to create GPT analysis chart: {ce}")
+                    chart = None
+                if chart:
+                    # Send photo first, then a separate message with analysis to avoid caption limits
+                    try:
+                        bot.send_photo(chat_id=call.message.chat.id, photo=chart, caption=f"📈 {base}/{quote} — 5m, last 24h")
+                    except Exception:
+                        # fallback without caption
+                        bot.send_photo(chat_id=call.message.chat.id, photo=chart)
+                # Send analysis text
+                bot.send_message(
                     chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
+                    text=f"📊 {base}/{quote} analysis\n\n" + text,
                     parse_mode='Markdown'
                 )
             except Exception as e:

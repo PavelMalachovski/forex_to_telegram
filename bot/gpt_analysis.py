@@ -559,3 +559,34 @@ def run_pair_analysis(base_currency: str, quote_currency: str, openai_api_key: O
     return build_user_output(features, gpt_text)
 
 
+def run_pair_analysis_with_features(base_currency: str, quote_currency: str, openai_api_key: Optional[str], tz: str, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Compute features and GPT text for a pair and return both for charting.
+
+    Returns dict with keys: text (str), features (dict), symbol (str).
+    """
+    symbol = _get_symbol_from_currencies(base_currency, quote_currency)
+    # Rate limit handling mirrors run_pair_analysis
+    try:
+        import time as _t
+        cooldown_sec = float(os.getenv("OPENAI_RATE_LIMIT_SECONDS", "15"))
+        if user_id is not None:
+            key = f"{user_id}:{symbol}"
+            last = _LAST_GPT_CALLS.get(key, 0.0)
+            now = _t.time()
+            if now - last < cooldown_sec:
+                logger.info(f"GPT rate-limited for {key}; skipping external call")
+                openai_api_key = None
+            else:
+                _LAST_GPT_CALLS[key] = now
+    except Exception:
+        pass
+    features = compute_local_features(symbol, tz)
+    if not features:
+        return None
+    summary = format_features_for_gpt(features)
+    if os.getenv("OPENAI_ENABLED", "true").strip().lower() not in ("1", "true", "yes", "on"):
+        openai_api_key = None
+    gpt_text = call_openai_gpt(summary, openai_api_key)
+    text = build_user_output(features, gpt_text)
+    return {"text": text, "features": features, "symbol": symbol}
+

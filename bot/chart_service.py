@@ -1514,6 +1514,166 @@ class ChartService:
             logger.error(f"Failed to prune old charts: {e}")
             return 0
 
+    def create_gpt_analysis_chart(self,
+                                   symbol: str,
+                                   features: Dict[str, object],
+                                   window_hours: int = 24) -> Optional[BytesIO]:
+        """Create a 5-minute candle chart for the last window_hours with GPT overlays.
+
+        Overlays include:
+        - EMA20 and EMA50 (computed on fetched data)
+        - Current price line
+        - Recent swing high/low from features
+        - Round levels
+        - Fair Value Gaps (price bands)
+        - Equal highs/lows zones (liquidity clusters)
+        - Prior session open
+        """
+        try:
+            end_time = datetime.now(self.display_tz)
+            start_time = end_time - timedelta(hours=window_hours)
+
+            # Fetch explicit 5m data; fallback to general fetch
+            data = self._fetch_with_retry(symbol, start_time, end_time, '5m')
+            if data is None or data.empty:
+                data = self.fetch_price_data(symbol, start_time, end_time)
+            if data is None or data.empty:
+                logger.warning(f"No price data for {symbol} to render GPT analysis chart")
+                return None
+
+            # Ensure timezone-local index for plotting
+            try:
+                local_index = data.index.tz_convert(self.display_tz) if data.index.tzinfo else data.index.tz_localize(self.display_tz)
+            except Exception:
+                local_index = data.index
+
+            # Compute EMAs on Close
+            ema20 = data['Close'].ewm(span=20, adjust=False).mean()
+            ema50 = data['Close'].ewm(span=50, adjust=False).mean()
+
+            plt.style.use('default')
+            fig, ax = plt.subplots(figsize=(13, 8))
+
+            # Prepare OHLC for candlesticks
+            try:
+                ohlc = data[['Open', 'High', 'Low', 'Close']].copy()
+                ohlc.index = local_index
+                self._plot_candlesticks(ax, ohlc, pair_name=self._pretty_pair_name(symbol))
+            except Exception as e:
+                logger.warning(f"Candlestick plot failed in GPT chart; synthesizing: {e}")
+                try:
+                    synth = self._synthesize_ohlc_from_close(data)
+                    synth.index = local_index
+                    self._plot_candlesticks(ax, synth, pair_name=self._pretty_pair_name(symbol))
+                except Exception as e2:
+                    logger.error(f"Failed to synthesize candlesticks in GPT chart: {e2}")
+
+            # Overlay EMAs
+            try:
+                ax.plot(local_index, ema20.values, color='#1f77b4', linewidth=1.3, label='EMA20')
+                ax.plot(local_index, ema50.values, color='#ff7f0e', linewidth=1.3, label='EMA50')
+            except Exception:
+                pass
+
+            # Helper: draw horizontal level
+            def hline(y, color, lw=1.0, ls='--', alpha=0.8, label=None):
+                try:
+                    ax.axhline(y=float(y), color=color, linewidth=lw, linestyle=ls, alpha=alpha, label=label)
+                except Exception:
+                    pass
+
+            # Current price
+            try:
+                last_price = float(features.get('last_price')) if features.get('last_price') is not None else float(data['Close'].iloc[-1])
+                hline(last_price, color='#2ca02c', lw=1.2, ls='-', alpha=0.8, label='Last Price')
+            except Exception:
+                pass
+
+            # Prior session open
+            po = features.get('prior_session_open')
+            if po is not None:
+                hline(po, color='#9467bd', lw=1.0, ls=':', alpha=0.9, label='Prev Session Open')
+
+            # Round levels
+            rlevels = features.get('round_levels') or []
+            for lvl in rlevels:
+                hline(lvl, color='#7f7f7f', lw=0.8, ls='--', alpha=0.6)
+
+            # Recent swing high/low
+            if features.get('recent_swing_high') is not None:
+                hline(features.get('recent_swing_high'), color='#d62728', lw=1.0, ls='--', alpha=0.85, label='Recent High')
+            if features.get('recent_swing_low') is not None:
+                hline(features.get('recent_swing_low'), color='#17becf', lw=1.0, ls='--', alpha=0.85, label='Recent Low')
+
+            # Equal highs/lows clusters as bands (liquidity)
+            try:
+                eq_hi = features.get('equal_highs') or []
+                eq_lo = features.get('equal_lows') or []
+                if len(eq_hi) >= 1:
+                    ax.axhspan(min(eq_hi), max(eq_hi), color='#ff9896', alpha=0.15, label='Equal Highs Zone')
+                if len(eq_lo) >= 1:
+                    ax.axhspan(min(eq_lo), max(eq_lo), color='#98df8a', alpha=0.15, label='Equal Lows Zone')
+            except Exception:
+                pass
+
+            # FVG bands (price-only, spanning full x-range)
+            try:
+                fvgs = features.get('fvgs') or []
+                for g in fvgs:
+                    start_p = g.get('start')
+                    end_p = g.get('end')
+                    if start_p is None or end_p is None:
+                        continue
+                    low = min(float(start_p), float(end_p))
+                    high = max(float(start_p), float(end_p))
+                    ax.axhspan(low, high, color='#c5b0d5', alpha=0.18, label='FVG')
+            except Exception:
+                pass
+
+            ax.set_ylabel('Price', fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper left', ncol=3, fontsize=8)
+
+            # X-axis formatting
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M', tz=self.display_tz))
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+
+            # Title
+            pair_title = self._pretty_pair_name(symbol)
+            fig.suptitle(f'{pair_title} — GPT Analysis (5m, last {window_hours}h)', fontsize=14, fontweight='bold')
+
+            plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+
+            # Save to buffer and persist
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            plt.close()
+            try:
+                filename = f"gpt_{pair_title.replace('/', '')}_{end_time.strftime('%Y%m%d_%H%M')}_w{window_hours}h.png"
+                self._save_chart_buffer(buf, filename)
+            except Exception:
+                pass
+            return buf
+        except Exception as e:
+            logger.error(f"Error generating GPT analysis chart for {symbol}: {e}")
+            plt.close()
+            return None
+
+    def _pretty_pair_name(self, symbol: str) -> str:
+        try:
+            if '-' in symbol:
+                base, quote = symbol.split('-', 1)
+                return f"{base}/{quote}"
+            if symbol.endswith('=X') and len(symbol) >= 6:
+                base = symbol[:3]
+                quote = symbol[3:6]
+                return f"{base}/{quote}"
+            return symbol.replace('=X', '')
+        except Exception:
+            return symbol
+
 
 # Global chart service instance
 chart_service = ChartService()
