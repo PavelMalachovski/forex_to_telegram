@@ -1798,6 +1798,306 @@ class ChartService:
             plt.close()
             return None
 
+    def create_gpt_full_view_chart(self,
+                                   symbol: str,
+                                   features: Dict[str, object],
+                                   window_hours: int = 48) -> Optional[BytesIO]:
+        """Create a simplified full-view chart (5m, last 48h) showing only EMAs.
+
+        - Uses full window_hours for both EMA calculations and display
+        - No annotations, zones, or psychological levels
+        """
+        try:
+            end_time = datetime.now(self.display_tz)
+            start_time = end_time - timedelta(hours=window_hours)
+
+            data = self._fetch_with_retry(symbol, start_time, end_time, '5m')
+            if data is None or data.empty:
+                data = self.fetch_price_data(symbol, start_time, end_time)
+            if data is None or data.empty:
+                return None
+
+            try:
+                local_index = data.index.tz_convert(self.display_tz) if data.index.tzinfo else data.index.tz_localize(self.display_tz)
+            except Exception:
+                local_index = data.index
+
+            # EMAs from full series
+            ema20 = data['Close'].ewm(span=20, adjust=False).mean()
+            ema50 = data['Close'].ewm(span=50, adjust=False).mean()
+
+            plt.style.use('default')
+            fig, ax = plt.subplots(figsize=(13, 8))
+
+            # Candlesticks
+            ohlc = None
+            try:
+                ohlc = data[['Open', 'High', 'Low', 'Close']].copy()
+                ohlc.index = local_index
+                self._plot_candlesticks(ax, ohlc, pair_name=self._pretty_pair_name(symbol))
+            except Exception:
+                try:
+                    synth = self._synthesize_ohlc_from_close(data)
+                    synth.index = local_index
+                    self._plot_candlesticks(ax, synth, pair_name=self._pretty_pair_name(symbol))
+                except Exception:
+                    pass
+
+            # Only EMAs
+            try:
+                ax.plot(local_index, ema20.values, color='#1f77b4', linewidth=1.3, label='EMA20')
+                ax.plot(local_index, ema50.values, color='#ff7f0e', linewidth=1.3, label='EMA50')
+            except Exception:
+                pass
+
+            ax.set_ylabel('Price', fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper left', ncol=2, fontsize=9)
+
+            # Full range fit
+            try:
+                ax.set_xlim(local_index[0], local_index[-1])
+                src = ohlc if ohlc is not None else data
+                p_low = float(src['Low'].min()) if 'Low' in src.columns else float(data['Close'].min())
+                p_high = float(src['High'].max()) if 'High' in src.columns else float(data['Close'].max())
+                y_range = max(1e-12, p_high - p_low)
+                y_margin = y_range * 0.10
+                ax.set_ylim(p_low - y_margin, p_high + y_margin)
+            except Exception:
+                pass
+
+            # Axes
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M', tz=self.display_tz))
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+
+            title = f"{self._pretty_pair_name(symbol)} — EMAs (5m, last {window_hours}h)"
+            fig.suptitle(title, fontsize=14, fontweight='bold')
+
+            plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            plt.close()
+            try:
+                filename = f"gpt_full_{self._pretty_pair_name(symbol).replace('/', '')}_{end_time.strftime('%Y%m%d_%H%M')}_w{window_hours}h.png"
+                self._save_chart_buffer(buf, filename)
+            except Exception:
+                pass
+            return buf
+        except Exception as e:
+            logger.error(f"Error generating full-view chart for {symbol}: {e}")
+            plt.close()
+            return None
+
+    def create_gpt_zoom_view_chart(self,
+                                   symbol: str,
+                                   features: Dict[str, object],
+                                   window_hours: int = 48,
+                                   zoom_hours: int = 12) -> Optional[BytesIO]:
+        """Create a zoomed (last 12h) chart with all feature overlays and annotations."""
+        try:
+            end_time = datetime.now(self.display_tz)
+            start_time = end_time - timedelta(hours=window_hours)
+
+            data = self._fetch_with_retry(symbol, start_time, end_time, '5m')
+            if data is None or data.empty:
+                data = self.fetch_price_data(symbol, start_time, end_time)
+            if data is None or data.empty:
+                return None
+
+            try:
+                local_index = data.index.tz_convert(self.display_tz) if data.index.tzinfo else data.index.tz_localize(self.display_tz)
+            except Exception:
+                local_index = data.index
+
+            # EMAs from full series
+            ema20 = data['Close'].ewm(span=20, adjust=False).mean()
+            ema50 = data['Close'].ewm(span=50, adjust=False).mean()
+
+            plt.style.use('default')
+            fig, ax = plt.subplots(figsize=(13, 8))
+
+            # Candlesticks
+            ohlc = None
+            try:
+                ohlc = data[['Open', 'High', 'Low', 'Close']].copy()
+                ohlc.index = local_index
+                self._plot_candlesticks(ax, ohlc, pair_name=self._pretty_pair_name(symbol))
+            except Exception:
+                try:
+                    synth = self._synthesize_ohlc_from_close(data)
+                    synth.index = local_index
+                    self._plot_candlesticks(ax, synth, pair_name=self._pretty_pair_name(symbol))
+                except Exception:
+                    pass
+
+            # EMAs
+            try:
+                ax.plot(local_index, ema20.values, color='#1f77b4', linewidth=1.3, label='EMA20')
+                ax.plot(local_index, ema50.values, color='#ff7f0e', linewidth=1.3, label='EMA50')
+            except Exception:
+                pass
+
+            # Helper
+            def hline(y, color, lw=1.0, ls='--', alpha=0.8, label=None):
+                try:
+                    ax.axhline(y=float(y), color=color, linewidth=lw, linestyle=ls, alpha=alpha, label=label)
+                except Exception:
+                    pass
+
+            # Current price
+            try:
+                last_price = float(features.get('last_price')) if features.get('last_price') is not None else float(data['Close'].iloc[-1])
+                hline(last_price, color='#2ca02c', lw=1.2, ls='-', alpha=0.8, label='Last Price')
+            except Exception:
+                pass
+
+            # Prior open, round levels, swings
+            po = features.get('prior_session_open')
+            if po is not None:
+                hline(po, color='#9467bd', lw=1.0, ls=':', alpha=0.9, label='Prev Session Open')
+            rlevels = features.get('round_levels') or []
+            for lvl in rlevels:
+                hline(lvl, color='#7f7f7f', lw=0.8, ls='--', alpha=0.6)
+            if features.get('recent_swing_high') is not None:
+                hline(features.get('recent_swing_high'), color='#d62728', lw=1.0, ls='--', alpha=0.85, label='Recent High')
+            if features.get('recent_swing_low') is not None:
+                hline(features.get('recent_swing_low'), color='#17becf', lw=1.0, ls='--', alpha=0.85, label='Recent Low')
+
+            # Swing annotations
+            try:
+                swing_hi = features.get('recent_swing_high')
+                swing_hi_t = features.get('recent_swing_high_time')
+                swing_lo = features.get('recent_swing_low')
+                swing_lo_t = features.get('recent_swing_low_time')
+                import pandas as _pd
+                def _to_local(ts_iso):
+                    try:
+                        ts = _pd.to_datetime(ts_iso, utc=True)
+                        return ts.tz_convert(self.display_tz)
+                    except Exception:
+                        return None
+                if swing_hi is not None and swing_hi_t:
+                    ts_loc = _to_local(swing_hi_t)
+                    if ts_loc is not None:
+                        ax.annotate(f"Swing High: {swing_hi:.4f}", xy=(ts_loc, float(swing_hi)),
+                                    xytext=(ts_loc + timedelta(hours=3), float(swing_hi) + (abs(float(swing_hi))*0.0002)),
+                                    arrowprops=dict(arrowstyle="->", color='#d62728', lw=1.0), fontsize=9, color='#d62728',
+                                    bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+                if swing_lo is not None and swing_lo_t:
+                    ts_loc = _to_local(swing_lo_t)
+                    if ts_loc is not None:
+                        ax.annotate(f"Swing Low: {swing_lo:.4f}", xy=(ts_loc, float(swing_lo)),
+                                    xytext=(ts_loc + timedelta(hours=3), float(swing_lo) - (abs(float(swing_lo))*0.0002)),
+                                    arrowprops=dict(arrowstyle="->", color='#17becf', lw=1.0), fontsize=9, color='#17becf',
+                                    bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+            except Exception:
+                pass
+
+            # Liquidity zones from equal highs/lows and FVGs
+            try:
+                eq_hi = features.get('equal_highs') or []
+                eq_lo = features.get('equal_lows') or []
+                if len(eq_hi) >= 1:
+                    ax.axhspan(min(eq_hi), max(eq_hi), color='#ff9896', alpha=0.15, label='Equal Highs Zone')
+                if len(eq_lo) >= 1:
+                    ax.axhspan(min(eq_lo), max(eq_lo), color='#98df8a', alpha=0.15, label='Equal Lows Zone')
+            except Exception:
+                pass
+
+            try:
+                fvgs = features.get('fvgs') or []
+                for g in fvgs:
+                    start_p = g.get('start'); end_p = g.get('end')
+                    if start_p is None or end_p is None:
+                        continue
+                    low = min(float(start_p), float(end_p)); high = max(float(start_p), float(end_p))
+                    ax.axhspan(low, high, color='#c5b0d5', alpha=0.18, label='FVG')
+            except Exception:
+                pass
+
+            # Psychological levels grid in view
+            try:
+                dec = 2 if ('JPY' in symbol or '/JPY' in self._pretty_pair_name(symbol)) else 4
+                step = 0.5 if dec == 2 else 0.005
+                from math import floor, ceil
+                # Use overall range to draw grid; zoom will be applied later
+                y_min = float(data['Low'].min()); y_max = float(data['High'].max())
+                start_level = floor(y_min / step) * step
+                end_level = ceil(y_max / step) * step
+                lvl = start_level
+                while lvl <= end_level:
+                    ax.axhline(y=float(lvl), color='#cccccc', linewidth=0.6, linestyle=':', alpha=0.6)
+                    lvl = round(lvl + step, dec + 1)
+            except Exception:
+                pass
+
+            # Scenario labels
+            try:
+                x_pos = local_index[int(len(local_index) * 0.85)] if len(local_index) > 0 else None
+                if x_pos is not None:
+                    if features.get('recent_swing_low') is not None:
+                        lo = float(features['recent_swing_low'])
+                        ax.annotate('📉 Break below ' + f"{lo:.4f}" + ' → bearish continuation',
+                                    xy=(x_pos, lo), xytext=(x_pos, lo - (abs(lo) * 0.0015)),
+                                    arrowprops=dict(arrowstyle='->', color='#d62728', lw=1.0), fontsize=9, color='#d62728',
+                                    bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+                    if features.get('recent_swing_high') is not None:
+                        hi = float(features['recent_swing_high'])
+                        ax.annotate('📈 Break above ' + f"{hi:.4f}" + ' → possible reversal',
+                                    xy=(x_pos, hi), xytext=(x_pos, hi + (abs(hi) * 0.0015)),
+                                    arrowprops=dict(arrowstyle='->', color='#2ca02c', lw=1.0), fontsize=9, color='#2ca02c',
+                                    bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+            except Exception:
+                pass
+
+            # Apply zoom to last zoom_hours
+            try:
+                from datetime import timedelta as _td
+                end_zoom = local_index[-1]; start_zoom = end_zoom - _td(hours=zoom_hours)
+                mask = (local_index >= start_zoom) & (local_index <= end_zoom)
+                if mask.any():
+                    li = local_index[mask]
+                    ax.set_xlim(li[0], li[-1])
+                    src = ohlc if ohlc is not None else data
+                    z_low = float(src.loc[li]['Low'].min()) if 'Low' in src.columns else float(data.loc[li]['Close'].min())
+                    z_high = float(src.loc[li]['High'].max()) if 'High' in src.columns else float(data.loc[li]['Close'].max())
+                    is_jpy = ('JPY' in symbol) or ('/JPY' in self._pretty_pair_name(symbol))
+                    base_buffer = 0.1 if is_jpy else 0.0015
+                    y_range = max(1e-12, z_high - z_low)
+                    y_margin = max(y_range * 0.10, base_buffer)
+                    ax.set_ylim(z_low - y_margin, z_high + y_margin)
+                    ax.axvline(start_zoom, linestyle='--', color='gray', alpha=0.2)
+                    ax.axvline(end_zoom, linestyle='--', color='gray', alpha=0.2)
+            except Exception:
+                pass
+
+            # Axes and title
+            ax.set_ylabel('Price', fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper left', ncol=3, fontsize=8)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M', tz=self.display_tz))
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+            fig.suptitle(f"{self._pretty_pair_name(symbol)} — Zoomed View (5m, last {zoom_hours}h)", fontsize=14, fontweight='bold')
+
+            plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            plt.close()
+            try:
+                filename = f"gpt_zoom_{self._pretty_pair_name(symbol).replace('/', '')}_{end_time.strftime('%Y%m%d_%H%M')}_z{zoom_hours}h.png"
+                self._save_chart_buffer(buf, filename)
+            except Exception:
+                pass
+            return buf
+        except Exception as e:
+            logger.error(f"Error generating zoom-view chart for {symbol}: {e}")
+            plt.close()
+            return None
+
     def _pretty_pair_name(self, symbol: str) -> str:
         try:
             if '-' in symbol:

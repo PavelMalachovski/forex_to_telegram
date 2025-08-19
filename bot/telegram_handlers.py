@@ -474,20 +474,27 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                 text = result.get("text")
                 features = result.get("features", {})
                 symbol = result.get("symbol") or _get_symbol_from_currencies(base, quote)
-                # Build annotated chart (5m, 48h)
+                # Build charts: full view (EMAs only) and zoomed view (features)
                 try:
                     from .chart_service import chart_service
-                    chart = chart_service.create_gpt_analysis_chart(symbol=symbol, features=features, window_hours=48)
+                    full_chart = chart_service.create_gpt_full_view_chart(symbol=symbol, features=features, window_hours=48)
+                    zoom_chart = chart_service.create_gpt_zoom_view_chart(symbol=symbol, features=features, window_hours=48, zoom_hours=12)
                 except Exception as ce:
                     logger.error(f"Failed to create GPT analysis chart: {ce}")
-                    chart = None
-                if chart:
+                    full_chart = None
+                    zoom_chart = None
+                if full_chart:
                     # Send photo first, then a separate message with analysis to avoid caption limits
                     try:
-                        bot.send_photo(chat_id=call.message.chat.id, photo=chart, caption=f"📈 {base}/{quote} — 5m, last 48h")
+                        bot.send_photo(chat_id=call.message.chat.id, photo=full_chart, caption=f"📈 {base}/{quote} — EMAs (5m, last 48h)")
                     except Exception:
                         # fallback without caption
-                        bot.send_photo(chat_id=call.message.chat.id, photo=chart)
+                        bot.send_photo(chat_id=call.message.chat.id, photo=full_chart)
+                if zoom_chart:
+                    try:
+                        bot.send_photo(chat_id=call.message.chat.id, photo=zoom_chart, caption=f"🔍 {base}/{quote} — Zoomed (5m, last 12h)")
+                    except Exception:
+                        bot.send_photo(chat_id=call.message.chat.id, photo=zoom_chart)
                 # Send analysis text
                 bot.send_message(
                     chat_id=call.message.chat.id,
