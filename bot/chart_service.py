@@ -17,6 +17,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import json
+from datetime import datetime, timedelta
+import pytz
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -2114,3 +2117,176 @@ class ChartService:
 
 # Global chart service instance
 chart_service = ChartService()
+
+# === Event-driven utilities and renderers ===
+
+def get_pair_and_poll(currency: str) -> tuple[str, str, list[str]]:
+    """
+    Returns (yahoo_symbol, poll_question, poll_options)
+    """
+    mapping = {
+        "USD": ("USDJPY=X", "Do you think USDJPY will go up or down?", ["Up", "Down"]),
+        "JPY": ("USDJPY=X", "Do you think USDJPY will go up or down?", ["Up", "Down"]),
+        "CAD": ("USDCAD=X", "Do you think USDCAD will go up or down?", ["Up", "Down"]),
+        "EUR": ("EURUSD=X", "Do you think EURUSD will go up or down?", ["Up", "Down"]),
+        "GBP": ("GBPUSD=X", "Do you think GBPUSD will go up or down?", ["Up", "Down"]),
+    }
+    return mapping.get(currency, ("EURUSD=X", f"Do you think {currency}/USD will go up or down?", ["Up", "Down"]))
+
+
+def fetch_prices_with_backoff(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+    """
+    Guarantees non-empty OHLCV for [start, end]. Clamps `end` to now.
+    Tries intervals in order: 1m → 5m → 15m → 60m, with 3 retries each.
+    Returns trimmed DataFrame with columns Open, High, Low, Close, Volume.
+    """
+    if start.tzinfo is None:
+        start = pytz.UTC.localize(start)
+    now = datetime.now(tz=start.tzinfo)
+    end = min(end, now)
+
+    intervals = ["1m", "5m", "15m", "60m"]
+    last_err = None
+
+    for itv in intervals:
+        for _ in range(3):
+            try:
+                df = yf.download(symbol, start=start, end=end, interval=itv, progress=False)
+                if df is not None and not df.empty:
+                    df = df.rename(columns=str.title)
+                    for col in ["Open", "High", "Low", "Close", "Volume"]:
+                        if col not in df.columns:
+                            raise ValueError(f"Missing column {col} in downloaded data")
+                    df = df[(df.index >= start) & (df.index <= end)]
+                    if not df.empty:
+                        return df
+            except Exception as e:
+                last_err = e
+                continue
+
+    raise RuntimeError(f"No data for {symbol} in window {start}–{end}: {last_err}")
+
+
+from io import BytesIO
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+def render_event_chart(
+    ohlc: pd.DataFrame,
+    title: str,
+    subtitle: str,
+    event_time: datetime | None,
+    show_event_line: str = "tight",   # "none" | "tight"
+    change_tuple: tuple[float, float] | None = None,  # (abs, pct)
+    y_decimals: int | None = None
+) -> BytesIO:
+    """
+    Renders candles; optional thin event line; optional Change badge.
+    """
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Expect ohlc index tz-aware; if not, treat as UTC
+    idx = ohlc.index
+    # Minimal candlesticks
+    for t, row in ohlc.iterrows():
+        o, h, l, c = row["Open"], row["High"], row["Low"], row["Close"]
+        color = "green" if c >= o else "red"
+        # wick
+        ax.plot([t, t], [l, h], color="black", linewidth=0.7, alpha=0.8)
+        # body
+        ax.add_patch(Rectangle((mdates.date2num(t) - 0.0015, min(o, c)),
+                               0.003, abs(c - o),
+                               facecolor=color, edgecolor="black", linewidth=0.4, alpha=0.8))
+
+    # Thin or hidden event line
+    if event_time and show_event_line != "none":
+        ax.axvline(event_time, color="red", linestyle="--", linewidth=0.5, alpha=0.6)
+
+    # Change badge
+    if change_tuple is not None:
+        abs_, pct_ = change_tuple
+        fmt = (f"{{:+.{y_decimals}f}}" if y_decimals is not None else "{:+.4f}")
+        ax.text(
+            0.015, 0.975,
+            f"Change: {fmt.format(abs_)} ({pct_:+.2f}%)",
+            transform=ax.transAxes, va="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.85)
+        )
+
+    ax.set_title("Candlestick Chart", fontsize=12, fontweight="bold")
+    plt.suptitle(f"{title}\n{subtitle}", fontsize=14, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    plt.tight_layout()
+
+    buf = BytesIO()
+    plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+def create_chart_2h_after_event(currency: str, event_time: datetime, event_name: str, display_tz: str = "Europe/Prague") -> BytesIO:
+    """
+    Window: [event_time, event_time + 2h], clamped to 'now'.
+    Computes Change (first close → last close). Hides or thins event line so candle remains visible.
+    """
+    tz = pytz.timezone(display_tz)
+    if event_time.tzinfo is None:
+        event_time = tz.localize(event_time)
+
+    start = event_time
+    end = event_time + timedelta(hours=2)
+
+    symbol, _, _ = get_pair_and_poll(currency)
+    df = fetch_prices_with_backoff(symbol, start, end)
+
+    start_close = float(df["Close"].iloc[0])
+    end_close = float(df["Close"].iloc[-1])
+    change_abs = end_close - start_close
+    change_pct = (change_abs / start_close) * 100.0
+
+    y_decimals = 2 if "JPY" in symbol or symbol.endswith("JPY=X") else 4
+
+    return render_event_chart(
+        ohlc=df,
+        title=f"{symbol} — 2h post-event",
+        subtitle=event_time.astimezone(tz).strftime("%Y-%m-%d"),
+        event_time=event_time,
+        show_event_line="tight",
+        change_tuple=(change_abs, change_pct),
+        y_decimals=y_decimals
+    )
+
+
+def create_chart_15m_after_high_impact(currency: str, event_time: datetime, event_name: str, expected: float | None, actual: float | None, display_tz: str = "Europe/Prague") -> tuple[BytesIO, str]:
+    """
+    Window: 1h BEFORE to 15m AFTER the event on 1m timeframe (falls back if needed).
+    Returns (png, 1–2 sentence summary comparing expected vs actual).
+    """
+    tz = pytz.timezone(display_tz)
+    if event_time.tzinfo is None:
+        event_time = tz.localize(event_time)
+
+    start = event_time - timedelta(hours=1)
+    end = event_time + timedelta(minutes=15)
+
+    symbol, _, _ = get_pair_and_poll(currency)
+    df = fetch_prices_with_backoff(symbol, start, end)
+
+    chart = render_event_chart(
+        ohlc=df,
+        title=f"{symbol} — 1h pre / 15m post",
+        subtitle=event_time.astimezone(tz).strftime("%Y-%m-%d"),
+        event_time=event_time,
+        show_event_line="tight",
+        change_tuple=None
+    )
+
+    if expected is None or actual is None:
+        summary = f"{event_name}: initial {symbol} reaction shown (1m candles, 1h pre / 15m post)."
+    else:
+        direction = "higher" if actual > expected else ("lower" if actual < expected else "in line with")
+        summary = f"{event_name}: actual {actual} vs expected {expected} — actual came in {direction} than forecast. Initial {symbol} reaction shown (1m, 1h pre / 15m post)."
+
+    return chart, summary
