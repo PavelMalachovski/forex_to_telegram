@@ -471,7 +471,7 @@ def register_handlers(bot, process_news_func, config: Config, db_service=None, d
                         message_id=call.message.message_id
                     )
                     return
-                text = result.get("text")
+                text = result.get("telegram_text") or result.get("text")
                 features = result.get("features", {})
                 symbol = result.get("symbol") or _get_symbol_from_currencies(base, quote)
                 # Build charts: full view (EMAs only) and zoomed view (features)

@@ -9,6 +9,7 @@ import pytz
 import requests
 
 from .chart_service import chart_service
+from .utils import escape_markdown_v2
 
 logger = logging.getLogger(__name__)
 
@@ -588,5 +589,254 @@ def run_pair_analysis_with_features(base_currency: str, quote_currency: str, ope
         openai_api_key = None
     gpt_text = call_openai_gpt(summary, openai_api_key)
     text = build_user_output(features, gpt_text)
-    return {"text": text, "features": features, "symbol": symbol}
+    try:
+        # Prepare Telegram Markdown facts-only message
+        analysis_contract = _features_to_analysis_contract(features)
+        telegram_text = format_analysis_for_telegram(analysis_contract)
+    except Exception:
+        telegram_text = text
+    return {"text": text, "telegram_text": telegram_text, "features": features, "symbol": symbol}
+
+# === Telegram Markdown Formatter (facts-only) ===
+
+def fmt_num(value: Any, decimals: int) -> str:
+    try:
+        if value is None:
+            return "NA"
+        return f"{float(value):.{decimals}f}"
+    except Exception:
+        return str(value)
+
+def _infer_decimals_from_pair(pair: str) -> int:
+    try:
+        return 2 if 'JPY' in (pair or '') else 4
+    except Exception:
+        return 4
+
+def _symbol_to_pair(symbol: str) -> str:
+    try:
+        if '-' in symbol:
+            base, quote = symbol.split('-', 1)
+            return f"{base}/{quote}"
+        if symbol.endswith('=X') and len(symbol) >= 6:
+            base = symbol[:3]
+            quote = symbol[3:6]
+            return f"{base}/{quote}"
+        return symbol.replace('=X', '/') if '=X' in symbol else symbol
+    except Exception:
+        return symbol
+
+def _features_to_analysis_contract(features: Dict[str, Any]) -> Dict[str, Any]:
+    symbol = features.get('symbol') or ''
+    pair = _symbol_to_pair(symbol)
+    decimals = _infer_decimals_from_pair(pair)
+
+    last_price = features.get('last_price')
+    change_abs = features.get('change')
+    change_pct = features.get('change_pct')
+    period_label = features.get('timeframe') or 'last 1–2 days (1H & 5m)'
+
+    # Swings
+    rh = features.get('recent_swing_high')
+    rh_t = features.get('recent_swing_high_time')
+    rl = features.get('recent_swing_low')
+    rl_t = features.get('recent_swing_low_time')
+
+    # Liquidity via equal highs/lows if available
+    eq_hi = features.get('equal_highs') or []
+    eq_lo = features.get('equal_lows') or []
+    liquidity_above = None
+    liquidity_below = None
+    if len(eq_hi) >= 2:
+        liquidity_above = [min(eq_hi), max(eq_hi)]
+    elif len(eq_hi) == 1:
+        liquidity_above = [eq_hi[0], eq_hi[0]]
+    if len(eq_lo) >= 2:
+        liquidity_below = [min(eq_lo), max(eq_lo)]
+    elif len(eq_lo) == 1:
+        liquidity_below = [eq_lo[0], eq_lo[0]]
+
+    # EMAs position/delta
+    ema20_dist = features.get('ema20_dist')  # price - ema
+    ema50_dist = features.get('ema50_dist')
+    # Convert to position from EMA standpoint and delta = ema - price
+    ema20_delta = None
+    ema50_delta = None
+    ema20_pos = None
+    ema50_pos = None
+    try:
+        if last_price is not None and ema20_dist is not None:
+            ema_val_minus_price = -float(ema20_dist)  # ema - price
+            ema20_delta = ema_val_minus_price
+            ema20_pos = 'above' if ema_val_minus_price > 0 else ('below' if ema_val_minus_price < 0 else 'at')
+    except Exception:
+        pass
+    try:
+        if last_price is not None and ema50_dist is not None:
+            ema_val_minus_price = -float(ema50_dist)
+            ema50_delta = ema_val_minus_price
+            ema50_pos = 'above' if ema_val_minus_price > 0 else ('below' if ema_val_minus_price < 0 else 'at')
+    except Exception:
+        pass
+
+    # Momentum bias from change_pct
+    momentum_bias = 'neutral'
+    try:
+        if change_pct is not None:
+            cp = float(change_pct)
+            momentum_bias = 'bearish' if cp < 0 else ('bullish' if cp > 0 else 'neutral')
+    except Exception:
+        pass
+
+    # FVGs map to pairs list
+    fvgs_raw = features.get('fvgs') or []
+    fvgs = []
+    for g in fvgs_raw:
+        s = g.get('start'); e = g.get('end')
+        if s is None or e is None:
+            continue
+        fvgs.append([float(s), float(e)])
+
+    analysis = {
+        'pair': pair,
+        'price': last_price,
+        'change_abs': change_abs,
+        'change_pct': change_pct,
+        'period_label': period_label,
+        'recent_high': {'price': rh, 'ts': rh_t},
+        'recent_low': {'price': rl, 'ts': rl_t},
+        'round_levels': features.get('round_levels') or [],
+        'prev_session_open': features.get('prior_session_open'),
+        'fvgs': fvgs,
+        'liquidity_above': liquidity_above,
+        'liquidity_below': liquidity_below,
+        'momentum_bias': momentum_bias,
+        'ema20': {
+            'position_vs_price': ema20_pos or 'at',
+            'delta': ema20_delta,
+        },
+        'ema50': {
+            'position_vs_price': ema50_pos or 'at',
+            'delta': ema50_delta,
+        },
+        'scenarios': {
+            'bearish': {'trigger': fmt_num(rl, decimals), 'label': 'downside'} if rl is not None else None,
+            'bullish': {'trigger': fmt_num(rh, decimals), 'label': 'reversal'} if rh is not None else None,
+        }
+    }
+    return analysis
+
+def format_analysis_for_telegram(analysis: Dict[str, Any]) -> str:
+    pair = str(analysis.get('pair') or '')
+    decimals = _infer_decimals_from_pair(pair)
+
+    price = fmt_num(analysis.get('price'), decimals)
+    change_abs = analysis.get('change_abs')
+    change_pct = analysis.get('change_pct')
+    try:
+        change_abs_str = f"{float(change_abs):+.{decimals}f}" if change_abs is not None else "NA"
+    except Exception:
+        change_abs_str = str(change_abs) if change_abs is not None else "NA"
+    try:
+        change_pct_str = f"{float(change_pct):+.2f}" if change_pct is not None else "NA"
+    except Exception:
+        change_pct_str = str(change_pct) if change_pct is not None else "NA"
+
+    period_label = analysis.get('period_label') or ''
+
+    rh = analysis.get('recent_high') or {}
+    rl = analysis.get('recent_low') or {}
+    rh_price = fmt_num(rh.get('price'), decimals)
+    rl_price = fmt_num(rl.get('price'), decimals)
+
+    rlvs = analysis.get('round_levels') or []
+    rlvs_fmt = [fmt_num(x, decimals) for x in rlvs[:3]]
+    while len(rlvs_fmt) < 3:
+        rlvs_fmt.append('NA')
+
+    prev_open = fmt_num(analysis.get('prev_session_open'), decimals)
+
+    # FVGs
+    fvgs = analysis.get('fvgs') or []
+    if len(fvgs) == 0:
+        fvgs_lines = ["None"]
+    else:
+        fvgs_lines = [f"- `{fmt_num(a, decimals)} → {fmt_num(b, decimals)}`" for a, b in fvgs]
+
+    # Liquidity
+    liq_lines: List[str] = []
+    la = analysis.get('liquidity_above')
+    lb = analysis.get('liquidity_below')
+    if la and len(la) == 2:
+        liq_lines.append(f"- 🔺 Above: `{fmt_num(la[0], decimals)}–{fmt_num(la[1], decimals)}` (resistance)")
+    if lb and len(lb) == 2:
+        liq_lines.append(f"- 🔻 Below: `{fmt_num(lb[0], decimals)}–{fmt_num(lb[1], decimals)}` (support)")
+    if not liq_lines:
+        liq_lines.append("None")
+
+    # Momentum and EMA deltas
+    bias = str(analysis.get('momentum_bias') or 'neutral')
+    ema20 = analysis.get('ema20') or {}
+    ema50 = analysis.get('ema50') or {}
+    def fmt_delta(d):
+        try:
+            return f"{float(d):+.{decimals}f}" if d is not None else "NA"
+        except Exception:
+            return str(d) if d is not None else "NA"
+    ema20_line = f"- EMA20: {ema20.get('position_vs_price') or 'at'} price ({fmt_delta(ema20.get('delta'))})"
+    ema50_line = f"- EMA50: {ema50.get('position_vs_price') or 'at'} price ({fmt_delta(ema50.get('delta'))})"
+
+    # Scenarios
+    scenarios = analysis.get('scenarios') or {}
+    sb = scenarios.get('bearish') or {}
+    su = scenarios.get('bullish') or {}
+    bearish_trigger = escape_markdown_v2(str(sb.get('trigger'))) if sb.get('trigger') is not None else None
+    bearish_label = escape_markdown_v2(str(sb.get('label'))) if sb.get('label') is not None else None
+    bullish_trigger = escape_markdown_v2(str(su.get('trigger'))) if su.get('trigger') is not None else None
+    bullish_label = escape_markdown_v2(str(su.get('label'))) if su.get('label') is not None else None
+
+    lines: List[str] = []
+    lines.append(f"**📊 {escape_markdown_v2(pair)} — Quick Facts**  ")
+    lines.append("")
+    lines.append(f"💰 **Price**: `{escape_markdown_v2(price)}`  ")
+    lines.append(f"📉 **Change**: `{escape_markdown_v2(change_abs_str)} ({escape_markdown_v2(change_pct_str)}%)`  ")
+    lines.append(f"📅 **Period**: {escape_markdown_v2(str(period_label))}  ")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("**🔑 Key Levels**  ")
+    lines.append(f"- ⬆️ High: `{escape_markdown_v2(rh_price)}`  ")
+    lines.append(f"- ⬇️ Low: `{escape_markdown_v2(rl_price)}`  ")
+    lines.append(f"- 🎯 Round: `{escape_markdown_v2(rlvs_fmt[0])} / {escape_markdown_v2(rlvs_fmt[1])} / {escape_markdown_v2(rlvs_fmt[2])}`  ")
+    lines.append(f"- ⚡ Prev Open: `{escape_markdown_v2(prev_open)}`  ")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("**🟠 Fair Value Gaps (FVGs)**  ")
+    for l in fvgs_lines:
+        lines.append(f"{l}  ")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("**💧 Liquidity**  ")
+    for l in liq_lines:
+        lines.append(f"{l}  ")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("**📈 Momentum**  ")
+    lines.append(f"- Bias: **slight {escape_markdown_v2(bias)}**  ")
+    lines.append(ema20_line + "  ")
+    lines.append(ema50_line + "  ")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("**🔮 Scenarios**  ")
+    if bearish_trigger and bearish_label:
+        lines.append(f"- 📉 Break below **{bearish_trigger}** → {bearish_label}  ")
+    if bullish_trigger and bullish_label:
+        lines.append(f"- 📈 Break above **{bullish_trigger}** → {bullish_label}  ")
+    lines.append("- 👀 Watch reaction at **FVGs**")
+
+    return "\n".join(lines)
 
