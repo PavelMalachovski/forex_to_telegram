@@ -289,21 +289,22 @@ class DailyDigestScheduler:
             return False
 
     def _send_channel_digest(self):
-        """Send a high-impact daily digest to the configured channel at 07:00."""
+        """Send a high+medium impact daily digest to the configured channel at 07:00 (local)."""
         try:
             chat_id = getattr(self.config, 'telegram_chat_id', None)
             if not chat_id:
                 return
 
             today = date.today()
-            # High-impact only per request
-            high_impact_news = self.db_service.get_news_for_date(today, 'high')
+            # Fetch all for today, then filter to high+medium
+            all_news = self.db_service.get_news_for_date(today, 'all')
+            filtered = [n for n in all_news if n.get('impact') in ('high', 'medium')]
 
             # If nothing in DB yet, inform briefly
-            if not high_impact_news:
+            if not filtered:
                 message = (
-                    f"📅 <b>Daily High-Impact Digest for {today.strftime('%d.%m.%Y')}</b>\n\n"
-                    f"No high-impact events found for today."
+                    f"📅 <b>Daily Digest (High+Medium) for {today.strftime('%d.%m.%Y')}</b>\n\n"
+                    f"No high or medium impact events found for today."
                 )
                 self.bot.send_message(chat_id, message, parse_mode="HTML")
                 return
@@ -311,15 +312,16 @@ class DailyDigestScheduler:
             target_date = datetime.combine(today, datetime.min.time())
             # Format digest (no currency filter; include all high-impact)
             message = MessageFormatter.format_news_message(
-                high_impact_news,
+                filtered,
                 target_date,
-                'high',
+                'all',
                 analysis_required=False,
                 currencies=None
             )
 
             header = (
-                f"📅 <b>Daily High-Impact Digest for {today.strftime('%d.%m.%Y')}</b>\n\n"
+                f"📅 <b>Daily Digest (High+Medium) for {today.strftime('%d.%m.%Y')}</b>\n"
+                f"🕐 <i>Times shown in {getattr(self.config, 'timezone', 'Europe/Prague')}</i>\n\n"
             )
             send_long_message(self.bot, chat_id, header + message, parse_mode="HTML")
             logger.info("Sent channel daily high-impact digest")
