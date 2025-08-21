@@ -796,47 +796,49 @@ def format_analysis_for_telegram(analysis: Dict[str, Any]) -> str:
     bullish_label = escape_markdown_v2(str(su.get('label'))) if su.get('label') is not None else None
 
     lines: List[str] = []
-    lines.append(f"**📊 {escape_markdown_v2(pair)} — Quick Facts**  ")
+    # Header simplified
+    lines.append(f"📊 {escape_markdown_v2(pair)} analysis ")
     lines.append("")
-    lines.append(f"💰 **Price**: `{escape_markdown_v2(price)}`  ")
-    lines.append(f"📉 **Change**: `{escape_markdown_v2(change_abs_str)} ({escape_markdown_v2(change_pct_str)}%)`  ")
-    lines.append(f"📅 **Period**: {escape_markdown_v2(str(period_label))}  ")
-    lines.append("")
+    # Facts
+    lines.append(f"💰 Price: `{price}`  ")
+    lines.append(f"📉 Change: `{change_abs_str} ({change_pct_str}%)`  ")
+    lines.append(f"📅 Period: {escape_markdown_v2(str(period_label))}  ")
+    # Separator (no surrounding blank lines)
     lines.append("---")
-    lines.append("")
-    lines.append("**🔑 Key Levels**  ")
-    lines.append(f"- ⬆️ High: `{escape_markdown_v2(rh_price)}`  ")
-    lines.append(f"- ⬇️ Low: `{escape_markdown_v2(rl_price)}`  ")
-    lines.append(f"- 🎯 Round: `{escape_markdown_v2(rlvs_fmt[0])} / {escape_markdown_v2(rlvs_fmt[1])} / {escape_markdown_v2(rlvs_fmt[2])}`  ")
-    lines.append(f"- ⚡ Prev Open: `{escape_markdown_v2(prev_open)}`  ")
-    lines.append("")
+    # Key Levels
+    lines.append("🔑 Key Levels  ")
+    lines.append(f"- ⬆️ High: `{rh_price}`  ")
+    lines.append(f"- ⬇️ Low: `{rl_price}`  ")
+    lines.append(f"- 🎯 Round: `{rlvs_fmt[0]} / {rlvs_fmt[1]} / {rlvs_fmt[2]}`  ")
+    lines.append(f"- ⚡️ Prev Open: `{prev_open}`  ")
+    # Separator
     lines.append("---")
-    lines.append("")
-    lines.append("**🟠 Fair Value Gaps (FVGs)**  ")
+    # FVGs
+    lines.append("🟠 Fair Value Gaps (FVGs)  ")
     for l in fvgs_lines:
         lines.append(f"{l}  ")
-    lines.append("")
+    # Separator
     lines.append("---")
-    lines.append("")
-    lines.append("**💧 Liquidity**  ")
+    # Liquidity
+    lines.append("💧 Liquidity  ")
     for l in liq_lines:
         lines.append(f"{l}  ")
-    lines.append("")
+    # Separator
     lines.append("---")
-    lines.append("")
-    lines.append("**📈 Momentum**  ")
-    lines.append(f"- Bias: **slight {escape_markdown_v2(bias)}**  ")
+    # Momentum
+    lines.append("📈 Momentum  ")
+    lines.append(f"- Bias: slight {escape_markdown_v2(bias)}  ")
     lines.append(ema20_line + "  ")
     lines.append(ema50_line + "  ")
-    lines.append("")
+    # Separator
     lines.append("---")
-    lines.append("")
-    lines.append("**🔮 Scenarios**  ")
+    # Scenarios
+    lines.append("🔮 Scenarios  ")
     if bearish_trigger and bearish_label:
-        lines.append(f"- 📉 Break below **{bearish_trigger}** → {bearish_label}  ")
+        lines.append(f"- 📉 Break below {sb.get('trigger')} → {bearish_label}  ")
     if bullish_trigger and bullish_label:
-        lines.append(f"- 📈 Break above **{bullish_trigger}** → {bullish_label}  ")
-    lines.append("- 👀 Watch reaction at **FVGs**")
+        lines.append(f"- 📈 Break above {su.get('trigger')} → {bullish_label}  ")
+    lines.append("- 👀 Watch reaction at FVGs")
 
     return "\n".join(lines)
 
