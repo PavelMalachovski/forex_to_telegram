@@ -154,10 +154,10 @@ class NotificationScheduler:
                 tz = pytz.UTC
             now = datetime.now(tz)
 
+            # Group events by time to handle group events
+            grouped_events = {}
             for item in news_items:
                 time_str = item.get('time', '')
-                currency = (item.get('currency') or '').upper()
-                event_name = item.get('event', 'Event')
                 if not time_str:
                     continue
 
@@ -174,78 +174,113 @@ class NotificationScheduler:
                 minutes_after = (now - event_dt).total_seconds() / 60.0
                 # Send near 2 hours after (within a window) and only once (dedup via caption hash)
                 if 110 <= minutes_after <= 140:
-                    # Map currency to required pair
-                    pair_map = {
-                        'USD': 'USDJPY=X',
-                        'EUR': 'EURUSD=X',
-                        'GBP': 'GBPUSD=X',
-                        'CAD': 'USDCAD=X',
-                        'AUD': 'AUDUSD=X',
-                    }
-                    symbol = pair_map.get(currency)
-                    if not symbol:
-                        continue
+                    if time_str not in grouped_events:
+                        grouped_events[time_str] = []
+                    grouped_events[time_str].append(item)
 
-                    # Build chart around event time ±2h
-                    # Use chart_service to fetch data directly for the mapped symbol
-                    start_time = event_dt - timedelta(hours=2)
-                    end_time = event_dt + timedelta(hours=2)
-                    data = chart_service.fetch_price_data(symbol, start_time, end_time)
-                    if data is None or data.empty:
-                        continue
+            # Process each group of events (send only one chart per group)
+            for time_str, items in grouped_events.items():
+                # Use the first event as the canonical event for chart generation
+                main_item = items[0]
+                currency = (main_item.get('currency') or '').upper()
+                event_name = main_item.get('event', 'Event')
+                
+                # Parse event time for the main item
+                try:
+                    if 'am' in time_str.lower() or 'pm' in time_str.lower():
+                        event_dt = datetime.strptime(time_str.lower().replace('am', ' AM').replace('pm', ' PM'), "%I:%M %p")
+                    else:
+                        event_dt = datetime.strptime(time_str, "%H:%M")
+                    event_dt = tz.localize(datetime.combine(today, event_dt.time()))
+                except Exception:
+                    continue
+                
+                # Map currency to required pair
+                pair_map = {
+                    'USD': 'USDJPY=X',
+                    'EUR': 'EURUSD=X',
+                    'GBP': 'GBPUSD=X',
+                    'CAD': 'USDCAD=X',
+                    'AUD': 'AUDUSD=X',
+                }
+                symbol = pair_map.get(currency)
+                if not symbol:
+                    continue
 
-                    # Use multi-currency chart to force the exact pair mapping
-                    pair_to_currencies = {
-                        'USDJPY=X': ('USD', 'JPY'),
-                        'EURUSD=X': ('EUR', 'USD'),
-                        'GBPUSD=X': ('GBP', 'USD'),
-                        'USDCAD=X': ('USD', 'CAD'),
-                        'AUDUSD=X': ('AUD', 'USD'),
-                    }
-                    primary_cur, secondary_cur = pair_to_currencies[symbol]
+                # Build chart around event time ±2h
+                # Use chart_service to fetch data directly for the mapped symbol
+                start_time = event_dt - timedelta(hours=2)
+                end_time = event_dt + timedelta(hours=2)
+                data = chart_service.fetch_price_data(symbol, start_time, end_time)
+                if data is None or data.empty:
+                    continue
 
-                    # Deduplicate per event+pair to avoid multiple sends in the 30 min window
-                    if not notification_deduplication.should_send_notification(
-                        'post_event_chart',
-                        currency=currency,
-                        event=event_name,
-                        event_time_iso=event_dt.isoformat(),
-                        symbol=symbol
-                    ):
-                        continue
+                # Use multi-currency chart to force the exact pair mapping
+                pair_to_currencies = {
+                    'USDJPY=X': ('USD', 'JPY'),
+                    'EURUSD=X': ('EUR', 'USD'),
+                    'GBPUSD=X': ('GBP', 'USD'),
+                    'USDCAD=X': ('USD', 'CAD'),
+                    'AUDUSD=X': ('AUD', 'USD'),
+                }
+                primary_cur, secondary_cur = pair_to_currencies[symbol]
 
-                    img = chart_service.create_multi_currency_chart(
-                        primary_currency=primary_cur,
-                        secondary_currency=secondary_cur,
-                        event_time=event_dt,
-                        event_name=f"{event_name} — 2h post-event",
-                        impact_level='high',
-                        window_hours=2,
-                        before_hours=2,
-                        after_hours=2
+                # Create a hash of all events in the group for deduplication
+                event_ids = sorted([item.get('id', '') for item in items])
+                events_hash = hashlib.md5(str(event_ids).encode()).hexdigest()
+
+                # Deduplicate per group to avoid multiple sends in the 30 min window
+                if not notification_deduplication.should_send_notification(
+                    'post_event_chart',
+                    currency=currency,
+                    event=event_name,
+                    event_time_iso=event_dt.isoformat(),
+                    symbol=symbol,
+                    events_hash=events_hash
+                ):
+                    continue
+
+                # Update caption to indicate if this is a group event
+                if len(items) > 1:
+                    caption = (
+                        f"📊 {currency} {event_name} (Group Event - {len(items)} events)\n"
+                        f"Window: 2h before → 2h after\n"
+                        f"Pair: {symbol.replace('=X','')}"
                     )
-                    if not img:
-                        continue
-
+                else:
                     caption = (
                         f"📊 {currency} {event_name}\n"
                         f"Window: 2h before → 2h after\n"
                         f"Pair: {symbol.replace('=X','')}"
                     )
-                    # Enforce 1 chart per 2 hours for the channel
+
+                img = chart_service.create_multi_currency_chart(
+                    primary_currency=primary_cur,
+                    secondary_currency=secondary_cur,
+                    event_time=event_dt,
+                    event_name=f"{event_name} — 2h post-event",
+                    impact_level='high',
+                    window_hours=2,
+                    before_hours=2,
+                    after_hours=2
+                )
+                if not img:
+                    continue
+
+                # Enforce 1 chart per 2 hours for the channel
+                try:
+                    if not notification_deduplication.can_send_chart(str(chat_id)):
+                        logger.info("Skipping chart due to 2h channel rate limit")
+                        continue
+                    self.bot.send_photo(chat_id, img, caption=caption)
+                    # Mark chart sent for rate limit window
                     try:
-                        if not notification_deduplication.can_send_chart(str(chat_id)):
-                            logger.info("Skipping chart due to 2h channel rate limit")
-                            continue
-                        self.bot.send_photo(chat_id, img, caption=caption)
-                        # Mark chart sent for rate limit window
-                        try:
-                            notification_deduplication.mark_chart_sent(str(chat_id))
-                        except Exception:
-                            pass
-                        logger.info(f"Sent post-event chart for {currency} {event_name}")
-                    except Exception as e:
-                        logger.error(f"Failed sending post-event chart: {e}")
+                        notification_deduplication.mark_chart_sent(str(chat_id))
+                    except Exception:
+                        pass
+                    logger.info(f"Sent post-event chart for {currency} {event_name} (group of {len(items)} events)")
+                except Exception as e:
+                    logger.error(f"Failed sending post-event chart: {e}")
         except Exception as e:
             logger.error(f"Error in post-event charts job: {e}")
 
@@ -326,21 +361,20 @@ class NotificationScheduler:
                 except Exception as e:
                     logger.error(f"Failed to send grouped channel alert: {e}")
 
-                # Send inline polls for each event in the group (once per event)
-                for e in events:
-                    item = e.get('item', {})
-                    currency = (item.get('currency') or '').upper()
-                    event_name = item.get('event') or 'Event'
-                    event_dt = e.get('event_time')
+                # Send only ONE poll for the group using the first event
+                if events:
+                    main_event = events[0].get('item', {})
+                    currency = (main_event.get('currency') or '').upper()
+                    event_name = main_event.get('event') or 'Event'
+                    event_dt = events[0].get('event_time')
                     event_time_iso = event_dt.isoformat() if event_dt else t
-                    if not notification_deduplication.should_send_notification(
-                        'channel_poll', currency=currency, event=event_name, event_time_iso=event_time_iso
+                    if notification_deduplication.should_send_notification(
+                        'channel_group_poll', currency=currency, event=event_name, event_time_iso=event_time_iso, events_hash=events_hash
                     ):
-                        continue
-                    try:
-                        self.notification_service._send_direction_poll(chat_id, currency, event_name)
-                    except Exception as pe:
-                        logger.error(f"Failed to send direction poll for {currency}: {pe}")
+                        try:
+                            self.notification_service._send_direction_poll(chat_id, currency, event_name)
+                        except Exception as pe:
+                            logger.error(f"Failed to send group direction poll for {currency}: {pe}")
         except Exception as e:
             logger.error(f"Error in channel high-impact alerts: {e}")
 
@@ -363,10 +397,10 @@ class NotificationScheduler:
                 tz = pytz.UTC
             now = datetime.now(tz)
 
+            # Group events by time to handle group events
+            grouped_events = {}
             for item in items:
                 t = item.get('time') or ''
-                currency = (item.get('currency') or '').upper()
-                event_name = item.get('event') or 'Event'
                 if not t:
                     continue
                 try:
@@ -380,42 +414,78 @@ class NotificationScheduler:
 
                 minutes_after = (now - event_dt).total_seconds() / 60.0
                 if 12.5 <= minutes_after <= 17.5:
-                    if not notification_deduplication.should_send_notification(
-                        'post_event_short_chart', currency=currency, event=event_name, event_time_iso=event_dt.isoformat()
-                    ):
-                        continue
-                    pair_map = {
-                        'USD': ('USD', 'JPY'),
-                        'EUR': ('EUR', 'USD'),
-                        'GBP': ('GBP', 'USD'),
-                        'CAD': ('USD', 'CAD'),
-                        'AUD': ('AUD', 'USD'),
-                    }
-                    primary_cur, secondary_cur = pair_map.get(currency, (currency, 'USD'))
+                    if t not in grouped_events:
+                        grouped_events[t] = []
+                    grouped_events[t].append(item)
 
-                    img = chart_service.create_multi_currency_chart(
-                        primary_currency=primary_cur,
-                        secondary_currency=secondary_cur,
-                        event_time=event_dt,
-                        event_name=f"{event_name} — 15m post",
-                        impact_level='high',
-                        before_hours=1,
-                        after_hours=0.25
+            # Process each group of events (send only one chart per group)
+            for t, items in grouped_events.items():
+                # Use the first event as the canonical event for chart generation
+                main_item = items[0]
+                currency = (main_item.get('currency') or '').upper()
+                event_name = main_item.get('event') or 'Event'
+                
+                # Parse event time for the main item
+                try:
+                    if 'am' in t.lower() or 'pm' in t.lower():
+                        base_dt = datetime.strptime(t.lower().replace('am', ' AM').replace('pm', ' PM'), "%I:%M %p")
+                    else:
+                        base_dt = datetime.strptime(t, "%H:%M")
+                    event_dt = tz.localize(datetime.combine(today, base_dt.time()))
+                except Exception:
+                    continue
+
+                # Create a hash of all events in the group for deduplication
+                event_ids = sorted([item.get('id', '') for item in items])
+                events_hash = hashlib.md5(str(event_ids).encode()).hexdigest()
+
+                if not notification_deduplication.should_send_notification(
+                    'post_event_short_chart', currency=currency, event=event_name, event_time_iso=event_dt.isoformat(), events_hash=events_hash
+                ):
+                    continue
+                
+                pair_map = {
+                    'USD': ('USD', 'JPY'),
+                    'EUR': ('EUR', 'USD'),
+                    'GBP': ('GBP', 'USD'),
+                    'CAD': ('USD', 'CAD'),
+                    'AUD': ('AUD', 'USD'),
+                }
+                primary_cur, secondary_cur = pair_map.get(currency, (currency, 'USD'))
+
+                img = chart_service.create_multi_currency_chart(
+                    primary_currency=primary_cur,
+                    secondary_currency=secondary_cur,
+                    event_time=event_dt,
+                    event_name=f"{event_name} — 15m post",
+                    impact_level='high',
+                    before_hours=1,
+                    after_hours=0.25
+                )
+                if not img:
+                    continue
+
+                comment = self._build_short_comment(main_item.get('actual'), main_item.get('forecast'))
+                
+                # Update caption to indicate if this is a group event
+                if len(items) > 1:
+                    caption = (
+                        f"📊 {currency} {event_name} (Group Event - {len(items)} events)\n"
+                        f"Window: 60m before → 15m after\n"
+                        f"{comment}"
                     )
-                    if not img:
-                        continue
-
-                    comment = self._build_short_comment(item.get('actual'), item.get('forecast'))
+                else:
                     caption = (
                         f"📊 {currency} {event_name}\n"
                         f"Window: 60m before → 15m after\n"
                         f"{comment}"
                     )
-                    try:
-                        self.bot.send_photo(chat_id, img, caption=caption)
-                        logger.info(f"Sent short post-event chart for {currency} {event_name}")
-                    except Exception as e:
-                        logger.error(f"Failed sending short post-event chart: {e}")
+                
+                try:
+                    self.bot.send_photo(chat_id, img, caption=caption)
+                    logger.info(f"Sent short post-event chart for {currency} {event_name} (group of {len(items)} events)")
+                except Exception as e:
+                    logger.error(f"Failed sending short post-event chart: {e}")
         except Exception as e:
             logger.error(f"Error in short post-event charts job: {e}")
 

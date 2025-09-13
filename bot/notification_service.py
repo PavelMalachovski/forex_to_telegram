@@ -423,8 +423,35 @@ class NotificationService:
 
                     # Send the group notification
                     try:
-                        self.bot.send_message(user_id, message, parse_mode="HTML")
-                        logger.info(f"Sent group notification to user {user_id} for {len(events)} events at {time_str}")
+                        # Check if user has charts enabled
+                        if getattr(user, 'charts_enabled', False):
+                            # Use the first event as the canonical event for chart generation
+                            main_event = events[0]['item']
+                            chart_buffer = self._generate_event_chart(main_event, user)
+                            if chart_buffer and self.deduplication.can_send_chart(user_id):
+                                # Send message with chart
+                                self.bot.send_photo(user_id, chart_buffer, caption=message, parse_mode="HTML")
+                                logger.info(f"Sent group notification with chart to user {user_id} for {len(events)} events at {time_str}")
+                                # Mark chart sent for rate limit
+                                try:
+                                    self.deduplication.mark_chart_sent(user_id)
+                                except Exception:
+                                    pass
+                            else:
+                                # Fallback to text-only if chart generation fails
+                                self.bot.send_message(user_id, message, parse_mode="HTML")
+                                logger.info(f"Sent text-only group notification to user {user_id} for {len(events)} events at {time_str} (chart generation failed)")
+                        else:
+                            # Send text-only notification
+                            self.bot.send_message(user_id, message, parse_mode="HTML")
+                            logger.info(f"Sent group notification to user {user_id} for {len(events)} events at {time_str}")
+                        
+                        # Send only ONE poll for the group using the first event
+                        main_event = events[0]['item']
+                        try:
+                            self._send_direction_poll(user_id, main_event.get('currency'), main_event.get('event'))
+                        except Exception as e:
+                            logger.error(f"Error sending group poll to user {user_id}: {e}")
                     except Exception as e:
                         logger.error(f"Error sending group notification to user {user_id}: {e}")
 

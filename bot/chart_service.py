@@ -269,6 +269,10 @@ class ChartService:
     def _fetch_from_yahoo_chart_api(self, symbol: str, start_time: datetime, end_time: datetime, interval: str) -> Optional[pd.DataFrame]:
         """Fetch OHLCV data from Yahoo's unofficial chart API."""
         try:
+            # Enhanced logging for problematic currencies
+            currency = self._extract_currency_from_symbol(symbol)
+            is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
+            
             # Normalize interval to Yahoo-supported values
             interval_map = { '1h': '60m' }
             yf_interval = interval_map.get(interval, interval)
@@ -284,22 +288,43 @@ class ChartService:
 
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 
+            if is_problematic_currency:
+                logger.debug(f"🌐 Yahoo API request for {currency}: {url}")
+                logger.debug(f"📊 Parameters: {params}")
+
             self._respect_rate_limit()
             resp = self._yf_session.get(url, params=params, timeout=20)
+            
             if resp.status_code == 429:
+                if is_problematic_currency:
+                    logger.warning(f"⚠️ Rate limited for {currency} ({symbol}) - entering cooldown")
                 self._enter_cooldown(90.0)
                 return None
+            
+            if resp.status_code != 200:
+                if is_problematic_currency:
+                    logger.error(f"❌ HTTP {resp.status_code} for {currency} ({symbol}): {resp.text[:200]}")
+                else:
+                    logger.warning(f"HTTP {resp.status_code} for {symbol}: {resp.text[:200]}")
+                return None
+                
             resp.raise_for_status()
             payload = resp.json()
 
             chart = payload.get('chart', {})
             result_list = chart.get('result', [])
             if not result_list:
+                if is_problematic_currency:
+                    logger.warning(f"⚠️ No chart results for {currency} ({symbol})")
                 return None
+                
             result = result_list[0]
             timestamps = result.get('timestamp', [])
             if not timestamps:
+                if is_problematic_currency:
+                    logger.warning(f"⚠️ No timestamps for {currency} ({symbol})")
                 return None
+                
             indicators = result.get('indicators', {})
             quote_list = indicators.get('quote', [{}])
             quote = quote_list[0] if quote_list else {}
@@ -313,7 +338,10 @@ class ChartService:
             # Build DataFrame, align lengths safely
             size = min(len(timestamps), len(closes))
             if size == 0:
+                if is_problematic_currency:
+                    logger.warning(f"⚠️ No valid data points for {currency} ({symbol})")
                 return None
+                
             ts = pd.to_datetime(timestamps[:size], unit='s', utc=True)
             data = pd.DataFrame({
                 'Open': pd.Series(opens[:size], index=ts),
@@ -322,11 +350,28 @@ class ChartService:
                 'Close': pd.Series(closes[:size], index=ts),
                 'Volume': pd.Series(volumes[:size], index=ts),
             })
+            
             # Trim exactly to window
             data = data.loc[(data.index >= pd.to_datetime(start_time, utc=True)) & (data.index <= pd.to_datetime(end_time, utc=True))]
+            
+            if is_problematic_currency and len(data) == 0:
+                logger.warning(f"⚠️ {currency} ({symbol}) data exists but outside time window")
+                logger.warning(f"📊 Data range: {ts[0]} to {ts[-1]}")
+                logger.warning(f"⏰ Requested range: {start_time} to {end_time}")
+            
             return data
+            
         except Exception as e:
-            logger.warning(f"Yahoo chart API fetch failed for {symbol} {interval}: {e}")
+            currency = self._extract_currency_from_symbol(symbol)
+            is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
+            
+            if is_problematic_currency:
+                logger.error(f"❌ Yahoo chart API fetch failed for {currency} ({symbol}) {interval}: {e}")
+                logger.error(f"📊 Symbol: {symbol}")
+                logger.error(f"⏰ Time range: {start_time} to {end_time}")
+                logger.error(f"🌍 Timezone: {start_time.tzinfo} -> {end_time.tzinfo}")
+            else:
+                logger.warning(f"Yahoo chart API fetch failed for {symbol} {interval}: {e}")
             return None
 
     def _try_alternative_data_source(self, symbol: str, start_time: datetime, end_time: datetime) -> Optional[pd.DataFrame]:
@@ -556,30 +601,55 @@ class ChartService:
             # Check cache first
             cached_data = self._get_cached_data(symbol, start_time, end_time)
             if cached_data is not None:
+                logger.debug(f"Using cached data for {symbol} ({len(cached_data)} data points)")
                 return cached_data
 
-            logger.info(f"Fetching price data for {symbol} from {start_time} to {end_time}")
+            # Enhanced logging for GBP, EUR, AUD issues
+            currency = self._extract_currency_from_symbol(symbol)
+            is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
+            
+            if is_problematic_currency:
+                logger.info(f"🔍 Fetching data for {currency} symbol {symbol} from {start_time} to {end_time}")
+                logger.info(f"📊 Time window: {(end_time - start_time).total_seconds() / 3600:.1f} hours")
+                logger.info(f"🌍 Timezone: {start_time.tzinfo} -> {end_time.tzinfo}")
+            else:
+                logger.info(f"Fetching price data for {symbol} from {start_time} to {end_time}")
 
             # Try different intervals if 1m fails
             intervals = ['1m', '5m', '15m', '1h']
 
             for interval in intervals:
                 try:
+                    if is_problematic_currency:
+                        logger.info(f"🔄 Attempting {interval} interval for {currency} ({symbol})")
+                    
                     data = self._fetch_with_retry(symbol, start_time, end_time, interval)
 
                     if data is not None and not data.empty:
                         # Cache the data
                         self._cache_data(symbol, data, start_time, end_time)
+                        if is_problematic_currency:
+                            logger.info(f"✅ Successfully fetched {len(data)} data points for {currency} with {interval} interval")
                         return data
                     else:
-                        logger.warning(f"No data found for {symbol} with {interval} interval")
+                        if is_problematic_currency:
+                            logger.warning(f"⚠️ No data found for {currency} ({symbol}) with {interval} interval")
+                        else:
+                            logger.warning(f"No data found for {symbol} with {interval} interval")
 
                 except Exception as e:
-                    logger.warning(f"Failed to fetch data for {symbol} with {interval} interval: {e}")
+                    if is_problematic_currency:
+                        logger.warning(f"❌ Failed to fetch data for {currency} ({symbol}) with {interval} interval: {e}")
+                    else:
+                        logger.warning(f"Failed to fetch data for {symbol} with {interval} interval: {e}")
                     continue
 
             # If all intervals fail, try with a broader time range
-            logger.info(f"Trying broader time range for {symbol}")
+            if is_problematic_currency:
+                logger.info(f"🔄 Trying broader time range for {currency} ({symbol})")
+            else:
+                logger.info(f"Trying broader time range for {symbol}")
+            
             try:
                 broader_start = start_time - timedelta(days=1)
                 broader_end = end_time + timedelta(days=1)
@@ -587,36 +657,102 @@ class ChartService:
                 data = self._fetch_with_retry(symbol, broader_start, broader_end, '1d')
 
                 if data is not None and not data.empty:
-                    logger.info(f"Successfully fetched {len(data)} data points for {symbol} with broader range")
+                    if is_problematic_currency:
+                        logger.info(f"✅ Successfully fetched {len(data)} data points for {currency} with broader range")
+                    else:
+                        logger.info(f"Successfully fetched {len(data)} data points for {symbol} with broader range")
                     self._cache_data(symbol, data, start_time, end_time)
                     return data
 
             except Exception as e:
-                logger.error(f"Failed to fetch data with broader range for {symbol}: {e}")
+                if is_problematic_currency:
+                    logger.error(f"❌ Failed to fetch data with broader range for {currency} ({symbol}): {e}")
+                else:
+                    logger.error(f"Failed to fetch data with broader range for {symbol}: {e}")
 
             # Try alternative data sources
-            logger.info(f"Trying alternative data sources for {symbol}")
+            if is_problematic_currency:
+                logger.info(f"🔄 Trying alternative data sources for {currency} ({symbol})")
+            else:
+                logger.info(f"Trying alternative data sources for {symbol}")
+            
             data = self._try_alternative_data_source(symbol, start_time, end_time)
             if data is not None and not data.empty:
                 self._cache_data(symbol, data, start_time, end_time)
+                if is_problematic_currency:
+                    logger.info(f"✅ Alternative data source provided {len(data)} data points for {currency}")
                 return data
 
             # If all else fails, optionally generate mock data
             if self.allow_mock_data:
-                logger.warning(f"All data sources failed for {symbol}, generating mock data for demonstration")
+                if is_problematic_currency:
+                    logger.warning(f"⚠️ All data sources failed for {currency} ({symbol}), generating mock data for demonstration")
+                else:
+                    logger.warning(f"All data sources failed for {symbol}, generating mock data for demonstration")
+                
                 mock_data = self._generate_mock_data(symbol, start_time, end_time)
                 if mock_data is not None and not mock_data.empty:
-                    logger.info(f"Using mock data for {symbol} with {len(mock_data)} data points")
+                    if is_problematic_currency:
+                        logger.info(f"🎭 Using mock data for {currency} with {len(mock_data)} data points")
+                    else:
+                        logger.info(f"Using mock data for {symbol} with {len(mock_data)} data points")
                     return mock_data
             else:
-                logger.warning("All data sources failed and mock data is disabled; returning None")
+                if is_problematic_currency:
+                    logger.warning(f"❌ All data sources failed for {currency} ({symbol}) and mock data is disabled")
+                else:
+                    logger.warning("All data sources failed and mock data is disabled; returning None")
 
-            logger.warning(f"No data found for {symbol} in the specified time range with any method")
+            if is_problematic_currency:
+                logger.error(f"❌ No data found for {currency} ({symbol}) in the specified time range with any method")
+                logger.error(f"📊 Symbol mapping: {symbol}")
+                logger.error(f"⏰ Time range: {start_time} to {end_time}")
+                logger.error(f"🌍 Timezone alignment: {start_time.tzinfo} -> {end_time.tzinfo}")
+            else:
+                logger.warning(f"No data found for {symbol} in the specified time range with any method")
+            
             return None
 
         except Exception as e:
-            logger.error(f"Error fetching price data for {symbol}: {e}")
+            currency = self._extract_currency_from_symbol(symbol)
+            is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
+            
+            if is_problematic_currency:
+                logger.error(f"❌ Error fetching price data for {currency} ({symbol}): {e}")
+                logger.error(f"📊 Symbol: {symbol}")
+                logger.error(f"⏰ Time range: {start_time} to {end_time}")
+                logger.error(f"🌍 Timezone: {start_time.tzinfo} -> {end_time.tzinfo}")
+            else:
+                logger.error(f"Error fetching price data for {symbol}: {e}")
             return None
+
+    def _extract_currency_from_symbol(self, symbol: str) -> str:
+        """Extract currency from symbol for enhanced logging."""
+        try:
+            # Remove common suffixes
+            clean_symbol = symbol.replace('=X', '').replace('-USD', '').replace('USD', '')
+            
+            # Common currency mappings
+            if 'EUR' in clean_symbol:
+                return 'EUR'
+            elif 'GBP' in clean_symbol:
+                return 'GBP'
+            elif 'AUD' in clean_symbol:
+                return 'AUD'
+            elif 'JPY' in clean_symbol:
+                return 'JPY'
+            elif 'CAD' in clean_symbol:
+                return 'CAD'
+            elif 'CHF' in clean_symbol:
+                return 'CHF'
+            elif 'NZD' in clean_symbol:
+                return 'NZD'
+            elif 'USD' in clean_symbol:
+                return 'USD'
+            else:
+                return clean_symbol[:3] if len(clean_symbol) >= 3 else 'UNK'
+        except Exception:
+            return 'UNK'
 
     def _get_alternative_symbols(self, symbol: str) -> list:
         """Get alternative symbols for a given currency pair."""
@@ -741,15 +877,15 @@ class ChartService:
             ax1.set_ylabel('Price', fontsize=12)
             ax1.grid(True, alpha=0.3)
 
-            # Add event marker
-            ax1.axvline(x=event_time_local, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Event Time')
+            # Add event marker (2x thinner dashed line)
+            ax1.axvline(x=event_time_local, color='red', linestyle='--', linewidth=1, alpha=0.8, label='Event Time')
 
             # Add impact level indicator
             impact_colors = {'high': '#d62728', 'medium': '#ff7f0e', 'low': '#2ca02c'}
             impact_color = impact_colors.get(impact_level, '#ff7f0e')
 
-            # Add shaded area around event time
-            event_window = timedelta(minutes=30)
+            # Add shaded area around event time (reduced to ±15 minutes)
+            event_window = timedelta(minutes=15)
             ax1.axvspan(
                 event_time_local - event_window,
                 event_time_local + event_window,
@@ -893,15 +1029,15 @@ class ChartService:
                     except Exception as e2:
                         logger.error(f"Failed to synthesize candlesticks for {pair}: {e2}")
 
-            # Add event marker in display timezone
+            # Add event marker in display timezone (2x thinner dashed line)
             event_time_local = event_time.astimezone(self.display_tz)
-            ax.axvline(x=event_time_local, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Event Time')
+            ax.axvline(x=event_time_local, color='red', linestyle='--', linewidth=1, alpha=0.8, label='Event Time')
 
-            # Add impact level shading
+            # Add impact level shading (reduced to ±15 minutes)
             impact_colors = {'high': '#d62728', 'medium': '#ff7f0e', 'low': '#2ca02c'}
             impact_color = impact_colors.get(impact_level, '#ff7f0e')
 
-            event_window = timedelta(minutes=30)
+            event_window = timedelta(minutes=15)
             ax.axvspan(
                 event_time_local - event_window,
                 event_time_local + event_window,
@@ -1170,14 +1306,14 @@ class ChartService:
             ax.set_xlabel('Time', fontsize=12)
             ax.grid(True, alpha=0.3)
 
-            # Add event marker
-            ax.axvline(x=event_time_local, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Event Time')
+            # Add event marker (2x thinner dashed line)
+            ax.axvline(x=event_time_local, color='red', linestyle='--', linewidth=1, alpha=0.8, label='Event Time')
 
-            # Add impact level shading
+            # Add impact level shading (reduced to ±15 minutes)
             impact_colors = {'high': '#d62728', 'medium': '#ff7f0e', 'low': '#2ca02c'}
             impact_color = impact_colors.get(impact_level, '#ff7f0e')
 
-            event_window = timedelta(minutes=30)
+            event_window = timedelta(minutes=15)
             ax.axvspan(
                 event_time_local - event_window,
                 event_time_local + event_window,
@@ -1297,14 +1433,14 @@ class ChartService:
                 except Exception as e2:
                     logger.error(f"Failed to synthesize candlesticks for direct pair: {e2}")
 
-            # Add event marker
-            ax.axvline(x=event_time_local, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Event Time')
+            # Add event marker (2x thinner dashed line)
+            ax.axvline(x=event_time_local, color='red', linestyle='--', linewidth=1, alpha=0.8, label='Event Time')
 
-            # Add impact level shading
+            # Add impact level shading (reduced to ±15 minutes)
             impact_colors = {'high': '#d62728', 'medium': '#ff7f0e', 'low': '#2ca02c'}
             impact_color = impact_colors.get(impact_level, '#ff7f0e')
 
-            event_window = timedelta(minutes=30)
+            event_window = timedelta(minutes=15)
             ax.axvspan(
                 event_time_local - event_window,
                 event_time_local + event_window,
