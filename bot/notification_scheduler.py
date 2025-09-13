@@ -45,10 +45,10 @@ class NotificationScheduler:
                 name='Check for upcoming news events'
             )
 
-            # Schedule bulk import every day at 03:00
+            # Schedule bulk import every day at 03:00 in configured local timezone
             self.scheduler.add_job(
                 self._run_bulk_import,
-                CronTrigger(hour=3, minute=0),
+                CronTrigger(hour=3, minute=0, timezone=getattr(self.config, 'timezone', 'Europe/Prague')),
                 id='bulk_import',
                 name='Daily bulk import at 03:00'
             )
@@ -71,6 +71,18 @@ class NotificationScheduler:
             logger.info("Scheduled post-event chart sender every 10 minutes")
         except Exception as e:
             logger.error(f"Error adding post-event charts job: {e}")
+
+        # Schedule short post-event charts 15 minutes after high impact events
+        try:
+            self.scheduler.add_job(
+                self._send_post_event_short_charts,
+                IntervalTrigger(minutes=1),
+                id='post_event_short_charts',
+                name='Send short post-event charts 15m after high impact events'
+            )
+            logger.info("Scheduled short post-event chart sender every 1 minute")
+        except Exception as e:
+            logger.error(f"Error adding short post-event charts job: {e}")
 
         # Schedule channel high-impact alerts based on lead time
         try:
@@ -168,7 +180,7 @@ class NotificationScheduler:
                         'EUR': 'EURUSD=X',
                         'GBP': 'GBPUSD=X',
                         'CAD': 'USDCAD=X',
-                        'AUD': 'USDAUD=X',
+                        'AUD': 'AUDUSD=X',
                     }
                     symbol = pair_map.get(currency)
                     if not symbol:
@@ -188,7 +200,7 @@ class NotificationScheduler:
                         'EURUSD=X': ('EUR', 'USD'),
                         'GBPUSD=X': ('GBP', 'USD'),
                         'USDCAD=X': ('USD', 'CAD'),
-                        'USDAUD=X': ('USD', 'AUD'),
+                        'AUDUSD=X': ('AUD', 'USD'),
                     }
                     primary_cur, secondary_cur = pair_to_currencies[symbol]
 
@@ -313,8 +325,120 @@ class NotificationScheduler:
                     logger.info(f"Sent grouped channel alert for {len(events)} events at {t}")
                 except Exception as e:
                     logger.error(f"Failed to send grouped channel alert: {e}")
+
+                # Send inline polls for each event in the group (once per event)
+                for e in events:
+                    item = e.get('item', {})
+                    currency = (item.get('currency') or '').upper()
+                    event_name = item.get('event') or 'Event'
+                    event_dt = e.get('event_time')
+                    event_time_iso = event_dt.isoformat() if event_dt else t
+                    if not notification_deduplication.should_send_notification(
+                        'channel_poll', currency=currency, event=event_name, event_time_iso=event_time_iso
+                    ):
+                        continue
+                    try:
+                        self.notification_service._send_direction_poll(chat_id, currency, event_name)
+                    except Exception as pe:
+                        logger.error(f"Failed to send direction poll for {currency}: {pe}")
         except Exception as e:
             logger.error(f"Error in channel high-impact alerts: {e}")
+
+    def _send_post_event_short_charts(self):
+        """Send charts 15 minutes after high-impact events (−60m, +15m) with brief comment."""
+        try:
+            chat_id = getattr(self.config, 'telegram_chat_id', None)
+            if not chat_id:
+                return
+
+            today = date.today()
+            items = self.db_service.get_news_for_date(today, 'high')
+            if not items:
+                return
+
+            tz_name = getattr(self.config, 'timezone', 'Europe/Prague')
+            try:
+                tz = pytz.timezone(tz_name)
+            except Exception:
+                tz = pytz.UTC
+            now = datetime.now(tz)
+
+            for item in items:
+                t = item.get('time') or ''
+                currency = (item.get('currency') or '').upper()
+                event_name = item.get('event') or 'Event'
+                if not t:
+                    continue
+                try:
+                    if 'am' in t.lower() or 'pm' in t.lower():
+                        base_dt = datetime.strptime(t.lower().replace('am', ' AM').replace('pm', ' PM'), "%I:%M %p")
+                    else:
+                        base_dt = datetime.strptime(t, "%H:%M")
+                    event_dt = tz.localize(datetime.combine(today, base_dt.time()))
+                except Exception:
+                    continue
+
+                minutes_after = (now - event_dt).total_seconds() / 60.0
+                if 12.5 <= minutes_after <= 17.5:
+                    if not notification_deduplication.should_send_notification(
+                        'post_event_short_chart', currency=currency, event=event_name, event_time_iso=event_dt.isoformat()
+                    ):
+                        continue
+                    pair_map = {
+                        'USD': ('USD', 'JPY'),
+                        'EUR': ('EUR', 'USD'),
+                        'GBP': ('GBP', 'USD'),
+                        'CAD': ('USD', 'CAD'),
+                        'AUD': ('AUD', 'USD'),
+                    }
+                    primary_cur, secondary_cur = pair_map.get(currency, (currency, 'USD'))
+
+                    img = chart_service.create_multi_currency_chart(
+                        primary_currency=primary_cur,
+                        secondary_currency=secondary_cur,
+                        event_time=event_dt,
+                        event_name=f"{event_name} — 15m post",
+                        impact_level='high',
+                        before_hours=1,
+                        after_hours=0.25
+                    )
+                    if not img:
+                        continue
+
+                    comment = self._build_short_comment(item.get('actual'), item.get('forecast'))
+                    caption = (
+                        f"📊 {currency} {event_name}\n"
+                        f"Window: 60m before → 15m after\n"
+                        f"{comment}"
+                    )
+                    try:
+                        self.bot.send_photo(chat_id, img, caption=caption)
+                        logger.info(f"Sent short post-event chart for {currency} {event_name}")
+                    except Exception as e:
+                        logger.error(f"Failed sending short post-event chart: {e}")
+        except Exception as e:
+            logger.error(f"Error in short post-event charts job: {e}")
+
+    def _build_short_comment(self, actual, forecast) -> str:
+        """Return 1–2 sentence comment comparing actual vs forecast with surprise flag."""
+        def _to_float(x):
+            try:
+                import re
+                if x is None:
+                    return None
+                s = re.sub(r"[^0-9.+-]", "", str(x))
+                return float(s) if s not in ("", ".", "+", "-") else None
+            except Exception:
+                return None
+        a = _to_float(actual)
+        f = _to_float(forecast)
+        if a is not None and f is not None:
+            diff = abs(a - f)
+            rel = (diff / abs(f)) if f != 0 else diff
+            surprise = rel >= 0.1
+            base = f"Actual {a:g} vs forecast {f:g}."
+            return base + (" Surprise: significant deviation." if surprise else " Close to expectations.")
+        return "Post-event snapshot vs forecast."
 
     def stop(self):
         """Stop the notification scheduler."""
