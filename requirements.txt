@@ -1,40 +1,50 @@
-# Web server and scheduling
-flask==2.3.3
-apscheduler==3.10.4
-# Production WSGI server
-gunicorn==21.2.0
-
-# Telegram bot
-pyTelegramBotAPI==4.14.0
+# FastAPI and core dependencies
+fastapi[standard]>=0.115.0,<0.116.0
+uvicorn[standard]>=0.32.0,<0.33.0
+pydantic>=2.9.0,<3.0.0
+pydantic-settings>=2.6.0,<3.0.0
 
 # Database
-psycopg2-binary==2.9.9
-sqlalchemy==2.0.23
-alembic==1.13.1
+sqlalchemy[asyncio]>=2.0.0,<3.0.0
+asyncpg>=0.29.0,<0.30.0
+aiosqlite>=0.20.0,<0.21.0
+alembic>=1.13.0,<2.0.0
 
-# Scraper dependencies
-beautifulsoup4==4.12.2  # HTML parsing
-undetected-chromedriver==3.5.5  # Selenium-based stealth browser automation
-selenium==4.21.0  # Required by undetected-chromedriver
-requests==2.32.3         # HTTP requests
-pytz==2023.3             # Timezone handling
+# Redis
+redis>=5.0.0,<6.0.0
+aioredis>=2.0.0,<3.0.0
 
-# Chart generation dependencies
-yfinance==0.2.36         # Yahoo Finance API for historical data
-# Note: If yfinance continues to have issues, consider upgrading to a newer version
-# or using alternative data sources like Alpha Vantage API
-matplotlib==3.8.2        # Chart generation
-mplfinance==0.12.10b0    # Candlestick charts
-plotly==5.17.0           # Interactive charts
-pandas==2.1.4            # Data manipulation
-numpy==1.24.3            # Numerical operations
-urllib3==2.0.7           # HTTP client with retry support
+# HTTP client
+httpx>=0.27.0,<0.28.0
+
+# Data processing
+pandas>=2.2.0,<3.0.0
+numpy>=1.26.0,<2.0.0
+
+# Chart generation
+matplotlib>=3.8.0,<4.0.0
+yfinance>=0.2.0,<1.0.0
+
+# Telegram
+python-telegram-bot>=21.0.0,<22.0.0
+
+# Timezone handling
+pytz>=2024.1
+
+# Logging
+structlog>=24.1.0,<25.0.0
 
 # Testing
-pytest==8.4.1
-pytest-asyncio==0.23.5
+pytest>=8.2.0,<9.0.0
+pytest-asyncio>=0.23.0,<0.24.0
+pytest-cov>=5.0.0,<6.0.0
+httpx>=0.27.0,<0.28.0
 
-# Optional: for faster BeautifulSoup parsing
-# lxml
+# Development
+black>=24.0.0,<25.0.0
+isort>=5.13.0,<6.0.0
+flake8>=7.0.0,<8.0.0
+mypy>=1.8.0,<2.0.0
 
-# Note: Google Chrome must be installed on the system for undetected-chromedriver to work.
+# Production
+gunicorn>=22.0.0,<23.0.0
