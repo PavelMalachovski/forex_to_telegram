@@ -63,7 +63,7 @@ class TestForexService:
         """Test successful forex news retrieval by ID."""
         # Arrange
         mock_db_session.execute = AsyncMock()
-        mock_result = AsyncMock()
+        mock_result = Mock()
         mock_result.scalar_one_or_none.return_value = sample_forex_news_model
         mock_db_session.execute.return_value = mock_result
 

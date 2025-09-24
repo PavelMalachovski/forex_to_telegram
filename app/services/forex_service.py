@@ -43,7 +43,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     )
                 ).order_by(ForexNewsModel.time)
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by date", date=news_date, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news by date: {e}")
@@ -56,7 +56,7 @@ class ForexService(BaseService[ForexNewsModel]):
                 .where(ForexNewsModel.currency == currency)
                 .order_by(ForexNewsModel.date.desc())
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by currency", currency=currency, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news by currency: {e}")
@@ -69,7 +69,7 @@ class ForexService(BaseService[ForexNewsModel]):
                 .where(ForexNewsModel.impact_level == impact_level)
                 .order_by(ForexNewsModel.date.desc())
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by impact level", impact_level=impact_level, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news by impact level: {e}")
@@ -93,7 +93,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     )
                 ).order_by(ForexNewsModel.date)
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get upcoming news", hours_ahead=hours_ahead, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get upcoming news: {e}")
@@ -125,7 +125,7 @@ class ForexService(BaseService[ForexNewsModel]):
                 .where(and_(*search_conditions))
                 .order_by(ForexNewsModel.date.desc())
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to search news", query=query, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to search news: {e}")
@@ -178,13 +178,6 @@ class ForexService(BaseService[ForexNewsModel]):
             raise DatabaseError(f"Failed to get news statistics: {e}")
 
     # Additional methods expected by tests
-    async def get_forex_news_by_id(self, db: AsyncSession, news_id: int) -> Optional[ForexNewsModel]:
-        """Get forex news by ID."""
-        try:
-            return await self.get_by_id(db, news_id)
-        except Exception as e:
-            logger.error("Failed to get news by ID", news_id=news_id, error=str(e), exc_info=True)
-            raise DatabaseError(f"Failed to get news by ID: {e}")
 
     async def get_forex_news_by_date_range(
         self,
@@ -205,7 +198,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     )
                 ).order_by(ForexNewsModel.date, ForexNewsModel.time)
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by date range",
                         start_date=start_date, end_date=end_date, error=str(e), exc_info=True)
@@ -220,9 +213,6 @@ class ForexService(BaseService[ForexNewsModel]):
             logger.error("Failed to get today's news", error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get today's news: {e}")
 
-    async def get_upcoming_events(self, db: AsyncSession, hours_ahead: int = 24) -> List[ForexNewsModel]:
-        """Get upcoming events (alias for get_upcoming_news)."""
-        return await self.get_upcoming_news(db, hours_ahead)
 
     async def update_forex_news(
         self,
@@ -298,7 +288,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     .order_by(ForexNewsModel.date.desc())
                 )
 
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news with filters", filters=filters, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news with filters: {e}")
@@ -334,3 +324,93 @@ class ForexService(BaseService[ForexNewsModel]):
     async def bulk_create(self, db: AsyncSession, news_data_list: List[ForexNewsCreate]) -> List[ForexNewsModel]:
         """Bulk create forex news (alias for bulk_create_forex_news)."""
         return await self.bulk_create_forex_news(db, news_data_list)
+
+    # ============================================================================
+    # MISSING SERVICE METHODS FOR TEST COMPATIBILITY
+    # ============================================================================
+
+    async def create_forex_news(self, db: AsyncSession, news_data: ForexNewsCreate) -> ForexNewsModel:
+        """Create new forex news (alias for create_news)."""
+        return await self.create_news(db, news_data)
+
+    async def get_forex_news_by_id(self, db: AsyncSession, news_id: int) -> Optional[ForexNewsModel]:
+        """Get forex news by ID."""
+        try:
+            return await self.get(db, news_id)
+        except Exception as e:
+            logger.error("Failed to get news by ID", news_id=news_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get news by ID: {e}")
+
+    async def get_forex_news_by_date_range(self, db: AsyncSession, start_date: date, end_date: date) -> List[ForexNewsModel]:
+        """Get forex news by date range."""
+        try:
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.max.time())
+
+            result = await db.execute(
+                select(ForexNewsModel).where(
+                    and_(
+                        ForexNewsModel.date >= start_datetime,
+                        ForexNewsModel.date <= end_datetime
+                    )
+                ).order_by(ForexNewsModel.date, ForexNewsModel.time)
+            )
+            return (await result.scalars()).all()
+        except Exception as e:
+            logger.error("Failed to get news by date range", start_date=start_date, end_date=end_date, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get news by date range: {e}")
+
+    async def get_todays_forex_news(self, db: AsyncSession) -> List[ForexNewsModel]:
+        """Get today's forex news."""
+        try:
+            today = date.today()
+            return await self.get_news_by_date(db, today)
+        except Exception as e:
+            logger.error("Failed to get today's news", error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get today's news: {e}")
+
+    async def get_upcoming_events(self, db: AsyncSession, hours: int = 24) -> List[ForexNewsModel]:
+        """Get upcoming forex events within specified hours."""
+        try:
+            now = datetime.now()
+            # Use timedelta to add hours properly
+            from datetime import timedelta
+            future_time = now + timedelta(hours=hours)
+
+            result = await db.execute(
+                select(ForexNewsModel).where(
+                    and_(
+                        ForexNewsModel.date >= now.date(),
+                        ForexNewsModel.time >= now.time()
+                    )
+                ).order_by(ForexNewsModel.date, ForexNewsModel.time)
+            )
+            return (await result.scalars()).all()
+        except Exception as e:
+            logger.error("Failed to get upcoming events", hours=hours, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get upcoming events: {e}")
+
+    async def update_forex_news(self, db: AsyncSession, news_id: int, update_data: ForexNewsUpdate) -> Optional[ForexNewsModel]:
+        """Update forex news."""
+        try:
+            return await self.update(db, news_id, **update_data.model_dump(exclude_unset=True))
+        except Exception as e:
+            logger.error("Failed to update forex news", news_id=news_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to update forex news: {e}")
+
+    async def delete_forex_news(self, db: AsyncSession, news_id: int) -> bool:
+        """Delete forex news."""
+        try:
+            return await self.delete(db, news_id)
+        except Exception as e:
+            logger.error("Failed to delete forex news", news_id=news_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to delete forex news: {e}")
+
+    async def count_forex_news(self, db: AsyncSession) -> int:
+        """Count total forex news."""
+        try:
+            result = await db.execute(select(func.count(ForexNewsModel.id)))
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error("Failed to count forex news", error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to count forex news: {e}")

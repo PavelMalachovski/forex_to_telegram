@@ -4,10 +4,14 @@ from datetime import datetime, date
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, text
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from app.database.connection import db_manager
 from app.database.models import UserModel, ForexNewsModel
+from app.models.user import UserCreate, UserUpdate
+from app.models.forex_news import ForexNewsCreate
+from app.core.exceptions import DatabaseError, ValidationError
 
 logger = structlog.get_logger(__name__)
 
@@ -222,79 +226,78 @@ class DatabaseService:
             logger.error("Error updating user preferences", telegram_id=telegram_id, error=str(e))
             return False
 
-    async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[UserModel]:
+    async def get_user_by_telegram_id(self, db: AsyncSession, telegram_id: int) -> Optional[UserModel]:
         """Get user by telegram ID with schema evolution handling."""
         try:
-            async with self.db_manager.get_session_async() as session:
-                # Check if all required columns exist (notification + chart + timezone)
-                result = await session.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'users' AND column_name IN (
-                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
-                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
-                    )
-                """))
-                all_columns = [row[0] for row in result]
+            # Check if all required columns exist (notification + chart + timezone)
+            result = await db.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name IN (
+                    'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                    'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+                )
+            """))
+            all_columns = [row[0] for row in await result.fetchall()]
 
-                # Check if we have all required columns
-                required_columns = [
+            # Check if we have all required columns
+            required_columns = [
+                'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
+                'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
+            ]
+
+            if all(col in all_columns for col in required_columns):
+                # All required columns exist, use normal query
+                return await db.get(UserModel, telegram_id)
+            else:
+                # Some columns missing, use raw SQL
+                base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
+                              'analysis_required', 'digest_time', 'created_at', 'updated_at']
+
+                # Add optional columns only if they exist
+                optional_columns = [
                     'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
                     'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
                 ]
 
-                if all(col in all_columns for col in required_columns):
-                    # All required columns exist, use normal query
-                    return await session.get(UserModel, telegram_id)
-                else:
-                    # Some columns missing, use raw SQL
-                    base_columns = ['id', 'telegram_id', 'preferred_currencies', 'impact_levels',
-                                  'analysis_required', 'digest_time', 'created_at', 'updated_at']
+                columns = base_columns.copy()
+                for col in optional_columns:
+                    if col in all_columns:
+                        columns.append(col)
 
-                    # Add optional columns only if they exist
-                    optional_columns = [
-                        'notifications_enabled', 'notification_minutes', 'notification_impact_levels',
-                        'charts_enabled', 'chart_type', 'chart_window_hours', 'timezone'
-                    ]
+                columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
+                sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
 
-                    columns = base_columns.copy()
-                    for col in optional_columns:
-                        if col in all_columns:
-                            columns.append(col)
+                result = await db.execute(text(sql), {'telegram_id': telegram_id})
+                row = await result.fetchone()
 
-                    columns_str = ', '.join([f'users.{col} AS users_{col}' for col in columns])
-                    sql = f"SELECT {columns_str} FROM users WHERE telegram_id = :telegram_id LIMIT 1"
+                if row:
+                    user_data = {}
+                    for i, col in enumerate(columns):
+                        user_data[col] = row[i]
 
-                    result = await session.execute(text(sql), {'telegram_id': telegram_id})
-                    row = result.fetchone()
+                    # Create User object manually
+                    user = UserModel()
+                    user.id = user_data['id']
+                    user.telegram_id = user_data['telegram_id']
+                    user.preferred_currencies = user_data['preferred_currencies']
+                    user.impact_levels = user_data['impact_levels']
+                    user.analysis_required = user_data['analysis_required']
+                    user.digest_time = user_data['digest_time']
+                    user.created_at = user_data['created_at']
+                    user.updated_at = user_data['updated_at']
 
-                    if row:
-                        user_data = {}
-                        for i, col in enumerate(columns):
-                            user_data[col] = row[i]
+                    # Set notification fields only if they exist
+                    if 'notifications_enabled' in user_data:
+                        user.notifications_enabled = user_data['notifications_enabled']
+                    if 'notification_minutes' in user_data:
+                        user.notification_minutes = user_data['notification_minutes']
+                    if 'notification_impact_levels' in user_data:
+                        user.notification_impact_levels = user_data['notification_impact_levels']
 
-                        # Create User object manually
-                        user = UserModel()
-                        user.id = user_data['id']
-                        user.telegram_id = user_data['telegram_id']
-                        user.preferred_currencies = user_data['preferred_currencies']
-                        user.impact_levels = user_data['impact_levels']
-                        user.analysis_required = user_data['analysis_required']
-                        user.digest_time = user_data['digest_time']
-                        user.created_at = user_data['created_at']
-                        user.updated_at = user_data['updated_at']
+                    return user
 
-                        # Set notification fields only if they exist
-                        if 'notifications_enabled' in user_data:
-                            user.notifications_enabled = user_data['notifications_enabled']
-                        if 'notification_minutes' in user_data:
-                            user.notification_minutes = user_data['notification_minutes']
-                        if 'notification_impact_levels' in user_data:
-                            user.notification_impact_levels = user_data['notification_impact_levels']
-
-                        return user
-
-                return None
+            return None
         except Exception as e:
             logger.error("Error getting user by telegram ID", telegram_id=telegram_id, error=str(e))
             return None
@@ -747,3 +750,230 @@ class DatabaseService:
         except Exception as e:
             logger.error("Database health check failed", error=str(e))
             return False
+
+    # ============================================================================
+    # MISSING SERVICE METHODS FOR TEST COMPATIBILITY
+    # ============================================================================
+
+    async def create_user(self, db: AsyncSession, user_data: UserCreate) -> UserModel:
+        """Create a new user."""
+        try:
+            user_dict = user_data.model_dump()
+
+            # Extract preferences and map to individual fields
+            preferences = user_dict.pop('preferences', {})
+            if preferences:
+                # Map preferences to individual fields
+                user_dict.update({
+                    'preferred_currencies': preferences.get('preferred_currencies', []),
+                    'impact_levels': preferences.get('impact_levels', ["high", "medium"]),
+                    'analysis_required': preferences.get('analysis_required', True),
+                    'digest_time': preferences.get('digest_time', "08:00:00"),
+                    'timezone': preferences.get('timezone', "Europe/Prague"),
+                    'notifications_enabled': preferences.get('notifications_enabled', False),
+                    'notification_minutes': preferences.get('notification_minutes', 30),
+                    'notification_impact_levels': preferences.get('notification_impact_levels', ["high"]),
+                    'charts_enabled': preferences.get('charts_enabled', False),
+                    'chart_type': preferences.get('chart_type', "single"),
+                    'chart_window_hours': preferences.get('chart_window_hours', 2),
+                })
+
+            user = UserModel(**user_dict)
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            logger.info("Created new user", user_id=user.id, telegram_id=user.telegram_id)
+            return user
+        except Exception as e:
+            await db.rollback()
+            logger.error("Failed to create user", error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to create user: {e}")
+
+    async def update_user(self, db: AsyncSession, telegram_id: int, update_data: UserUpdate) -> Optional[UserModel]:
+        """Update user by telegram ID."""
+        try:
+            user = await self.get_user_by_telegram_id(db, telegram_id)
+            if not user:
+                raise ValidationError("User not found")
+
+            if hasattr(update_data, 'model_dump'):
+                update_dict = update_data.model_dump(exclude_unset=True)
+            else:
+                update_dict = update_data
+
+            # Handle preferences separately
+            preferences = update_dict.pop('preferences', None)
+            if preferences:
+                # Map preferences to individual fields
+                preference_fields = {
+                    'preferred_currencies': preferences.get('preferred_currencies'),
+                    'impact_levels': preferences.get('impact_levels'),
+                    'analysis_required': preferences.get('analysis_required'),
+                    'digest_time': preferences.get('digest_time'),
+                    'timezone': preferences.get('timezone'),
+                    'notifications_enabled': preferences.get('notifications_enabled'),
+                    'notification_minutes': preferences.get('notification_minutes'),
+                    'notification_impact_levels': preferences.get('notification_impact_levels'),
+                    'charts_enabled': preferences.get('charts_enabled'),
+                    'chart_type': preferences.get('chart_type'),
+                    'chart_window_hours': preferences.get('chart_window_hours'),
+                }
+                # Only update fields that are not None
+                for key, value in preference_fields.items():
+                    if value is not None:
+                        update_dict[key] = value
+
+            for key, value in update_dict.items():
+                if hasattr(user, key):
+                    setattr(user, key, value)
+
+            await db.commit()
+            await db.refresh(user)
+            logger.info("Updated user", telegram_id=telegram_id)
+            return user
+        except ValidationError:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error("Failed to update user", telegram_id=telegram_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to update user: {e}")
+
+    async def create_forex_news(self, db: AsyncSession, news_data: ForexNewsCreate) -> ForexNewsModel:
+        """Create new forex news."""
+        try:
+            news_dict = news_data.model_dump()
+            news = ForexNewsModel(**news_dict)
+            db.add(news)
+            await db.commit()
+            await db.refresh(news)
+            logger.info("Created new forex news", news_id=news.id)
+            return news
+        except Exception as e:
+            await db.rollback()
+            logger.error("Failed to create forex news", error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to create forex news: {e}")
+
+    async def get_forex_news_by_date(self, db: AsyncSession, target_date: date) -> List[ForexNewsModel]:
+        """Get forex news by date."""
+        try:
+            start_datetime = datetime.combine(target_date, datetime.min.time())
+            end_datetime = datetime.combine(target_date, datetime.max.time())
+
+            result = await db.execute(text("""
+                SELECT * FROM forex_news
+                WHERE date >= :start_datetime AND date <= :end_datetime
+                ORDER BY time
+            """), {'start_datetime': start_datetime, 'end_datetime': end_datetime})
+
+            rows = await result.fetchall()
+            news_items = []
+            for row in rows:
+                news = ForexNewsModel()
+                # Map row data to ForexNewsModel
+                news.id = row[0]
+                news.date = row[1]
+                news.time = row[2]
+                news.currency = row[3]
+                news.event = row[4]
+                news.actual = row[5]
+                news.forecast = row[6]
+                news.previous = row[7]
+                news.impact_level = row[8]
+                news.analysis = row[9]
+                news.created_at = row[10]
+                news.updated_at = row[11]
+                news_items.append(news)
+
+            return news_items
+        except Exception as e:
+            logger.error("Failed to get forex news by date", date=target_date, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get forex news by date: {e}")
+
+    async def get_forex_news_by_currency(self, db: AsyncSession, currency: str) -> List[ForexNewsModel]:
+        """Get forex news by currency."""
+        try:
+            result = await db.execute(text("""
+                SELECT * FROM forex_news
+                WHERE currency = :currency
+                ORDER BY date DESC, time DESC
+            """), {'currency': currency})
+
+            rows = await result.fetchall()
+            news_items = []
+            for row in rows:
+                news = ForexNewsModel()
+                # Map row data to ForexNewsModel
+                news.id = row[0]
+                news.date = row[1]
+                news.time = row[2]
+                news.currency = row[3]
+                news.event = row[4]
+                news.actual = row[5]
+                news.forecast = row[6]
+                news.previous = row[7]
+                news.impact_level = row[8]
+                news.analysis = row[9]
+                news.created_at = row[10]
+                news.updated_at = row[11]
+                news_items.append(news)
+
+            return news_items
+        except Exception as e:
+            logger.error("Failed to get forex news by currency", currency=currency, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get forex news by currency: {e}")
+
+    async def get_users_by_currency(self, db: AsyncSession, currency: str) -> List[UserModel]:
+        """Get users who have a specific currency in their preferences."""
+        try:
+            result = await db.execute(text("""
+                SELECT * FROM users
+                WHERE preferred_currencies @> :currency_array
+            """), {'currency_array': [currency]})
+
+            rows = await result.fetchall()
+            users = []
+            for row in rows:
+                user = UserModel()
+                # Map row data to UserModel
+                user.id = row[0]
+                user.telegram_id = row[1]
+                user.preferred_currencies = row[2]
+                user.impact_levels = row[3]
+                user.analysis_required = row[4]
+                user.digest_time = row[5]
+                user.created_at = row[6]
+                user.updated_at = row[7]
+                users.append(user)
+
+            return users
+        except Exception as e:
+            logger.error("Failed to get users by currency", currency=currency, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get users by currency: {e}")
+
+    async def get_users_by_impact_level(self, db: AsyncSession, impact_level: str) -> List[UserModel]:
+        """Get users who have a specific impact level in their preferences."""
+        try:
+            result = await db.execute(text("""
+                SELECT * FROM users
+                WHERE impact_levels @> :impact_array
+            """), {'impact_array': [impact_level]})
+
+            rows = await result.fetchall()
+            users = []
+            for row in rows:
+                user = UserModel()
+                # Map row data to UserModel
+                user.id = row[0]
+                user.telegram_id = row[1]
+                user.preferred_currencies = row[2]
+                user.impact_levels = row[3]
+                user.analysis_required = row[4]
+                user.digest_time = row[5]
+                user.created_at = row[6]
+                user.updated_at = row[7]
+                users.append(user)
+
+            return users
+        except Exception as e:
+            logger.error("Failed to get users by impact level", impact_level=impact_level, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get users by impact level: {e}")

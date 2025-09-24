@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.database_service import DatabaseService
 from app.core.exceptions import DatabaseError, ValidationError
+from app.database.models import UserModel, ForexNewsModel
 from tests.factories import UserCreateFactory, ForexNewsCreateFactory
 
 
@@ -62,10 +63,31 @@ class TestDatabaseService:
         """Test successful user retrieval by Telegram ID."""
         # Arrange
         telegram_id = 123456789
-        mock_user = UserCreateFactory.build()
+        mock_user = UserModel()
+        mock_user.id = 1
+        mock_user.telegram_id = telegram_id
+        mock_user.preferred_currencies = ["USD"]
+        mock_user.impact_levels = ["high"]
+        mock_user.analysis_required = True
+        mock_user.digest_time = "08:00:00"
+        mock_user.created_at = datetime.now()
+        mock_user.updated_at = datetime.now()
+
+        # Mock the database calls
         mock_db_session.execute = AsyncMock()
+        mock_db_session.get = AsyncMock(return_value=mock_user)
+
+        # Mock the column check result
         mock_result = AsyncMock()
-        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_result.fetchall = AsyncMock(return_value=[
+            ('notifications_enabled',),
+            ('notification_minutes',),
+            ('notification_impact_levels',),
+            ('charts_enabled',),
+            ('chart_type',),
+            ('chart_window_hours',),
+            ('timezone',)
+        ])
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -74,15 +96,29 @@ class TestDatabaseService:
         # Assert
         assert result == mock_user
         mock_db_session.execute.assert_called_once()
+        mock_db_session.get.assert_called_once_with(UserModel, telegram_id)
 
     @pytest.mark.asyncio
     async def test_get_user_by_telegram_id_not_found(self, database_service, mock_db_session):
         """Test user retrieval when user not found."""
         # Arrange
         telegram_id = 999999999
+
+        # Mock the database calls
         mock_db_session.execute = AsyncMock()
+        mock_db_session.get = AsyncMock(return_value=None)
+
+        # Mock the column check result
         mock_result = AsyncMock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_result.fetchall = AsyncMock(return_value=[
+            ('notifications_enabled',),
+            ('notification_minutes',),
+            ('notification_impact_levels',),
+            ('charts_enabled',),
+            ('chart_type',),
+            ('chart_window_hours',),
+            ('timezone',)
+        ])
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -90,6 +126,8 @@ class TestDatabaseService:
 
         # Assert
         assert result is None
+        mock_db_session.execute.assert_called_once()
+        mock_db_session.get.assert_called_once_with(UserModel, telegram_id)
 
     @pytest.mark.asyncio
     async def test_update_user_success(self, database_service, mock_db_session):
@@ -97,22 +135,30 @@ class TestDatabaseService:
         # Arrange
         telegram_id = 123456789
         update_data = {"first_name": "Updated Name"}
-        mock_user = UserCreateFactory.build()
+        mock_user = UserModel()
+        mock_user.id = 1
+        mock_user.telegram_id = telegram_id
+        mock_user.first_name = "Original Name"
+        mock_user.preferred_currencies = ["USD"]
+        mock_user.impact_levels = ["high"]
+        mock_user.analysis_required = True
+        mock_user.digest_time = "08:00:00"
+        mock_user.created_at = datetime.now()
+        mock_user.updated_at = datetime.now()
 
-        mock_db_session.execute = AsyncMock()
-        mock_result = AsyncMock()
-        mock_result.scalar_one_or_none.return_value = mock_user
-        mock_db_session.execute.return_value = mock_result
-        mock_db_session.commit = AsyncMock()
-        mock_db_session.refresh = AsyncMock()
+        # Mock the get_user_by_telegram_id call
+        with patch.object(database_service, 'get_user_by_telegram_id', return_value=mock_user) as mock_get_user:
+            mock_db_session.commit = AsyncMock()
+            mock_db_session.refresh = AsyncMock()
 
-        # Act
-        result = await database_service.update_user(mock_db_session, telegram_id, update_data)
+            # Act
+            result = await database_service.update_user(mock_db_session, telegram_id, update_data)
 
-        # Assert
-        assert result == mock_user
-        mock_db_session.commit.assert_called_once()
-        mock_db_session.refresh.assert_called_once()
+            # Assert
+            assert result == mock_user
+            mock_get_user.assert_called_once_with(mock_db_session, telegram_id)
+            mock_db_session.commit.assert_called_once()
+            mock_db_session.refresh.assert_called_once_with(mock_user)
 
     @pytest.mark.asyncio
     async def test_update_user_not_found(self, database_service, mock_db_session):
