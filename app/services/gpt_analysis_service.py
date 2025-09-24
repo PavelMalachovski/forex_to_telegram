@@ -11,7 +11,7 @@ import requests
 import structlog
 
 from app.core.config import settings
-from app.core.exceptions import AnalysisError
+from app.core.exceptions import AnalysisError, ExternalAPIError
 from app.services.chart_service import chart_service
 from app.utils.telegram_utils import escape_markdown_v2
 
@@ -425,6 +425,8 @@ class GPTAnalysisService:
     def __init__(self):
         self.chatgpt_analyzer = ChatGPTAnalyzer()
         self.technical_analyzer = TechnicalAnalysisService()
+        self.client = None
+        self.last_request_time = None
 
     async def analyze_news_event(self, news_item: Dict[str, Any]) -> str:
         """Analyze a news event using GPT."""
@@ -478,12 +480,31 @@ class GPTAnalysisService:
             logger.error("Failed to generate comprehensive analysis", symbol=symbol, error=str(e))
             return {"error": str(e)}
 
-    def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> Dict[str, Any]:
         """Check the health of the GPT analysis service."""
         try:
+            if not self.client:
+                return {
+                    "status": "unhealthy",
+                    "openai": "not_initialized"
+                }
+
+            # Test OpenAI connection
+            try:
+                await self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=1
+                )
+                openai_status = "connected"
+                status = "healthy"
+            except Exception:
+                openai_status = "error"
+                status = "unhealthy"
+
             return {
-                "status": "healthy",
-                "chatgpt_configured": bool(self.chatgpt_analyzer.api_key),
+                "status": status,
+                "openai": openai_status,
                 "technical_analyzer_available": True,
                 "rate_limit_active": True,
                 "last_gpt_calls": len(_LAST_GPT_CALLS)
@@ -495,6 +516,278 @@ class GPTAnalysisService:
                 "status": "unhealthy",
                 "error": str(e)
             }
+
+    async def initialize(self):
+        """Initialize the GPT service."""
+        try:
+            import openai
+            self.client = openai.AsyncOpenAI(api_key=settings.api.openai_api_key)
+            logger.info("GPT service initialized successfully")
+        except Exception as e:
+            logger.error("Failed to initialize GPT service", error=str(e))
+            raise AnalysisError(f"Failed to initialize GPT service: {e}")
+
+    async def analyze_news_event(self, news_data) -> str:
+        """Analyze news event using GPT."""
+        try:
+            if not self.client:
+                raise AnalysisError("GPT client not initialized")
+
+            # Check rate limit
+            if not await self._check_rate_limit():
+                raise AnalysisError("Rate limit exceeded")
+
+            # Create analysis prompt
+            prompt = f"Analyze the following forex news event: {news_data}"
+
+            # Call GPT API
+            response = await self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500
+            )
+
+            analysis = response.choices[0].message.content
+            self.last_request_time = datetime.now()
+
+            logger.info("News event analysis completed")
+            return analysis
+
+        except Exception as e:
+            logger.error("Failed to analyze news event", error=str(e))
+            raise ExternalAPIError(f"Failed to analyze news event: {e}")
+
+    async def analyze_price_data(self, price_data: Dict[str, Any]) -> str:
+        """Analyze price data using GPT."""
+        try:
+            if not self.client:
+                raise AnalysisError("GPT client not initialized")
+
+            # Check rate limit
+            if not await self._check_rate_limit():
+                raise AnalysisError("Rate limit exceeded")
+
+            # Create analysis prompt
+            prompt = await self._format_analysis_prompt(price_data, "price_analysis")
+
+            # Call GPT API
+            response = await self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500
+            )
+
+            analysis = response.choices[0].message.content
+            self.last_request_time = datetime.now()
+
+            logger.info("Price data analysis completed")
+            return analysis
+
+        except Exception as e:
+            logger.error("Failed to analyze price data", error=str(e))
+            raise ExternalAPIError(f"Failed to analyze price data: {e}")
+
+    async def analyze_market_sentiment(self, market_data: Dict[str, Any]) -> str:
+        """Analyze market sentiment using GPT."""
+        try:
+            if not self.client:
+                raise AnalysisError("GPT client not initialized")
+
+            # Check rate limit
+            if not await self._check_rate_limit():
+                raise AnalysisError("Rate limit exceeded")
+
+            # Create analysis prompt
+            prompt = await self._format_analysis_prompt(market_data, "sentiment_analysis")
+
+            # Call GPT API
+            response = await self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500
+            )
+
+            analysis = response.choices[0].message.content
+            self.last_request_time = datetime.now()
+
+            logger.info("Market sentiment analysis completed")
+            return analysis
+
+        except Exception as e:
+            logger.error("Failed to analyze market sentiment", error=str(e))
+            raise ExternalAPIError(f"Failed to analyze market sentiment: {e}")
+
+    async def generate_trading_signals(self, analysis_data: Dict[str, Any]) -> str:
+        """Generate trading signals using GPT."""
+        try:
+            if not self.client:
+                raise AnalysisError("GPT client not initialized")
+
+            # Check rate limit
+            if not await self._check_rate_limit():
+                raise AnalysisError("Rate limit exceeded")
+
+            # Create analysis prompt
+            prompt = await self._format_analysis_prompt(analysis_data, "trading_signals")
+
+            # Call GPT API
+            response = await self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500
+            )
+
+            signals = response.choices[0].message.content
+            self.last_request_time = datetime.now()
+
+            logger.info("Trading signals generated")
+            return signals
+
+        except Exception as e:
+            logger.error("Failed to generate trading signals", error=str(e))
+            raise ExternalAPIError(f"Failed to generate trading signals: {e}")
+
+    async def calculate_technical_indicators(self, price_data) -> Dict[str, Any]:
+        """Calculate technical indicators."""
+        try:
+            # Handle different input formats
+            if isinstance(price_data, list):
+                prices = price_data
+                if len(prices) < 5:  # Minimum for basic indicators
+                    raise AnalysisError("Insufficient price data for technical analysis")
+            elif isinstance(price_data, dict):
+                prices = price_data.get('prices', [])
+                if len(prices) < 20:
+                    raise AnalysisError("Insufficient price data for technical analysis")
+            else:
+                raise AnalysisError("Invalid price data format")
+
+            df = pd.DataFrame(prices)
+
+            # Ensure we have numeric data
+            for col in ['close', 'high', 'low']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            # For ATR calculation, if we don't have high/low, use close price
+            if 'high' not in df.columns or 'low' not in df.columns:
+                df['high'] = df['close'] * 1.001  # Simulate high
+                df['low'] = df['close'] * 0.999   # Simulate low
+
+            # Calculate indicators
+            indicators = {
+                'rsi': await self.calculate_rsi(df['close']),
+                'ema_20': await self.calculate_ema(df['close'], 20),
+                'ema_50': await self.calculate_ema(df['close'], 50),
+                'macd': await self.calculate_macd(df['close']),
+                'atr': await self.calculate_atr(df)
+            }
+
+            logger.info("Technical indicators calculated")
+            return indicators
+
+        except Exception as e:
+            logger.error("Failed to calculate technical indicators", error=str(e))
+            raise AnalysisError(f"Failed to calculate technical indicators: {e}")
+
+    async def calculate_rsi(self, prices) -> float:
+        """Calculate RSI indicator."""
+        try:
+            if isinstance(prices, list):
+                prices = pd.Series(prices)
+            rsi_values = _rsi(prices)
+            result = float(rsi_values.iloc[-1])
+            # Handle NaN values
+            if pd.isna(result):
+                return 50.0  # Default neutral RSI
+            return result
+        except Exception as e:
+            logger.error("Failed to calculate RSI", error=str(e))
+            raise AnalysisError(f"Failed to calculate RSI: {e}")
+
+    async def calculate_ema(self, prices, period: int) -> float:
+        """Calculate EMA indicator."""
+        try:
+            if isinstance(prices, list):
+                prices = pd.Series(prices)
+            ema_values = _ema(prices, period)
+            return float(ema_values.iloc[-1])
+        except Exception as e:
+            logger.error("Failed to calculate EMA", error=str(e))
+            raise AnalysisError(f"Failed to calculate EMA: {e}")
+
+    async def calculate_macd(self, prices) -> Dict[str, float]:
+        """Calculate MACD indicator."""
+        try:
+            if isinstance(prices, list):
+                prices = pd.Series(prices)
+            macd_line, signal_line, histogram = _macd(prices)
+            return {
+                'macd': float(macd_line.iloc[-1]),
+                'signal': float(signal_line.iloc[-1]),
+                'histogram': float(histogram.iloc[-1])
+            }
+        except Exception as e:
+            logger.error("Failed to calculate MACD", error=str(e))
+            raise AnalysisError(f"Failed to calculate MACD: {e}")
+
+    async def calculate_atr(self, price_data) -> float:
+        """Calculate ATR indicator."""
+        try:
+            if isinstance(price_data, dict):
+                price_data = pd.DataFrame(price_data)
+            elif isinstance(price_data, list):
+                price_data = pd.DataFrame(price_data)
+            atr_values = _atr(price_data['high'], price_data['low'], price_data['close'])
+            result = float(atr_values.iloc[-1])
+            # Handle NaN values
+            if pd.isna(result):
+                return 0.001  # Default small ATR value
+            return result
+        except Exception as e:
+            logger.error("Failed to calculate ATR", error=str(e))
+            raise AnalysisError(f"Failed to calculate ATR: {e}")
+
+    async def _check_rate_limit(self) -> bool:
+        """Check if rate limit is exceeded."""
+        try:
+            if not self.last_request_time:
+                return True
+
+            time_since_last = datetime.now() - self.last_request_time
+            return time_since_last.total_seconds() >= 10  # 10 second rate limit
+
+        except Exception as e:
+            logger.error("Failed to check rate limit", error=str(e))
+            return False
+
+    async def _format_analysis_prompt(self, data: Dict[str, Any], prompt_type: str) -> str:
+        """Format analysis prompt based on data and type."""
+        try:
+            if prompt_type == "price_analysis":
+                return f"Analyze the following price data: {data}"
+            elif prompt_type == "sentiment_analysis":
+                return f"Analyze market sentiment for: {data}"
+            elif prompt_type == "trading_signals":
+                return f"Generate trading signals based on: {data}"
+            elif prompt_type == "news_analysis":
+                return f"Analyze the following forex news: {data}"
+            else:
+                raise AnalysisError(f"Invalid prompt type: {prompt_type}")
+
+        except Exception as e:
+            logger.error("Failed to format analysis prompt", error=str(e))
+            raise AnalysisError(f"Failed to format analysis prompt: {e}")
+
+    async def close(self):
+        """Close the GPT service."""
+        try:
+            if self.client:
+                await self.client.close()
+                self.client = None
+            logger.info("GPT service closed successfully")
+        except Exception as e:
+            logger.error("Failed to close GPT service", error=str(e))
 
 
 # Global GPT analysis service instance

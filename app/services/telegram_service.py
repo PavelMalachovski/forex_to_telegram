@@ -258,6 +258,47 @@ class TelegramBotManager:
             logger.error("Failed to send document", chat_id=chat_id, filename=filename, error=str(e), exc_info=True)
             raise TelegramError(f"Failed to send document: {e}")
 
+    async def send_formatted_message(self, chat_id: int, message: str) -> bool:
+        """Send a formatted message to a Telegram chat."""
+        try:
+            # Escape special characters for MarkdownV2
+            escaped_message = self.escape_markdown_v2(message)
+
+            # Send message
+            return await self.send_message(chat_id, escaped_message, "MarkdownV2")
+
+        except Exception as e:
+            logger.error("Failed to send formatted message", chat_id=chat_id, error=str(e))
+            raise TelegramError(f"Failed to send formatted message: {e}")
+
+    def escape_markdown_v2(self, text: str) -> str:
+        """Escape special characters for MarkdownV2."""
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        for char in special_chars:
+            text = text.replace(char, f'\\{char}')
+        return text
+
+    async def send_message(self, chat_id: int, message: str, parse_mode: str = "MarkdownV2") -> bool:
+        """Send a message to a Telegram chat."""
+        try:
+            url = f"{self.base_url}/sendMessage"
+            data = {
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": parse_mode
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=data)
+                response.raise_for_status()
+
+            logger.info("Message sent successfully", chat_id=chat_id)
+            return True
+
+        except httpx.HTTPError as e:
+            logger.error("Failed to send message", chat_id=chat_id, error=str(e))
+            raise TelegramError(f"Failed to send message: {e}")
+
     async def get_webhook_info(self) -> Dict[str, Any]:
         """Get webhook information."""
         try:

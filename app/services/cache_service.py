@@ -412,6 +412,50 @@ class CacheService:
             logger.error("Redis pattern invalidation error", pattern=pattern, error=str(e))
             return 0
 
+    async def health_check(self) -> dict:
+        """
+        Check Redis cache health.
+
+        Returns:
+            Dict containing health status
+        """
+        if not self._initialized or not self.redis_client:
+            return {"status": "not_initialized", "redis": "not_connected"}
+
+        try:
+            await self.redis_client.ping()
+            return {"status": "healthy", "redis": "connected"}
+        except RedisError as e:
+            logger.error("Redis health check error", error=str(e))
+            return {"status": "unhealthy", "redis": "error", "error": str(e)}
+
+    async def clear_cache(self) -> bool:
+        """
+        Clear all cache data.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._initialized or not self.redis_client:
+            return False
+
+        try:
+            await self.redis_client.flushdb()
+            logger.info("Cache cleared successfully")
+            return True
+        except RedisError as e:
+            logger.error("Cache clear error", error=str(e))
+            return False
+
+    async def get_cache_stats(self) -> dict:
+        """
+        Get cache statistics (alias for get_stats for backward compatibility).
+
+        Returns:
+            Dict containing cache statistics
+        """
+        return await self.get_stats()
+
     async def get_stats(self) -> dict:
         """
         Get cache statistics.
@@ -435,6 +479,49 @@ class CacheService:
         except RedisError as e:
             logger.error("Redis stats error", error=str(e))
             return {"status": "error", "error": str(e)}
+
+    def cache_result(
+        self,
+        ttl: Optional[Union[int, timedelta]] = None,
+        key_prefix: str = "",
+        key_builder: Optional[Callable] = None
+    ):
+        """
+        Instance method decorator for caching function results.
+
+        Args:
+            ttl: Time to live in seconds or timedelta
+            key_prefix: Prefix for cache key
+            key_builder: Custom key builder function
+
+        Returns:
+            Decorated function
+        """
+        def decorator(func):
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                # Build cache key
+                if key_builder:
+                    cache_key = key_builder(*args, **kwargs)
+                else:
+                    # Simple key building based on function name and arguments
+                    key_parts = [key_prefix, func.__name__]
+                    key_parts.extend(str(arg) for arg in args)
+                    key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
+                    cache_key = ":".join(key_parts)
+
+                # Try to get from cache
+                cached_result = await self.get(cache_key)
+                if cached_result is not None:
+                    return cached_result
+
+                # Execute function and cache result
+                result = await func(*args, **kwargs)
+                await self.set(cache_key, result, ttl=ttl)
+                return result
+
+            return wrapper
+        return decorator
 
 
 # Global enhanced cache service instance (will be defined at end of file)

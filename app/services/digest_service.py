@@ -342,6 +342,173 @@ class DailyDigestScheduler:
         except Exception as e:
             logger.error("Failed to remove user digest job", user_id=user_id, error=str(e))
 
+    # Alias methods for backward compatibility
+    def schedule_user_digest(self, user_id: int, timezone: str, digest_time: time):
+        """Schedule user digest (alias for add_user_digest_job)."""
+        return self.add_user_digest_job(user_id, timezone, digest_time)
+
+    def unschedule_user_digest(self, user_id: int):
+        """Unschedule user digest (alias for remove_user_digest_job)."""
+        return self.remove_user_digest_job(user_id)
+
+    async def schedule_channel_digest(self, db_session, channel_id: int, digest_time: time, timezone: str):
+        """Schedule channel digest."""
+        try:
+            job_id = f"channel_digest_{channel_id}"
+            trigger = CronTrigger(
+                hour=digest_time.hour,
+                minute=digest_time.minute,
+                timezone=timezone
+            )
+
+            self.scheduler.add_job(
+                self._send_channel_digest,
+                trigger=trigger,
+                args=[db_session, channel_id],
+                id=job_id,
+                replace_existing=True
+            )
+
+            logger.info("Channel digest scheduled", channel_id=channel_id, time=digest_time, timezone=timezone)
+
+        except Exception as e:
+            logger.error("Failed to schedule channel digest", channel_id=channel_id, error=str(e))
+            raise DigestError(f"Failed to schedule channel digest: {e}")
+
+    async def send_channel_digest(self, db_session, channel_id: int, telegram_service, forex_service):
+        """Send channel digest."""
+        try:
+            # Get today's news
+            today = datetime.now().date()
+            news_data = await forex_service.get_news_by_date(db_session, today)
+
+            if not news_data:
+                logger.info("No news available for channel digest", channel_id=channel_id)
+                return
+
+            # Format digest message
+            message = self.format_digest_message(news_data, None)
+
+            # Send message
+            await telegram_service.send_formatted_message(
+                chat_id=channel_id,
+                message=message
+            )
+
+            logger.info("Channel digest sent successfully", channel_id=channel_id)
+
+        except Exception as e:
+            logger.error("Failed to send channel digest", channel_id=channel_id, error=str(e))
+            raise DigestError(f"Failed to send channel digest: {e}")
+
+    async def _send_channel_digest(self, db_session, channel_id: int):
+        """Send channel digest (internal method)."""
+        try:
+            # This would be called by the scheduler
+            # For now, just log the call
+            logger.info("Channel digest triggered", channel_id=channel_id)
+
+        except Exception as e:
+            logger.error("Failed to send channel digest", channel_id=channel_id, error=str(e))
+            raise DigestError(f"Failed to send channel digest: {e}")
+
+    async def get_scheduled_jobs(self):
+        """Get all scheduled jobs."""
+        try:
+            if not self.scheduler:
+                return []
+
+            jobs = self.scheduler.get_jobs()
+            return [
+                {
+                    "job_id": job.id,
+                    "name": job.name,
+                    "next_run_time": job.next_run_time,
+                    "trigger": str(job.trigger)
+                }
+                for job in jobs
+            ]
+
+        except Exception as e:
+            logger.error("Failed to get scheduled jobs", error=str(e))
+            raise DigestError(f"Failed to get scheduled jobs: {e}")
+
+    def get_timezone_offset(self, timezone_str: str, target_date: date) -> int:
+        """Get timezone offset in minutes."""
+        try:
+            tz = pytz.timezone(timezone_str)
+            dt = datetime.combine(target_date, time())
+            localized_dt = tz.localize(dt)
+            offset = localized_dt.utcoffset()
+            return int(offset.total_seconds() / 60)
+
+        except Exception as e:
+            logger.error("Failed to get timezone offset", timezone=timezone_str, error=str(e))
+            raise DigestError(f"Failed to get timezone offset: {e}")
+
+    async def send_daily_digest(self, db_session, user_data, telegram_service, forex_service):
+        """Send daily digest to a user."""
+        try:
+            # Get today's news
+            today = datetime.now().date()
+            news_data = await forex_service.get_news_by_date(db_session, today)
+
+            if not news_data:
+                logger.info("No news available for daily digest", user_id=user_data.telegram_id)
+                return
+
+            # Format digest message
+            message = self.format_digest_message(news_data, user_data)
+
+            # Send message
+            await telegram_service.send_formatted_message(
+                chat_id=user_data.telegram_id,
+                message=message
+            )
+
+            logger.info("Daily digest sent successfully", user_id=user_data.telegram_id)
+
+        except Exception as e:
+            logger.error("Failed to send daily digest", user_id=user_data.telegram_id, error=str(e))
+            raise DigestError(f"Failed to send daily digest: {e}")
+
+    def format_digest_message(self, news_data, user_data):
+        """Format digest message for user."""
+        try:
+            message = "📰 Daily Forex Digest\n\n"
+
+            # Group news by currency
+            currency_groups = {}
+            for news in news_data:
+                currency = news.currency
+                if currency not in currency_groups:
+                    currency_groups[currency] = []
+                currency_groups[currency].append(news)
+
+            # Format by currency
+            for currency, news_list in currency_groups.items():
+                message += f"💱 {currency}\n"
+                for news in news_list:
+                    impact_emoji = self.get_impact_emoji(news.impact_level)
+                    message += f"{impact_emoji} {news.event}\n"
+                    message += f"   Time: {news.time}\n"
+                    message += f"   Impact: {news.impact_level}\n\n"
+
+            return message
+
+        except Exception as e:
+            logger.error("Failed to format digest message", error=str(e))
+            return "📰 Daily Forex Digest\n\nUnable to format news data."
+
+    def get_impact_emoji(self, impact_level):
+        """Get emoji for impact level."""
+        impact_emojis = {
+            "High": "🔴",
+            "Medium": "🟡",
+            "Low": "🟢"
+        }
+        return impact_emojis.get(impact_level, "⚪")
+
     async def _send_user_digest(self, user_id: int, timezone: str):
         """Send daily digest to a specific user."""
         try:
@@ -377,22 +544,6 @@ class DailyDigestScheduler:
         except Exception as e:
             logger.error("Failed to send user digest", user_id=user_id, error=str(e))
 
-    def get_scheduled_jobs(self) -> List[Dict[str, Any]]:
-        """Get list of all scheduled digest jobs."""
-        try:
-            jobs = []
-            for job in self.scheduler.get_jobs():
-                jobs.append({
-                    'id': job.id,
-                    'name': job.name,
-                    'next_run_time': job.next_run_time.isoformat() if job.next_run_time else None,
-                    'trigger': str(job.trigger)
-                })
-            return jobs
-
-        except Exception as e:
-            logger.error("Failed to get scheduled jobs", error=str(e))
-            return []
 
     def health_check(self) -> Dict[str, Any]:
         """Check the health of the digest scheduler."""

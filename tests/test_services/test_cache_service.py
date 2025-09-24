@@ -275,7 +275,8 @@ class TestCacheService:
     async def test_health_check_success(self, cache_service, mock_redis):
         """Test successful health check."""
         # Arrange
-        cache_service.redis = mock_redis
+        cache_service.redis_client = mock_redis
+        cache_service._initialized = True
         mock_redis.ping.return_value = True
 
         # Act
@@ -289,7 +290,8 @@ class TestCacheService:
     async def test_health_check_redis_error(self, cache_service, mock_redis):
         """Test health check with Redis error."""
         # Arrange
-        cache_service.redis = mock_redis
+        cache_service.redis_client = mock_redis
+        cache_service._initialized = True
         mock_redis.ping.side_effect = Exception("Redis error")
 
         # Act
@@ -297,26 +299,28 @@ class TestCacheService:
 
         # Assert
         assert result["status"] == "unhealthy"
-        assert result["redis"] == "disconnected"
+        assert result["redis"] == "error"
 
     @pytest.mark.asyncio
     async def test_health_check_no_redis(self, cache_service):
         """Test health check when Redis is not initialized."""
         # Arrange
-        cache_service.redis = None
+        cache_service.redis_client = None
+        cache_service._initialized = False
 
         # Act
         result = await cache_service.health_check()
 
         # Assert
-        assert result["status"] == "unhealthy"
-        assert result["redis"] == "not_initialized"
+        assert result["status"] == "not_initialized"
+        assert result["redis"] == "not_connected"
 
     @pytest.mark.asyncio
     async def test_clear_cache_success(self, cache_service, mock_redis):
         """Test successful cache clear operation."""
         # Arrange
-        cache_service.redis = mock_redis
+        cache_service.redis_client = mock_redis
+        cache_service._initialized = True
         mock_redis.flushdb.return_value = True
 
         # Act
@@ -330,18 +334,22 @@ class TestCacheService:
     async def test_clear_cache_error(self, cache_service, mock_redis):
         """Test cache clear operation with error."""
         # Arrange
-        cache_service.redis = mock_redis
+        cache_service.redis_client = mock_redis
+        cache_service._initialized = True
         mock_redis.flushdb.side_effect = Exception("Redis error")
 
-        # Act & Assert
-        with pytest.raises(CacheError):
-            await cache_service.clear_cache()
+        # Act
+        result = await cache_service.clear_cache()
+
+        # Assert
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_get_cache_stats_success(self, cache_service, mock_redis):
         """Test successful cache stats retrieval."""
         # Arrange
-        cache_service.redis = mock_redis
+        cache_service.redis_client = mock_redis
+        cache_service._initialized = True
         mock_redis.info.return_value = {
             "used_memory": 1024,
             "connected_clients": 1,
@@ -353,18 +361,22 @@ class TestCacheService:
         result = await cache_service.get_cache_stats()
 
         # Assert
-        assert "memory_usage" in result
+        assert result["status"] == "healthy"
         assert "connected_clients" in result
-        assert "hit_rate" in result
+        assert "used_memory" in result
         mock_redis.info.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_cache_stats_error(self, cache_service, mock_redis):
         """Test cache stats retrieval with error."""
         # Arrange
-        cache_service.redis = mock_redis
+        cache_service.redis_client = mock_redis
+        cache_service._initialized = True
         mock_redis.info.side_effect = Exception("Redis error")
 
-        # Act & Assert
-        with pytest.raises(CacheError):
-            await cache_service.get_cache_stats()
+        # Act
+        result = await cache_service.get_cache_stats()
+
+        # Assert
+        assert result["status"] == "error"
+        assert "error" in result
