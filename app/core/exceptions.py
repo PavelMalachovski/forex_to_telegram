@@ -76,3 +76,28 @@ class ScrapingError(ForexBotException):
 class NotificationError(ForexBotException):
     """Notification errors."""
     pass
+
+
+class UserSettingsError(ForexBotException):
+    """User settings errors."""
+    pass
+
+
+class DigestError(ForexBotException):
+    """Digest errors."""
+    pass
+
+
+class VisualizationError(ForexBotException):
+    """Visualization errors."""
+    pass
+
+
+class AnalysisError(ForexBotException):
+    """Analysis errors."""
+    pass
+
+
+class SchedulerError(ForexBotException):
+    """Scheduler errors."""
+    pass

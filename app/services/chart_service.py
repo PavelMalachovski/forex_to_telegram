@@ -4,7 +4,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
