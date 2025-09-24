@@ -7,13 +7,18 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from fastapi.openapi.utils import get_openapi
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import time
 import structlog
 
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.exceptions import ForexBotException
+from app.core.security import add_security_headers, log_requests, get_cors_config
 from app.database.connection import db_manager
+from app.services.cache_service import cache_service
 from app.api.v1.router import api_router
 
 # Configure structured logging
@@ -32,8 +37,9 @@ async def lifespan(app: FastAPI):
         await db_manager.initialize()
         logger.info("Database initialized successfully")
 
-        # Initialize Redis connection
-        # await redis_manager.initialize()
+        # Initialize cache service
+        await cache_service.initialize()
+        logger.info("Cache service initialized successfully")
 
         # Initialize Telegram bot
         # await telegram_service.initialize()
@@ -48,6 +54,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         logger.info("Shutting down application")
+        await cache_service.close()
         await db_manager.close()
         logger.info("Application shutdown completed")
 
@@ -67,19 +74,26 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.debug else None,
     )
 
+    # Add rate limiting
+    limiter = Limiter(key_func=get_remote_address)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     # Add middleware
+    cors_config = get_cors_config()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.debug else ["https://yourdomain.com"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        **cors_config
     )
 
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["*"] if settings.debug else ["yourdomain.com", "*.yourdomain.com"]
     )
+
+    # Add security and logging middleware
+    app.middleware("http")(add_security_headers)
+    app.middleware("http")(log_requests)
 
     # Request timing middleware
     @app.middleware("http")
