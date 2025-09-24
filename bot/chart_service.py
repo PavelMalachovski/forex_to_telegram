@@ -272,7 +272,7 @@ class ChartService:
             # Enhanced logging for problematic currencies
             currency = self._extract_currency_from_symbol(symbol)
             is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
-            
+
             # Normalize interval to Yahoo-supported values
             interval_map = { '1h': '60m' }
             yf_interval = interval_map.get(interval, interval)
@@ -294,20 +294,20 @@ class ChartService:
 
             self._respect_rate_limit()
             resp = self._yf_session.get(url, params=params, timeout=20)
-            
+
             if resp.status_code == 429:
                 if is_problematic_currency:
                     logger.warning(f"⚠️ Rate limited for {currency} ({symbol}) - entering cooldown")
                 self._enter_cooldown(90.0)
                 return None
-            
+
             if resp.status_code != 200:
                 if is_problematic_currency:
                     logger.error(f"❌ HTTP {resp.status_code} for {currency} ({symbol}): {resp.text[:200]}")
                 else:
                     logger.warning(f"HTTP {resp.status_code} for {symbol}: {resp.text[:200]}")
                 return None
-                
+
             resp.raise_for_status()
             payload = resp.json()
 
@@ -317,14 +317,14 @@ class ChartService:
                 if is_problematic_currency:
                     logger.warning(f"⚠️ No chart results for {currency} ({symbol})")
                 return None
-                
+
             result = result_list[0]
             timestamps = result.get('timestamp', [])
             if not timestamps:
                 if is_problematic_currency:
                     logger.warning(f"⚠️ No timestamps for {currency} ({symbol})")
                 return None
-                
+
             indicators = result.get('indicators', {})
             quote_list = indicators.get('quote', [{}])
             quote = quote_list[0] if quote_list else {}
@@ -341,7 +341,7 @@ class ChartService:
                 if is_problematic_currency:
                     logger.warning(f"⚠️ No valid data points for {currency} ({symbol})")
                 return None
-                
+
             ts = pd.to_datetime(timestamps[:size], unit='s', utc=True)
             data = pd.DataFrame({
                 'Open': pd.Series(opens[:size], index=ts),
@@ -350,21 +350,21 @@ class ChartService:
                 'Close': pd.Series(closes[:size], index=ts),
                 'Volume': pd.Series(volumes[:size], index=ts),
             })
-            
+
             # Trim exactly to window
             data = data.loc[(data.index >= pd.to_datetime(start_time, utc=True)) & (data.index <= pd.to_datetime(end_time, utc=True))]
-            
+
             if is_problematic_currency and len(data) == 0:
                 logger.warning(f"⚠️ {currency} ({symbol}) data exists but outside time window")
                 logger.warning(f"📊 Data range: {ts[0]} to {ts[-1]}")
                 logger.warning(f"⏰ Requested range: {start_time} to {end_time}")
-            
+
             return data
-            
+
         except Exception as e:
             currency = self._extract_currency_from_symbol(symbol)
             is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
-            
+
             if is_problematic_currency:
                 logger.error(f"❌ Yahoo chart API fetch failed for {currency} ({symbol}) {interval}: {e}")
                 logger.error(f"📊 Symbol: {symbol}")
@@ -607,7 +607,7 @@ class ChartService:
             # Enhanced logging for GBP, EUR, AUD issues
             currency = self._extract_currency_from_symbol(symbol)
             is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
-            
+
             if is_problematic_currency:
                 logger.info(f"🔍 Fetching data for {currency} symbol {symbol} from {start_time} to {end_time}")
                 logger.info(f"📊 Time window: {(end_time - start_time).total_seconds() / 3600:.1f} hours")
@@ -622,7 +622,7 @@ class ChartService:
                 try:
                     if is_problematic_currency:
                         logger.info(f"🔄 Attempting {interval} interval for {currency} ({symbol})")
-                    
+
                     data = self._fetch_with_retry(symbol, start_time, end_time, interval)
 
                     if data is not None and not data.empty:
@@ -649,7 +649,7 @@ class ChartService:
                 logger.info(f"🔄 Trying broader time range for {currency} ({symbol})")
             else:
                 logger.info(f"Trying broader time range for {symbol}")
-            
+
             try:
                 broader_start = start_time - timedelta(days=1)
                 broader_end = end_time + timedelta(days=1)
@@ -675,7 +675,7 @@ class ChartService:
                 logger.info(f"🔄 Trying alternative data sources for {currency} ({symbol})")
             else:
                 logger.info(f"Trying alternative data sources for {symbol}")
-            
+
             data = self._try_alternative_data_source(symbol, start_time, end_time)
             if data is not None and not data.empty:
                 self._cache_data(symbol, data, start_time, end_time)
@@ -689,7 +689,7 @@ class ChartService:
                     logger.warning(f"⚠️ All data sources failed for {currency} ({symbol}), generating mock data for demonstration")
                 else:
                     logger.warning(f"All data sources failed for {symbol}, generating mock data for demonstration")
-                
+
                 mock_data = self._generate_mock_data(symbol, start_time, end_time)
                 if mock_data is not None and not mock_data.empty:
                     if is_problematic_currency:
@@ -710,13 +710,13 @@ class ChartService:
                 logger.error(f"🌍 Timezone alignment: {start_time.tzinfo} -> {end_time.tzinfo}")
             else:
                 logger.warning(f"No data found for {symbol} in the specified time range with any method")
-            
+
             return None
 
         except Exception as e:
             currency = self._extract_currency_from_symbol(symbol)
             is_problematic_currency = currency in ['GBP', 'EUR', 'AUD']
-            
+
             if is_problematic_currency:
                 logger.error(f"❌ Error fetching price data for {currency} ({symbol}): {e}")
                 logger.error(f"📊 Symbol: {symbol}")
@@ -731,7 +731,7 @@ class ChartService:
         try:
             # Remove common suffixes
             clean_symbol = symbol.replace('=X', '').replace('-USD', '').replace('USD', '')
-            
+
             # Common currency mappings
             if 'EUR' in clean_symbol:
                 return 'EUR'
@@ -857,20 +857,32 @@ class ChartService:
             event_date_str = event_time.astimezone(self.display_tz).strftime('%Y-%m-%d')
             fig.suptitle(f'{currency} News Event: {event_name}\n{event_date_str}', fontsize=14, fontweight='bold')
 
+            # Clean price data before plotting
+            clean_price_data = price_data.dropna()
+            if clean_price_data.empty:
+                logger.warning(f"No valid price data after cleaning for {currency}")
+                return None
+
             # Convert data and event time to display timezone for plotting
-            local_index = price_data.index.tz_convert(self.display_tz) if price_data.index.tzinfo else price_data.index.tz_localize(self.display_tz)
+            local_index = clean_price_data.index.tz_convert(self.display_tz) if clean_price_data.index.tzinfo else clean_price_data.index.tz_localize(self.display_tz)
             event_time_local = event_time.astimezone(self.display_tz)
 
             # Plot price data as candlesticks when OHLC is available
             try:
-                ohlc = price_data[['Open', 'High', 'Low', 'Close']].copy()
+                ohlc = clean_price_data[['Open', 'High', 'Low', 'Close']].copy()
                 ohlc.index = local_index
+
+                # Log price information for debugging
+                logger.info(f"Plotting {currency} chart with {len(ohlc)} data points")
+                logger.info(f"Price range: {ohlc['Close'].min():.4f} - {ohlc['Close'].max():.4f}")
+
                 self._plot_candlesticks(ax1, ohlc, f'{currency}/{symbol.split("=")[0][-3:]}')
             except Exception as e:
                 logger.warning(f"Candlestick plot failed; synthesizing OHLC: {e}")
                 try:
-                    synth = self._synthesize_ohlc_from_close(price_data)
+                    synth = self._synthesize_ohlc_from_close(clean_price_data)
                     synth.index = local_index
+                    logger.info(f"Synthesized OHLC for {currency} with {len(synth)} data points")
                     self._plot_candlesticks(ax1, synth, f'{currency}/{symbol.split("=")[0][-3:]}')
                 except Exception as e2:
                     logger.error(f"Failed to synthesize candlesticks: {e2}")
@@ -895,10 +907,14 @@ class ChartService:
             )
 
             # Plot volume
-            if 'Volume' in price_data.columns:
-                ax2.bar(local_index, price_data['Volume'], alpha=0.6, color='#2ca02c')
-                ax2.set_ylabel('Volume', fontsize=12)
-                ax2.grid(True, alpha=0.3)
+            if 'Volume' in clean_price_data.columns:
+                volume_data = clean_price_data['Volume'].dropna()
+                if not volume_data.empty:
+                    ax2.bar(local_index, volume_data, alpha=0.6, color='#2ca02c')
+                    ax2.set_ylabel('Volume', fontsize=12)
+                    ax2.grid(True, alpha=0.3)
+                else:
+                    logger.warning(f"No valid volume data for {currency}")
 
             # Format x-axis
             # X-axis: show ticks every 30 minutes for consistency
@@ -912,9 +928,9 @@ class ChartService:
             ax1.legend(loc='upper right')
 
             # Add price change annotation
-            if len(price_data) > 1:
-                start_price = price_data['Close'].iloc[0]
-                end_price = price_data['Close'].iloc[-1]
+            if len(clean_price_data) > 1:
+                start_price = clean_price_data['Close'].iloc[0]
+                end_price = clean_price_data['Close'].iloc[-1]
                 price_change = end_price - start_price
                 price_change_pct = (price_change / start_price) * 100
 
@@ -1494,12 +1510,18 @@ class ChartService:
     def _plot_candlesticks(self, ax, ohlc_data: pd.DataFrame, pair_name: str):
         """Plot candlestick chart on the given axes."""
         try:
+            # Clean data - remove NaN values
+            clean_data = ohlc_data.dropna()
+            if clean_data.empty:
+                logger.warning(f"No valid data points for {pair_name} after cleaning")
+                return
+
             # Convert datetime index to matplotlib dates
-            dates = ohlc_data.index
-            opens = ohlc_data['Open'].values
-            highs = ohlc_data['High'].values
-            lows = ohlc_data['Low'].values
-            closes = ohlc_data['Close'].values
+            dates = clean_data.index
+            opens = clean_data['Open'].values
+            highs = clean_data['High'].values
+            lows = clean_data['Low'].values
+            closes = clean_data['Close'].values
 
             # Calculate colors (green for up, red for down)
             colors = ['green' if close >= open else 'red'
@@ -1509,6 +1531,10 @@ class ChartService:
             for i, (date, open_price, high, low, close, color) in enumerate(
                 zip(dates, opens, highs, lows, closes, colors)
             ):
+                # Skip if any price is NaN
+                if pd.isna(open_price) or pd.isna(high) or pd.isna(low) or pd.isna(close):
+                    continue
+
                 # Body of the candlestick
                 body_height = abs(close - open_price)
                 body_bottom = min(close, open_price)
@@ -1532,8 +1558,18 @@ class ChartService:
             # Set labels and title
             ax.set_title(f'Candlestick Chart: {pair_name}', fontsize=12, fontweight='bold')
 
-            # Format the price axis
+            # Format the price axis with better precision
             ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.4f}'))
+
+            # Ensure proper scaling
+            if len(closes) > 0:
+                price_range = max(closes) - min(closes)
+                if price_range > 0:
+                    # Add some padding to the y-axis
+                    ax.set_ylim(min(closes) - price_range * 0.1, max(closes) + price_range * 0.1)
+                else:
+                    # If all prices are the same, add small padding
+                    ax.set_ylim(min(closes) - 0.0001, max(closes) + 0.0001)
 
         except Exception as e:
             logger.error(f"Error plotting candlesticks: {e}")
