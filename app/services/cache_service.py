@@ -437,8 +437,7 @@ class CacheService:
             return {"status": "error", "error": str(e)}
 
 
-# Global enhanced cache service instance
-cache_service = EnhancedCacheService()
+# Global enhanced cache service instance (will be defined at end of file)
 
 
 def cache_result(
@@ -731,3 +730,7 @@ class EnhancedCacheService(CacheService):
             "local_stats": self._stats.copy()
         })
         return base_stats
+
+
+# Global enhanced cache service instance
+cache_service = EnhancedCacheService()

@@ -25,15 +25,23 @@ class TestCacheService:
     @pytest.fixture
     def mock_redis_client(self):
         mock_client = AsyncMock()
-        mock_client.ping.return_value = True
-        mock_client.config_set.return_value = True
-        mock_client.info.return_value = {
+        mock_client.ping = AsyncMock(return_value=True)
+        mock_client.config_set = AsyncMock(return_value=True)
+        mock_client.info = AsyncMock(return_value={
             "connected_clients": 1,
             "used_memory_human": "1MB",
             "keyspace_hits": 100,
             "keyspace_misses": 50,
             "total_commands_processed": 1000
-        }
+        })
+        mock_client.get = AsyncMock()
+        mock_client.set = AsyncMock(return_value=True)
+        mock_client.delete = AsyncMock(return_value=1)
+        mock_client.exists = AsyncMock(return_value=True)
+        mock_client.mget = AsyncMock(return_value=[])
+        mock_client.keys = AsyncMock(return_value=[])
+        mock_client.pipeline = AsyncMock()
+        mock_client.close = AsyncMock()
         return mock_client
 
     @pytest.mark.asyncio
@@ -107,7 +115,11 @@ class TestCacheService:
 
         # Test set_many
         mapping = {"key1": "value1", "key2": "value2"}
-        mock_redis_client.pipeline.return_value.__aenter__.return_value.execute.return_value = [True, True]
+        mock_pipeline = AsyncMock()
+        mock_pipeline.__aenter__ = AsyncMock(return_value=mock_pipeline)
+        mock_pipeline.__aexit__ = AsyncMock(return_value=None)
+        mock_pipeline.execute = AsyncMock(return_value=[True, True])
+        mock_redis_client.pipeline.return_value = mock_pipeline
         result = await cache_service.set_many(mapping, ttl=300)
         assert result is True
 
@@ -212,7 +224,11 @@ class TestRedisRateLimiter:
     @pytest.mark.asyncio
     async def test_rate_limit_allowed(self, rate_limiter):
         """Test rate limit when request is allowed."""
-        rate_limiter.cache_service.redis_client.pipeline.return_value.__aenter__.return_value.execute.return_value = [0, 5, True, True]
+        mock_pipeline = AsyncMock()
+        mock_pipeline.__aenter__ = AsyncMock(return_value=mock_pipeline)
+        mock_pipeline.__aexit__ = AsyncMock(return_value=None)
+        mock_pipeline.execute = AsyncMock(return_value=[0, 5, True, True])
+        rate_limiter.cache_service.redis_client.pipeline.return_value = mock_pipeline
 
         is_allowed, info = await rate_limiter.is_allowed("test_key", 10, 60)
 
@@ -223,7 +239,11 @@ class TestRedisRateLimiter:
     @pytest.mark.asyncio
     async def test_rate_limit_exceeded(self, rate_limiter):
         """Test rate limit when request is not allowed."""
-        rate_limiter.cache_service.redis_client.pipeline.return_value.__aenter__.return_value.execute.return_value = [0, 10, True, True]
+        mock_pipeline = AsyncMock()
+        mock_pipeline.__aenter__ = AsyncMock(return_value=mock_pipeline)
+        mock_pipeline.__aexit__ = AsyncMock(return_value=None)
+        mock_pipeline.execute = AsyncMock(return_value=[0, 10, True, True])
+        rate_limiter.cache_service.redis_client.pipeline.return_value = mock_pipeline
 
         is_allowed, info = await rate_limiter.is_allowed("test_key", 10, 60)
 
@@ -239,6 +259,9 @@ class TestRedisSessionManager:
     def session_manager(self):
         cache_service = CacheService()
         cache_service.redis_client = AsyncMock()
+        cache_service.set = AsyncMock(return_value=True)
+        cache_service.get = AsyncMock()
+        cache_service.delete = AsyncMock(return_value=True)
         return RedisSessionManager(cache_service)
 
     @pytest.mark.asyncio
@@ -288,6 +311,28 @@ class TestEnhancedCacheService:
     @pytest.fixture
     def enhanced_cache_service(self):
         return EnhancedCacheService()
+
+    @pytest.fixture
+    def mock_redis_client(self):
+        mock_client = AsyncMock()
+        mock_client.ping = AsyncMock(return_value=True)
+        mock_client.config_set = AsyncMock(return_value=True)
+        mock_client.info = AsyncMock(return_value={
+            "connected_clients": 1,
+            "used_memory_human": "1MB",
+            "keyspace_hits": 100,
+            "keyspace_misses": 50,
+            "total_commands_processed": 1000
+        })
+        mock_client.get = AsyncMock()
+        mock_client.set = AsyncMock(return_value=True)
+        mock_client.delete = AsyncMock(return_value=1)
+        mock_client.exists = AsyncMock(return_value=True)
+        mock_client.mget = AsyncMock(return_value=[])
+        mock_client.keys = AsyncMock(return_value=[])
+        mock_client.pipeline = AsyncMock()
+        mock_client.close = AsyncMock()
+        return mock_client
 
     @pytest.mark.asyncio
     async def test_initialize_enhanced(self, enhanced_cache_service, mock_redis_client):
@@ -346,8 +391,9 @@ class TestCacheDecorators:
 
         # Mock cache service
         with patch('app.services.cache_service.cache_service') as mock_cache:
-            mock_cache.get.return_value = None
-            mock_cache.set.return_value = True
+            mock_cache.get = AsyncMock(return_value=None)
+            mock_cache.set = AsyncMock(return_value=True)
+            mock_cache.get_or_set = AsyncMock(side_effect=lambda key, func, ttl, *args, **kwargs: asyncio.create_task(func(*args, **kwargs)))
 
             # First call should execute function
             result = await expensive_function("test")
@@ -355,7 +401,7 @@ class TestCacheDecorators:
             assert call_count == 1
 
             # Second call should use cache
-            mock_cache.get.return_value = "result_test"
+            mock_cache.get_or_set = AsyncMock(return_value="result_test")
             result = await expensive_function("test")
             assert result == "result_test"
             assert call_count == 1  # Function not called again

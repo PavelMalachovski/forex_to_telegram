@@ -1,6 +1,6 @@
 """Redis management and monitoring endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from fastapi.responses import JSONResponse
 from typing import Dict, Any, Optional
 import structlog
@@ -123,7 +123,7 @@ async def check_rate_limit(
 @router.post("/pubsub/publish", summary="Publish Message")
 async def publish_message(
     channel: str = Query(..., description="Channel name"),
-    message: Dict[str, Any] = Query(..., description="Message to publish")
+    message: Dict[str, Any] = Body(..., description="Message to publish")
 ):
     """Publish a message to a Redis channel."""
     try:
