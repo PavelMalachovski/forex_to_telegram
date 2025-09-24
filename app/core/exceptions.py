@@ -101,3 +101,8 @@ class AnalysisError(ForexBotException):
 class SchedulerError(ForexBotException):
     """Scheduler errors."""
     pass
+
+
+class CacheError(ForexBotException):
+    """Cache operation errors."""
+    pass

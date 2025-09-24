@@ -22,7 +22,7 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop.close()
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 async def test_db_engine():
     """Create a test database engine."""
     # Use in-memory SQLite for testing
@@ -43,7 +43,7 @@ async def test_db_engine():
     await engine.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_db_session(test_db_engine) -> AsyncGenerator[AsyncSession, None]:
     """Create a test database session."""
     async_session = async_sessionmaker(
@@ -57,7 +57,7 @@ async def test_db_session(test_db_engine) -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_client(test_db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """Create a test client for the FastAPI application."""
     # Override the database dependency

@@ -29,7 +29,7 @@ class UserPreferencesFactory(factory.Factory):
     digest_time = factory.LazyFunction(lambda: time(8, 0))
     timezone = fuzzy.FuzzyChoice(["Europe/Prague", "America/New_York", "Asia/Tokyo"])
     notifications_enabled = fuzzy.FuzzyChoice([True, False])
-    notification_minutes = fuzzy.FuzzyInteger(5, 60)
+    notification_minutes = fuzzy.FuzzyChoice([15, 30, 60])
     notification_impact_levels = factory.List([
         fuzzy.FuzzyChoice(["high", "medium", "low"])
         for _ in range(1)
@@ -80,7 +80,7 @@ class ForexNewsCreateFactory(factory.Factory):
         model = ForexNewsCreate
 
     date = factory.LazyFunction(lambda: datetime.utcnow().date())
-    time = factory.LazyFunction(lambda: time(14, 30))
+    time = factory.LazyFunction(lambda: "14:30")
     currency = fuzzy.FuzzyChoice(["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"])
     event = factory.Faker("sentence", nb_words=3)
     actual = factory.Faker("numerify", text="###.#")
@@ -97,7 +97,7 @@ class ForexNewsModelFactory(factory.Factory):
         model = ForexNewsModel
 
     date = factory.LazyFunction(lambda: datetime.utcnow().date())
-    time = factory.LazyFunction(lambda: time(14, 30))
+    time = factory.LazyFunction(lambda: "14:30")
     currency = fuzzy.FuzzyChoice(["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"])
     event = factory.Faker("sentence", nb_words=3)
     actual = factory.Faker("numerify", text="###.#")

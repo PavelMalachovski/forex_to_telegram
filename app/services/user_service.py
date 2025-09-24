@@ -2,7 +2,7 @@
 
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, update
 
 from .base import BaseService
 from app.database.models import UserModel
@@ -188,3 +188,62 @@ class UserService(BaseService[UserModel]):
             await db.rollback()
             logger.error("Failed to deactivate user", telegram_id=telegram_id, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to deactivate user: {e}")
+
+    # Additional methods expected by tests
+    async def get_user_by_telegram_id(self, db: AsyncSession, telegram_id: int) -> Optional[UserModel]:
+        """Get user by Telegram ID (alias for get_by_telegram_id)."""
+        return await self.get_by_telegram_id(db, telegram_id)
+
+    async def get_all_users_with_pagination(
+        self,
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[UserModel]:
+        """Get all users with pagination."""
+        try:
+            result = await db.execute(
+                select(UserModel)
+                .offset(skip)
+                .limit(limit)
+                .order_by(UserModel.created_at.desc())
+            )
+            return result.scalars().all()
+        except Exception as e:
+            logger.error("Failed to get users with pagination", skip=skip, limit=limit, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to get users with pagination: {e}")
+
+    async def count_users(self, db: AsyncSession) -> int:
+        """Count total users."""
+        try:
+            result = await db.execute(select(func.count(UserModel.id)))
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error("Failed to count users", error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to count users: {e}")
+
+    async def user_exists(self, db: AsyncSession, telegram_id: int) -> bool:
+        """Check if user exists."""
+        try:
+            result = await db.execute(
+                select(UserModel.id).where(UserModel.telegram_id == telegram_id)
+            )
+            return result.scalar_one_or_none() is not None
+        except Exception as e:
+            logger.error("Failed to check user existence", telegram_id=telegram_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to check user existence: {e}")
+
+    async def delete_user(self, db: AsyncSession, telegram_id: int) -> bool:
+        """Delete user by Telegram ID."""
+        try:
+            user = await self.get_by_telegram_id(db, telegram_id)
+            if not user:
+                return False
+
+            await db.delete(user)
+            await db.commit()
+            return True
+        except Exception as e:
+            await db.rollback()
+            logger.error("Failed to delete user", telegram_id=telegram_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to delete user: {e}")
