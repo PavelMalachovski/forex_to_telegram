@@ -8,10 +8,10 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from src.main import app
-from src.database.connection import db_manager
-from src.database.models import Base
-from src.core.config import settings
+from app.main import app
+from app.database.connection import db_manager
+from app.database.models import Base
+from app.core.config import settings
 
 
 @pytest.fixture(scope="session")
@@ -64,7 +64,7 @@ async def test_client(test_db_session: AsyncSession) -> AsyncGenerator[AsyncClie
     async def override_get_database():
         yield test_db_session
 
-    app.dependency_overrides[db_manager.get_session] = override_get_database
+    app.dependency_overrides[db_manager.get_session_async] = override_get_database
 
     # Create test client
     transport = ASGITransport(app=app)

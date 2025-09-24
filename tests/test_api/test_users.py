@@ -3,8 +3,8 @@
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.database.models import UserModel
-from src.models.user import UserCreate, UserUpdate, UserPreferences
+from app.database.models import UserModel
+from app.models.user import UserCreate, UserUpdate, UserPreferences
 
 
 @pytest.mark.asyncio

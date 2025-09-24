@@ -2,7 +2,7 @@
 
 import pytest
 from pydantic import ValidationError
-from src.core.config import Settings, DatabaseSettings, TelegramSettings
+from app.core.config import Settings, DatabaseSettings, TelegramSettings
 
 
 class TestDatabaseSettings:
@@ -96,8 +96,8 @@ class TestSettings:
         """Test settings from environment variables."""
         monkeypatch.setenv("ENVIRONMENT", "staging")
         monkeypatch.setenv("DEBUG", "true")
-        monkeypatch.setenv("HOST", "127.0.0.1")
-        monkeypatch.setenv("PORT", "9000")
+        monkeypatch.setenv("SERVER_HOST", "127.0.0.1")
+        monkeypatch.setenv("SERVER_PORT", "9000")
         monkeypatch.setenv("APP_NAME", "Test Bot")
 
         settings = Settings()

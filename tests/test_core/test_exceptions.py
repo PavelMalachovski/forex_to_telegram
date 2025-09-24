@@ -1,7 +1,7 @@
 """Tests for core exceptions module."""
 
 import pytest
-from src.core.exceptions import (
+from app.core.exceptions import (
     ForexBotException,
     ConfigurationError,
     DatabaseError,
