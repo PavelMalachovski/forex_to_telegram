@@ -394,6 +394,8 @@ class ForexService(BaseService[ForexNewsModel]):
         """Update forex news."""
         try:
             return await self.update(db, news_id, **update_data.model_dump(exclude_unset=True))
+        except ValidationError:
+            raise
         except Exception as e:
             logger.error("Failed to update forex news", news_id=news_id, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to update forex news: {e}")
@@ -401,7 +403,14 @@ class ForexService(BaseService[ForexNewsModel]):
     async def delete_forex_news(self, db: AsyncSession, news_id: int) -> bool:
         """Delete forex news."""
         try:
+            # Check if record exists first
+            existing_record = await self.get(db, news_id)
+            if not existing_record:
+                raise ValidationError("Forex news not found")
+
             return await self.delete(db, news_id)
+        except ValidationError:
+            raise
         except Exception as e:
             logger.error("Failed to delete forex news", news_id=news_id, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to delete forex news: {e}")

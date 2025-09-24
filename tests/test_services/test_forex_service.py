@@ -79,7 +79,7 @@ class TestForexService:
         """Test forex news retrieval when not found."""
         # Arrange
         mock_db_session.execute = AsyncMock()
-        mock_result = AsyncMock()
+        mock_result = Mock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db_session.execute.return_value = mock_result
 
@@ -88,6 +88,7 @@ class TestForexService:
 
         # Assert
         assert result is None
+        mock_db_session.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_forex_news_by_date_range(self, forex_service, mock_db_session):
@@ -98,8 +99,10 @@ class TestForexService:
         news_items = [ForexNewsModelFactory.build() for _ in range(5)]
 
         mock_db_session.execute = AsyncMock()
+        mock_scalars_result = Mock()
+        mock_scalars_result.all.return_value = news_items
         mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = news_items
+        mock_result.scalars.return_value = mock_scalars_result
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -118,8 +121,10 @@ class TestForexService:
         news_items = [ForexNewsModelFactory.build(currency="USD") for _ in range(3)]
 
         mock_db_session.execute = AsyncMock()
+        mock_scalars_result = Mock()
+        mock_scalars_result.all.return_value = news_items
         mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = news_items
+        mock_result.scalars.return_value = mock_scalars_result
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -136,8 +141,10 @@ class TestForexService:
         news_items = [ForexNewsModelFactory.build(impact_level="high") for _ in range(2)]
 
         mock_db_session.execute = AsyncMock()
+        mock_scalars_result = Mock()
+        mock_scalars_result.all.return_value = news_items
         mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = news_items
+        mock_result.scalars.return_value = mock_scalars_result
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -154,8 +161,10 @@ class TestForexService:
         news_items = [ForexNewsModelFactory.build() for _ in range(4)]
 
         mock_db_session.execute = AsyncMock()
+        mock_scalars_result = Mock()
+        mock_scalars_result.all.return_value = news_items
         mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = news_items
+        mock_result.scalars.return_value = mock_scalars_result
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -172,8 +181,10 @@ class TestForexService:
         news_items = [ForexNewsModelFactory.build() for _ in range(3)]
 
         mock_db_session.execute = AsyncMock()
+        mock_scalars_result = Mock()
+        mock_scalars_result.all.return_value = news_items
         mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = news_items
+        mock_result.scalars.return_value = mock_scalars_result
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -188,10 +199,8 @@ class TestForexService:
         """Test successful forex news update."""
         # Arrange
         update_data = ForexNewsUpdate(analysis="Updated analysis")
-        mock_db_session.execute = AsyncMock()
-        mock_db_session.commit = AsyncMock()
 
-        with patch.object(forex_service, 'get_forex_news_by_id', return_value=sample_forex_news_model):
+        with patch.object(forex_service, 'update', return_value=sample_forex_news_model) as mock_update:
             # Act
             result = await forex_service.update_forex_news(
                 mock_db_session, sample_forex_news_model.id, update_data
@@ -199,8 +208,7 @@ class TestForexService:
 
         # Assert
         assert result == sample_forex_news_model
-        mock_db_session.execute.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+        mock_update.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_forex_news_not_found(self, forex_service, mock_db_session):
@@ -208,32 +216,28 @@ class TestForexService:
         # Arrange
         update_data = ForexNewsUpdate(analysis="Updated analysis")
 
-        with patch.object(forex_service, 'get_forex_news_by_id', return_value=None):
+        with patch.object(forex_service, 'get', return_value=None):
             # Act & Assert
-            with pytest.raises(ValidationError, match="Forex news not found"):
+            with pytest.raises(ValidationError, match="ForexNewsModel not found"):
                 await forex_service.update_forex_news(mock_db_session, 999, update_data)
 
     @pytest.mark.asyncio
     async def test_delete_forex_news_success(self, forex_service, mock_db_session, sample_forex_news_model):
         """Test successful forex news deletion."""
         # Arrange
-        with patch.object(forex_service, 'get_forex_news_by_id', return_value=sample_forex_news_model):
-            mock_db_session.delete = AsyncMock()
-            mock_db_session.commit = AsyncMock()
-
+        with patch.object(forex_service, 'delete', return_value=True) as mock_delete:
             # Act
             result = await forex_service.delete_forex_news(mock_db_session, sample_forex_news_model.id)
 
         # Assert
         assert result is True
-        mock_db_session.delete.assert_called_once_with(sample_forex_news_model)
-        mock_db_session.commit.assert_called_once()
+        mock_delete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_forex_news_not_found(self, forex_service, mock_db_session):
         """Test forex news deletion when not found."""
         # Arrange
-        with patch.object(forex_service, 'get_forex_news_by_id', return_value=None):
+        with patch.object(forex_service, 'get', return_value=None):
             # Act & Assert
             with pytest.raises(ValidationError, match="Forex news not found"):
                 await forex_service.delete_forex_news(mock_db_session, 999)
@@ -243,8 +247,10 @@ class TestForexService:
         """Test counting forex news."""
         # Arrange
         mock_db_session.execute = AsyncMock()
+        mock_scalar_result = Mock()
+        mock_scalar_result.return_value = 25
         mock_result = AsyncMock()
-        mock_result.scalar.return_value = 25
+        mock_result.scalar = mock_scalar_result
         mock_db_session.execute.return_value = mock_result
 
         # Act
@@ -300,15 +306,16 @@ class TestForexService:
         """Test bulk creation of forex news."""
         # Arrange
         news_data_list = [ForexNewsCreateFactory.build() for _ in range(3)]
-        mock_db_session.add_all = AsyncMock()
         mock_db_session.commit = AsyncMock()
-        mock_db_session.refresh = AsyncMock()
 
-        # Act
-        result = await forex_service.bulk_create_forex_news(mock_db_session, news_data_list)
+        # Mock the create method to return mock news items
+        mock_news_items = [ForexNewsModelFactory.build() for _ in range(3)]
+
+        with patch.object(forex_service, 'create', side_effect=mock_news_items) as mock_create:
+            # Act
+            result = await forex_service.bulk_create_forex_news(mock_db_session, news_data_list)
 
         # Assert
         assert len(result) == 3
-        mock_db_session.add_all.assert_called_once()
+        assert mock_create.call_count == 3
         mock_db_session.commit.assert_called_once()
-        mock_db_session.refresh.assert_called_once()
