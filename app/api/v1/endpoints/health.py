@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
-from app.database.connection import get_db
+from app.database.connection import get_database
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -31,7 +31,7 @@ async def health_check() -> Dict[str, Any]:
 
 
 @router.get("/health/detailed", tags=["health"])
-async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def detailed_health_check(db: AsyncSession = Depends(get_database)) -> Dict[str, Any]:
     """
     Detailed health check including database connectivity.
 
@@ -118,7 +118,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> Dict[str,
 
 
 @router.get("/health/ready", tags=["health"])
-async def readiness_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def readiness_check(db: AsyncSession = Depends(get_database)) -> Dict[str, Any]:
     """
     Kubernetes readiness probe endpoint.
 

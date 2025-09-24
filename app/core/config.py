@@ -96,6 +96,17 @@ class LoggingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LOG_")
 
 
+class CORSSettings(BaseSettings):
+    """CORS configuration."""
+
+    origins: list[str] = Field(default=["*"], description="Allowed origins")
+    allow_credentials: bool = Field(default=True, description="Allow credentials")
+    allow_methods: list[str] = Field(default=["*"], description="Allowed methods")
+    allow_headers: list[str] = Field(default=["*"], description="Allowed headers")
+
+    model_config = SettingsConfigDict(env_prefix="CORS_")
+
+
 class ServerSettings(BaseSettings):
     """Server configuration."""
 
@@ -127,6 +138,7 @@ class Settings(BaseSettings):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
+    cors: CORSSettings = Field(default_factory=CORSSettings)
 
     # Convenience properties
     @property
