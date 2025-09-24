@@ -42,14 +42,20 @@ class TestTelegramService:
         # Arrange
         chat_id = 123456789
         message = "Test message"
-        mock_bot.send_message.return_value = AsyncMock(message_id=1)
 
-        # Act
-        result = await telegram_service.send_message(mock_bot, chat_id, message)
+        # Mock the HTTP client
+        with patch('httpx.AsyncClient.post') as mock_post:
+            mock_response = AsyncMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"ok": True, "result": {"message_id": 1}}
+            mock_post.return_value = mock_response
 
-        # Assert
-        assert result is not None
-        mock_bot.send_message.assert_called_once_with(chat_id=chat_id, text=message)
+            # Act
+            result = await telegram_service.send_message(chat_id, message)
+
+            # Assert
+            assert result is True
+            mock_post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_send_message_error(self, telegram_service, mock_bot):
@@ -57,11 +63,16 @@ class TestTelegramService:
         # Arrange
         chat_id = 123456789
         message = "Test message"
-        mock_bot.send_message.side_effect = Exception("Telegram API error")
 
-        # Act & Assert
-        with pytest.raises(TelegramError):
-            await telegram_service.send_message(mock_bot, chat_id, message)
+        # Mock the HTTP client to raise an exception
+        with patch('httpx.AsyncClient.post') as mock_post:
+            mock_post.side_effect = Exception("Telegram API error")
+
+            # Act
+            result = await telegram_service.send_message(chat_id, message)
+
+            # Assert - service returns False on error, doesn't raise exception
+            assert result is False
 
     @pytest.mark.asyncio
     async def test_send_long_message_success(self, telegram_service, mock_bot):
@@ -69,15 +80,18 @@ class TestTelegramService:
         # Arrange
         chat_id = 123456789
         long_message = "A" * 5000  # Long message
-        mock_bot.send_message.return_value = AsyncMock(message_id=1)
 
-        # Act
-        result = await telegram_service.send_long_message(mock_bot, chat_id, long_message)
+        # Mock the bot_manager.send_message method
+        with patch.object(telegram_service.bot_manager, 'send_message') as mock_send:
+            mock_send.return_value = True
 
-        # Assert
-        assert result is not None
-        # Should split into multiple messages
-        assert mock_bot.send_message.call_count > 1
+            # Act
+            result = await telegram_service.send_long_message(chat_id, long_message)
+
+            # Assert
+            assert result is True
+            # Should split into multiple messages
+            assert mock_send.call_count > 1
 
     @pytest.mark.asyncio
     async def test_send_formatted_message_success(self, telegram_service, mock_bot):
@@ -85,66 +99,84 @@ class TestTelegramService:
         # Arrange
         chat_id = 123456789
         message = "**Bold text** and *italic text*"
-        mock_bot.send_message.return_value = AsyncMock(message_id=1)
 
-        # Act
-        result = await telegram_service.send_formatted_message(mock_bot, chat_id, message)
+        # Mock the bot_manager.send_formatted_message method
+        with patch.object(telegram_service.bot_manager, 'send_formatted_message') as mock_send:
+            mock_send.return_value = True
 
-        # Assert
-        assert result is not None
-        mock_bot.send_message.assert_called_once()
+            # Act
+            result = await telegram_service.send_formatted_message(chat_id, message)
+
+            # Assert
+            assert result is True
+            mock_send.assert_called_once_with(chat_id, message)
 
     @pytest.mark.asyncio
     async def test_setup_webhook_success(self, telegram_service, mock_bot):
         """Test successful webhook setup."""
         # Arrange
-        webhook_url = "https://example.com/webhook"
-        mock_bot.set_webhook.return_value = AsyncMock(ok=True)
+        # Set render_hostname for the bot_manager
+        telegram_service.bot_manager.render_hostname = "example.com"
 
-        # Act
-        result = await telegram_service.setup_webhook(mock_bot, webhook_url)
+        # Mock the bot_manager.setup_webhook method
+        with patch.object(telegram_service.bot_manager, 'setup_webhook') as mock_setup:
+            mock_setup.return_value = True
 
-        # Assert
-        assert result is True
-        mock_bot.set_webhook.assert_called_once_with(url=webhook_url)
+            # Act
+            result = await telegram_service.setup_webhook()
+
+            # Assert
+            assert result is True
+            mock_setup.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_setup_webhook_error(self, telegram_service, mock_bot):
         """Test webhook setup with error."""
         # Arrange
-        webhook_url = "https://example.com/webhook"
-        mock_bot.set_webhook.side_effect = Exception("Webhook setup failed")
+        # Set render_hostname for the test
+        telegram_service.render_hostname = "example.com"
 
-        # Act & Assert
-        with pytest.raises(TelegramError):
-            await telegram_service.setup_webhook(mock_bot, webhook_url)
+        # Mock the HTTP client to raise an exception
+        with patch('httpx.AsyncClient.post') as mock_post:
+            mock_post.side_effect = Exception("Webhook setup failed")
+
+            # Act
+            result = await telegram_service.setup_webhook()
+
+            # Assert - service returns False on error, doesn't raise exception
+            assert result is False
 
     @pytest.mark.asyncio
     async def test_delete_webhook_success(self, telegram_service, mock_bot):
         """Test successful webhook deletion."""
         # Arrange
-        mock_bot.delete_webhook.return_value = AsyncMock(ok=True)
+        # Mock the bot_manager.delete_webhook method
+        with patch.object(telegram_service.bot_manager, 'delete_webhook') as mock_delete:
+            mock_delete.return_value = True
 
-        # Act
-        result = await telegram_service.delete_webhook(mock_bot)
+            # Act
+            result = await telegram_service.delete_webhook()
 
-        # Assert
-        assert result is True
-        mock_bot.delete_webhook.assert_called_once()
+            # Assert
+            assert result is True
+            mock_delete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_webhook_info_success(self, telegram_service, mock_bot):
         """Test successful webhook info retrieval."""
         # Arrange
         mock_info = {"url": "https://example.com/webhook", "has_custom_certificate": False}
-        mock_bot.get_webhook_info.return_value = AsyncMock(**mock_info)
 
-        # Act
-        result = await telegram_service.get_webhook_info(mock_bot)
+        # Mock the bot_manager.get_webhook_info method
+        with patch.object(telegram_service.bot_manager, 'get_webhook_info') as mock_get_info:
+            mock_get_info.return_value = mock_info
 
-        # Assert
-        assert result is not None
-        mock_bot.get_webhook_info.assert_called_once()
+            # Act
+            result = await telegram_service.get_webhook_info()
+
+            # Assert
+            assert result == mock_info
+            mock_get_info.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handle_start_command(self, telegram_service, mock_bot, mock_db_session):

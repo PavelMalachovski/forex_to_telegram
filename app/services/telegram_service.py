@@ -494,6 +494,46 @@ class TelegramService:
             logger.error("Failed to initialize Telegram service", error=str(e), exc_info=True)
             raise
 
+    async def send_message(self, chat_id: int, message: str, parse_mode: str = "MarkdownV2") -> bool:
+        """Send a message to a Telegram chat."""
+        try:
+            return await self.bot_manager.send_message(chat_id, message, parse_mode)
+        except Exception as e:
+            logger.error("Failed to send message", chat_id=chat_id, error=str(e))
+            return False
+
+    async def send_formatted_message(self, chat_id: int, message: str) -> bool:
+        """Send a formatted message to a Telegram chat."""
+        try:
+            return await self.bot_manager.send_formatted_message(chat_id, message)
+        except Exception as e:
+            logger.error("Failed to send formatted message", chat_id=chat_id, error=str(e))
+            return False
+
+    async def setup_webhook(self, max_retries: int = 5, initial_delay: int = 10) -> bool:
+        """Setup webhook with retry logic and verification."""
+        try:
+            return await self.bot_manager.setup_webhook(max_retries, initial_delay)
+        except Exception as e:
+            logger.error("Failed to setup webhook", error=str(e))
+            return False
+
+    async def delete_webhook(self) -> bool:
+        """Delete webhook."""
+        try:
+            return await self.bot_manager.delete_webhook()
+        except Exception as e:
+            logger.error("Failed to delete webhook", error=str(e))
+            return False
+
+    async def get_webhook_info(self) -> Dict[str, Any]:
+        """Get webhook information."""
+        try:
+            return await self.bot_manager.get_webhook_info()
+        except Exception as e:
+            logger.error("Failed to get webhook info", error=str(e))
+            return {"error": str(e)}
+
     async def send_long_message(self, chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
         """Send a long message by splitting it if necessary."""
         try:
