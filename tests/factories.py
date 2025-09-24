@@ -68,7 +68,29 @@ class UserModelFactory(factory.Factory):
     language_code = fuzzy.FuzzyChoice(["en", "cs", "de", "fr", "es"])
     is_bot = False
     is_premium = fuzzy.FuzzyChoice([True, False])
-    preferences = factory.SubFactory(UserPreferencesFactory)
+
+    # Individual preference fields (not a nested preferences object)
+    preferred_currencies = factory.List([
+        fuzzy.FuzzyChoice(["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"])
+        for _ in range(2)
+    ])
+    impact_levels = factory.List([
+        fuzzy.FuzzyChoice(["high", "medium", "low"])
+        for _ in range(2)
+    ])
+    analysis_required = fuzzy.FuzzyChoice([True, False])
+    digest_time = factory.LazyFunction(lambda: "08:00:00")
+    timezone = fuzzy.FuzzyChoice(["Europe/Prague", "America/New_York", "Asia/Tokyo"])
+    notifications_enabled = fuzzy.FuzzyChoice([True, False])
+    notification_minutes = fuzzy.FuzzyChoice([15, 30, 60])
+    notification_impact_levels = factory.List([
+        fuzzy.FuzzyChoice(["high", "medium", "low"])
+        for _ in range(1)
+    ])
+    charts_enabled = fuzzy.FuzzyChoice([True, False])
+    chart_type = fuzzy.FuzzyChoice(["single", "multi", "none"])
+    chart_window_hours = fuzzy.FuzzyInteger(1, 6)
+
     created_at = factory.LazyFunction(datetime.utcnow)
     updated_at = factory.LazyFunction(datetime.utcnow)
 
@@ -96,7 +118,7 @@ class ForexNewsModelFactory(factory.Factory):
     class Meta:
         model = ForexNewsModel
 
-    date = factory.LazyFunction(lambda: datetime.utcnow().date())
+    date = factory.LazyFunction(lambda: datetime.utcnow())
     time = factory.LazyFunction(lambda: "14:30")
     currency = fuzzy.FuzzyChoice(["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"])
     event = factory.Faker("sentence", nb_words=3)
@@ -105,6 +127,9 @@ class ForexNewsModelFactory(factory.Factory):
     previous = factory.Faker("numerify", text="###.#")
     impact_level = fuzzy.FuzzyChoice(["high", "medium", "low"])
     analysis = factory.Faker("text", max_nb_chars=200)
+    source = factory.Faker("company")
+    country = factory.Faker("country")
+    event_type = fuzzy.FuzzyChoice(["economic", "political", "central_bank"])
     created_at = factory.LazyFunction(datetime.utcnow)
     updated_at = factory.LazyFunction(datetime.utcnow)
 

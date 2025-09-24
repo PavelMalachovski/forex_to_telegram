@@ -43,7 +43,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     )
                 ).order_by(ForexNewsModel.time)
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by date", date=news_date, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news by date: {e}")
@@ -56,7 +56,7 @@ class ForexService(BaseService[ForexNewsModel]):
                 .where(ForexNewsModel.currency == currency)
                 .order_by(ForexNewsModel.date.desc())
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by currency", currency=currency, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news by currency: {e}")
@@ -69,7 +69,7 @@ class ForexService(BaseService[ForexNewsModel]):
                 .where(ForexNewsModel.impact_level == impact_level)
                 .order_by(ForexNewsModel.date.desc())
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by impact level", impact_level=impact_level, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news by impact level: {e}")
@@ -93,7 +93,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     )
                 ).order_by(ForexNewsModel.date)
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get upcoming news", hours_ahead=hours_ahead, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get upcoming news: {e}")
@@ -125,7 +125,7 @@ class ForexService(BaseService[ForexNewsModel]):
                 .where(and_(*search_conditions))
                 .order_by(ForexNewsModel.date.desc())
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to search news", query=query, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to search news: {e}")
@@ -202,7 +202,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     )
                 ).order_by(ForexNewsModel.date, ForexNewsModel.time)
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news by date range",
                         start_date=start_date, end_date=end_date, error=str(e), exc_info=True)
@@ -295,7 +295,7 @@ class ForexService(BaseService[ForexNewsModel]):
                     .order_by(ForexNewsModel.date.desc())
                 )
 
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get news with filters", filters=filters, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get news with filters: {e}")

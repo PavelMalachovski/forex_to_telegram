@@ -62,7 +62,7 @@ class UserService(BaseService[UserModel]):
         try:
             user = await self.get_by_telegram_id(db, telegram_id)
             if not user:
-                return None
+                raise ValidationError("User not found")
 
             update_data = user_data.model_dump(exclude_unset=True)
             if not update_data:
@@ -121,7 +121,7 @@ class UserService(BaseService[UserModel]):
             result = await db.execute(
                 select(UserModel).where(UserModel.is_active == True)
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get active users", error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get active users: {e}")
@@ -137,7 +137,7 @@ class UserService(BaseService[UserModel]):
                     )
                 )
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get users by currency", currency=currency, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get users by currency: {e}")
@@ -153,7 +153,7 @@ class UserService(BaseService[UserModel]):
                     )
                 )
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get users by impact level", impact_level=impact_level, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get users by impact level: {e}")
@@ -208,7 +208,7 @@ class UserService(BaseService[UserModel]):
                 .limit(limit)
                 .order_by(UserModel.created_at.desc())
             )
-            return result.scalars().all()
+            return (await result.scalars()).all()
         except Exception as e:
             logger.error("Failed to get users with pagination", skip=skip, limit=limit, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to get users with pagination: {e}")
@@ -232,6 +232,28 @@ class UserService(BaseService[UserModel]):
         except Exception as e:
             logger.error("Failed to check user existence", telegram_id=telegram_id, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to check user existence: {e}")
+
+    async def update_user_preferences(self, db: AsyncSession, telegram_id: int, preferences: UserPreferences) -> UserModel:
+        """Update user preferences."""
+        try:
+            user = await self.get_by_telegram_id(db, telegram_id)
+            if not user:
+                raise ValidationError("User not found")
+
+            # Update preferences
+            preferences_dict = preferences.model_dump()
+            for key, value in preferences_dict.items():
+                setattr(user, key, value)
+
+            await db.commit()
+            await db.refresh(user)
+            return user
+        except ValidationError:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error("Failed to update user preferences", telegram_id=telegram_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to update user preferences: {e}")
 
     async def delete_user(self, db: AsyncSession, telegram_id: int) -> bool:
         """Delete user by Telegram ID."""

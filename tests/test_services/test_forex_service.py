@@ -1,7 +1,7 @@
 """Tests for ForexService."""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from datetime import date, time
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -283,7 +283,9 @@ class TestForexService:
 
         mock_db_session.execute = AsyncMock()
         mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = news_items
+        mock_scalars = Mock()
+        mock_scalars.all.return_value = news_items
+        mock_result.scalars.return_value = mock_scalars
         mock_db_session.execute.return_value = mock_result
 
         # Act
