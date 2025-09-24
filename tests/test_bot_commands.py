@@ -35,7 +35,7 @@ def test_bot_initialization():
         print(f"   Token: {config.telegram_bot_token[:10]}...")
     else:
         print("   ❌ TELEGRAM_BOT_TOKEN not set")
-        return False
+        assert False, "TELEGRAM_BOT_TOKEN not set"
 
     # Test 2: Initialize bot manager
     print("\n2. Initializing bot manager...")
@@ -45,7 +45,7 @@ def test_bot_initialization():
         print("   ✅ Bot initialized successfully")
     else:
         print("   ❌ Bot initialization failed")
-        return False
+        assert False, "Bot initialization failed"
 
     # Test 3: Test bot connection
     print("\n3. Testing bot connection...")
@@ -58,10 +58,10 @@ def test_bot_initialization():
             print(f"   Bot Name: {bot_info.get('first_name', 'N/A')}")
         else:
             print("   ❌ Bot connection failed")
-            return False
+            assert False, "Bot connection failed"
     except Exception as e:
         print(f"   ❌ Bot connection error: {e}")
-        return False
+        assert False, f"Bot connection error: {e}"
 
     # Test 4: Check webhook status
     print("\n4. Checking webhook status...")
@@ -114,11 +114,10 @@ def test_bot_initialization():
 
     except Exception as e:
         print(f"   ❌ Command handler registration error: {e}")
-        return False
+        assert False, f"Command handler registration error: {e}"
 
     print("\n" + "=" * 50)
     print("✅ Bot initialization test completed successfully!")
-    return True
 
 def test_webhook_processing():
     """Test webhook processing with a mock message."""
@@ -128,7 +127,7 @@ def test_webhook_processing():
 
     if not bot_manager.bot:
         print("❌ Cannot test webhook processing: Bot not initialized")
-        return False
+        assert False, "Cannot test webhook processing: Bot not initialized"
 
     print("\nTesting webhook processing...")
     print("=" * 50)
@@ -171,11 +170,10 @@ def test_webhook_processing():
 
     except Exception as e:
         print(f"   ❌ Message processing error: {e}")
-        return False
+        assert False, f"Message processing error: {e}"
 
     print("\n" + "=" * 50)
     print("✅ Webhook processing test completed!")
-    return True
 
 if __name__ == "__main__":
     print("🤖 Bot Command Test Suite")

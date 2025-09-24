@@ -54,7 +54,7 @@ def test_calendar_generation():
             print(f"   ✅ {year}-{month:02d}: Success")
         except Exception as e:
             print(f"   ❌ {year}-{month:02d}: Failed - {e}")
-            return False
+            assert False, f"Calendar generation failed for {year}-{month:02d}: {e}"
 
     # Test 3: Test with different timezones
     print("\n3. Testing different timezones...")
@@ -66,11 +66,10 @@ def test_calendar_generation():
             print(f"   ✅ {tz}: Success")
         except Exception as e:
             print(f"   ❌ {tz}: Failed - {e}")
-            return False
+            assert False, f"Calendar generation failed for timezone {tz}: {e}"
 
     print("\n" + "=" * 50)
     print("✅ Calendar generation test completed successfully!")
-    return True
 
 if __name__ == "__main__":
     print("📅 Calendar Function Test")

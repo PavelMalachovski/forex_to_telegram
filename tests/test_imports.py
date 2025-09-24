@@ -22,18 +22,17 @@ def test_imports():
         from bot.scraper import ForexNewsScraper, ChatGPTAnalyzer
         print("✅ bot.scraper imported successfully")
 
-        from bot.utils import setup_logging
+        from bot.utils import escape_markdown_v2, send_long_message
         print("✅ bot.utils imported successfully")
 
         print("\n✅ All imports successful!")
-        return True
 
     except ImportError as e:
         print(f"❌ Import error: {e}")
-        return False
+        assert False, f"Import error: {e}"
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        return False
+        assert False, f"Unexpected error: {e}"
 
 if __name__ == "__main__":
     test_imports()
