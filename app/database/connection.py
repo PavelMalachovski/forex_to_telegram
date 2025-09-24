@@ -93,5 +93,5 @@ db_manager = DatabaseManager()
 
 async def get_database() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session."""
-    async with db_manager.get_session_async() as session:
+    async for session in db_manager.get_session_async():
         yield session

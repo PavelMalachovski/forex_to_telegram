@@ -1,9 +1,8 @@
 """Pytest configuration and shared fixtures for the modern FastAPI application."""
 
-import asyncio
 import pytest
 import pytest_asyncio
-from typing import AsyncGenerator, Generator
+from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -14,15 +13,7 @@ from app.database.models import Base
 from app.core.config import settings
 
 
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def test_db_engine():
     """Create a test database engine."""
     # Use in-memory SQLite for testing

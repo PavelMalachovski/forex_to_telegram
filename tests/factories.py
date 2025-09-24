@@ -101,7 +101,7 @@ class ForexNewsCreateFactory(factory.Factory):
     class Meta:
         model = ForexNewsCreate
 
-    date = factory.LazyFunction(lambda: datetime.utcnow().date())
+    date = factory.LazyFunction(lambda: datetime.utcnow())
     time = factory.LazyFunction(lambda: "14:30")
     currency = fuzzy.FuzzyChoice(["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"])
     event = factory.Faker("sentence", nb_words=3)
@@ -118,6 +118,7 @@ class ForexNewsModelFactory(factory.Factory):
     class Meta:
         model = ForexNewsModel
 
+    id = factory.Sequence(lambda n: n + 1)
     date = factory.LazyFunction(lambda: datetime.utcnow())
     time = factory.LazyFunction(lambda: "14:30")
     currency = fuzzy.FuzzyChoice(["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"])

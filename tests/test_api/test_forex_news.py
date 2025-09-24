@@ -21,28 +21,25 @@ def sample_forex_news_model():
     return ForexNewsModelFactory.build()
 
 
-class TestForexNewsAPI:
-    """Test cases for forex news API endpoints."""
+@pytest.mark.asyncio
+async def test_create_forex_news_success(test_client: AsyncClient, sample_forex_news_data):
+    """Test successful forex news creation via API."""
+    # Arrange
+    with patch('app.api.v1.endpoints.forex_news.forex_service') as mock_service:
+        mock_service.create_forex_news.return_value = ForexNewsModelFactory.build()
 
-    @pytest.mark.asyncio
-    async def test_create_forex_news_success(self, test_client: AsyncClient, sample_forex_news_data):
-        """Test successful forex news creation via API."""
-        # Arrange
-        with patch('app.api.v1.endpoints.forex_news.forex_service') as mock_service:
-            mock_service.create_forex_news.return_value = ForexNewsModelFactory.build()
+        # Act
+        response = await test_client.post(
+            "/api/v1/forex-news/",
+            json=sample_forex_news_data.model_dump()
+        )
 
-            # Act
-            response = await test_client.post(
-                "/api/v1/forex-news/",
-                json=sample_forex_news_data.model_dump()
-            )
-
-        # Assert
-        assert response.status_code == 201
-        data = response.json()
-        assert "id" in data
-        assert data["currency"] == sample_forex_news_data.currency
-        assert data["event"] == sample_forex_news_data.event
+    # Assert
+    assert response.status_code == 201
+    data = response.json()
+    assert "id" in data
+    assert data["currency"] == sample_forex_news_data.currency
+    assert data["event"] == sample_forex_news_data.event
 
     @pytest.mark.asyncio
     async def test_create_forex_news_validation_error(self, test_client: AsyncClient):

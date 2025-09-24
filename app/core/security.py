@@ -210,7 +210,8 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Content-Security-Policy"] = "default-src 'self'"
 
     # Remove server header
-    response.headers.pop("Server", None)
+    if "Server" in response.headers:
+        del response.headers["Server"]
 
     return response
 
