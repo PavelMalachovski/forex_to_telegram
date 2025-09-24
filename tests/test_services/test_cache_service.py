@@ -9,36 +9,39 @@ from app.services.cache_service import CacheService
 from app.core.exceptions import CacheError
 
 
+@pytest.fixture
+def cache_service():
+    """Create cache service instance."""
+    return CacheService()
+
+
+@pytest.fixture
+def mock_redis():
+    """Create mock Redis client."""
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+    mock_redis.set.return_value = True
+    mock_redis.delete.return_value = True
+    mock_redis.exists.return_value = False
+    mock_redis.ping.return_value = True
+    mock_redis.close.return_value = None
+    return mock_redis
+
+
 class TestCacheService:
     """Test cases for CacheService."""
-
-    @pytest_asyncio.fixture
-    async def cache_service(self):
-        """Create cache service instance."""
-        return CacheService()
-
-    @pytest_asyncio.fixture
-    async def mock_redis(self):
-        """Create mock Redis client."""
-        mock_redis = AsyncMock()
-        mock_redis.get.return_value = None
-        mock_redis.set.return_value = True
-        mock_redis.delete.return_value = True
-        mock_redis.exists.return_value = False
-        mock_redis.ping.return_value = True
-        mock_redis.close.return_value = None
-        return mock_redis
 
     @pytest.mark.asyncio
     async def test_initialize_success(self, cache_service, mock_redis):
         """Test successful cache service initialization."""
         # Arrange
-        with patch('redis.asyncio.from_url', return_value=mock_redis):
+        with patch('redis.asyncio.ConnectionPool.from_url', return_value=AsyncMock()), \
+             patch('redis.asyncio.Redis', return_value=mock_redis):
             # Act
             await cache_service.initialize()
 
             # Assert
-            assert cache_service.redis is not None
+            assert cache_service.redis_client is not None
             mock_redis.ping.assert_called_once()
 
     @pytest.mark.asyncio

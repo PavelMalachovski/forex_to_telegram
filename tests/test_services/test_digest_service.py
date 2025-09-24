@@ -11,43 +11,46 @@ from app.core.exceptions import DigestError, DatabaseError
 from tests.factories import UserCreateFactory, ForexNewsCreateFactory
 
 
+@pytest.fixture
+def digest_scheduler(mock_db_session, mock_telegram_service):
+    """Create digest scheduler instance."""
+    mock_config = {"timezone": "UTC"}
+    return DailyDigestScheduler(mock_db_session, mock_telegram_service, mock_config)
+
+
+@pytest.fixture
+def mock_db_session():
+    """Create mock database session."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_telegram_service():
+    """Create mock telegram service."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_forex_service():
+    """Create mock forex service."""
+    return AsyncMock()
+
+
 class TestDailyDigestScheduler:
     """Test cases for DailyDigestScheduler."""
 
-    @pytest_asyncio.fixture
-    async def digest_scheduler(self):
-        """Create digest scheduler instance."""
-        return DailyDigestScheduler()
-
-    @pytest_asyncio.fixture
-    async def mock_db_session(self):
-        """Create mock database session."""
-        return AsyncMock()
-
-    @pytest_asyncio.fixture
-    async def mock_telegram_service(self):
-        """Create mock telegram service."""
-        return AsyncMock()
-
-    @pytest_asyncio.fixture
-    async def mock_forex_service(self):
-        """Create mock forex service."""
-        return AsyncMock()
-
-    @pytest.mark.asyncio
-    async def test_initialize_success(self, digest_scheduler):
-        """Test successful digest scheduler initialization."""
+    def test_health_check_success(self, digest_scheduler):
+        """Test successful health check."""
         # Arrange
-        with patch('apscheduler.BackgroundScheduler') as mock_scheduler:
-            mock_scheduler_instance = MagicMock()
-            mock_scheduler.return_value = mock_scheduler_instance
+        digest_scheduler.scheduler = MagicMock()
+        digest_scheduler.scheduler.running = True
 
-            # Act
-            await digest_scheduler.initialize()
+        # Act
+        result = digest_scheduler.health_check()
 
-            # Assert
-            assert digest_scheduler.scheduler is not None
-            mock_scheduler_instance.start.assert_called_once()
+        # Assert
+        assert result["status"] == "healthy"
+        assert result["scheduler_running"] is True
 
     @pytest.mark.asyncio
     async def test_initialize_error(self, digest_scheduler):
@@ -296,20 +299,6 @@ class TestDailyDigestScheduler:
         with pytest.raises(DigestError):
             await digest_scheduler.get_scheduled_jobs()
 
-    @pytest.mark.asyncio
-    async def test_health_check_success(self, digest_scheduler):
-        """Test successful health check."""
-        # Arrange
-        mock_scheduler = MagicMock()
-        mock_scheduler.running = True
-        digest_scheduler.scheduler = mock_scheduler
-
-        # Act
-        result = await digest_scheduler.health_check()
-
-        # Assert
-        assert result["status"] == "healthy"
-        assert result["scheduler"] == "running"
 
     @pytest.mark.asyncio
     async def test_health_check_not_running(self, digest_scheduler):

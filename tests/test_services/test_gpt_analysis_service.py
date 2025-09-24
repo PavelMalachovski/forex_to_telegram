@@ -10,23 +10,25 @@ from app.core.exceptions import AnalysisError, ExternalAPIError
 from tests.factories import ForexNewsCreateFactory
 
 
+@pytest.fixture
+def gpt_service():
+    """Create GPT analysis service instance."""
+    return GPTAnalysisService()
+
+
+@pytest.fixture
+def mock_openai_client():
+    """Create mock OpenAI client."""
+    mock_client = AsyncMock()
+    mock_response = AsyncMock()
+    mock_response.choices = [AsyncMock()]
+    mock_response.choices[0].message.content = "This is a test analysis."
+    mock_client.chat.completions.create.return_value = mock_response
+    return mock_client
+
+
 class TestGPTAnalysisService:
     """Test cases for GPTAnalysisService."""
-
-    @pytest_asyncio.fixture
-    async def gpt_service(self):
-        """Create GPT analysis service instance."""
-        return GPTAnalysisService()
-
-    @pytest_asyncio.fixture
-    async def mock_openai_client(self):
-        """Create mock OpenAI client."""
-        mock_client = AsyncMock()
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = "This is a test analysis."
-        mock_client.chat.completions.create.return_value = mock_response
-        return mock_client
 
     @pytest.mark.asyncio
     async def test_initialize_success(self, gpt_service):

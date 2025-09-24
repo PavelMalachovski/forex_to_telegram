@@ -10,28 +10,31 @@ from app.core.exceptions import TelegramError, ValidationError
 from tests.factories import UserCreateFactory
 
 
+@pytest.fixture
+def telegram_service():
+    """Create telegram service instance."""
+    return TelegramService()
+
+
+@pytest.fixture
+def mock_bot():
+    """Create mock telegram bot."""
+    mock_bot = AsyncMock()
+    mock_bot.send_message.return_value = AsyncMock()
+    mock_bot.get_webhook_info.return_value = AsyncMock()
+    mock_bot.set_webhook.return_value = AsyncMock()
+    mock_bot.delete_webhook.return_value = AsyncMock()
+    return mock_bot
+
+
+@pytest.fixture
+def mock_db_session():
+    """Create mock database session."""
+    return AsyncMock()
+
+
 class TestTelegramService:
     """Test cases for TelegramService."""
-
-    @pytest_asyncio.fixture
-    async def telegram_service(self):
-        """Create telegram service instance."""
-        return TelegramService()
-
-    @pytest_asyncio.fixture
-    async def mock_bot(self):
-        """Create mock telegram bot."""
-        mock_bot = AsyncMock()
-        mock_bot.send_message.return_value = AsyncMock()
-        mock_bot.get_webhook_info.return_value = AsyncMock()
-        mock_bot.set_webhook.return_value = AsyncMock()
-        mock_bot.delete_webhook.return_value = AsyncMock()
-        return mock_bot
-
-    @pytest_asyncio.fixture
-    async def mock_db_session(self):
-        """Create mock database session."""
-        return AsyncMock()
 
     @pytest.mark.asyncio
     async def test_send_message_success(self, telegram_service, mock_bot):
