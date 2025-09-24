@@ -1,527 +1,432 @@
-# 📊 Forex News & Chart Visualization Bot
+# Forex News Bot v2.0 - Modern FastAPI Implementation
 
-**A comprehensive Telegram bot for personalized forex news, real-time notifications, and advanced chart analysis. Optional pair analysis via GPT is available with minimal token usage.**
+A modern, scalable forex news bot built with FastAPI, async/await, and modern Python practices.
 
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
-[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)](https://postgresql.org)
-[![Telegram](https://img.shields.io/badge/Platform-Telegram-blue.svg)](https://telegram.org)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+## 🚀 Features
 
-## 🚀 **Key Features**
+### Core Features
+- **Real-time Forex News**: Automated scraping and analysis of forex news events
+- **Telegram Bot Integration**: Interactive bot with commands and notifications
+- **Advanced Chart Generation**: Professional forex charts with multiple timeframes
+- **Smart Notifications**: Personalized notifications based on user preferences
+- **Multi-currency Support**: Support for major forex pairs and cryptocurrencies
 
-### 📈 **Advanced Chart Visualization**
-- **Interactive Chart Generation**: Professional TradingView-style charts
-- **Cross-Rate Analysis**: Compare any two currencies (EUR/USD, JPY/GBP, etc.)
-- **Asymmetric Time Windows**: Flexible pre/post event analysis
-  - `30m before → 3h after` - Focus on market reaction
-  - `3h before → 1h after` - Analyze market setup
-  - `2h before → 2h after` - Balanced analysis
-- **Real-Time Data**: Yahoo Finance integration with fallback mechanisms
-- **Event Impact Visualization**: Color-coded impact zones on charts
-- **Robust Fallback System**: Mock data generation when APIs fail
+### Modern Architecture
+- **FastAPI**: High-performance async web framework
+- **Async/Await**: Full async support throughout the application
+- **Pydantic Models**: Type-safe data validation and serialization
+- **SQLAlchemy 2.0**: Modern async ORM with type hints
+- **Redis Caching**: High-performance caching layer
+- **Celery**: Background task processing
+- **Docker**: Containerized deployment
+- **Structured Logging**: Comprehensive logging with structlog
 
-### 📰 **Smart News Delivery**
-- **Real-Time Scraping**: Economic news from ForexFactory
-- **Clean Output**: News messages do not include AI text and are not stored with new AI analysis
-- **Personalized Filtering**: Currency and impact preferences
-- **Custom Notifications**: 15/30/60 minutes before events
-- **Daily Digest**: Automated delivery at your chosen time
+### API Features
+- **RESTful API**: Complete REST API with OpenAPI documentation
+- **Webhook Support**: Telegram webhook integration
+- **Health Checks**: Comprehensive health monitoring
+- **Rate Limiting**: Built-in rate limiting and throttling
+- **Authentication**: JWT-based authentication
+- **Monitoring**: Prometheus metrics and observability
 
-### ⚙️ **User Management**
-- **Individual Preferences**: Database-stored user settings
-- **Multi-Currency Support**: 16+ major currencies
-- **Impact Level Filtering**: High/Medium/Low events
-- **Timezone Support**: Global timezone conversion
-- **Interactive Settings**: Easy preference management
+## 📋 Prerequisites
 
-## 📊 **Chart Features Showcase**
-
-### **Single Currency Charts**
-```
-📊 EUR News Event: CPI Flash Estimate y/y
-2025-08-01
-
-Time window: ±2h around event
-Impact level: High (red shading)
-Price change: +0.0015 (+0.14%)
-```
-
-### **Cross-Rate Charts**
-```
-📈 JPY/USD Cross-Rate Chart
-2025-08-01
-
-Pair: JPY/USD
-Time window: 30m before → 3h after
-Accurate pricing: ~0.0067 (not 1.0000)
-Real market data with fallbacks
-```
-
-### **Time Window Options**
-- **Pre-Event Focus**: `3h before → 1h after`
-- **Post-Event Focus**: `30m before → 3h after`
-- **Balanced Analysis**: `2h before → 2h after`
-- **Quick Scalping**: `1h before → 30m after`
-
-## 🎯 **Quick Start**
-
-### **Prerequisites**
-- Python 3.8+
-- PostgreSQL database
+- Python 3.11+
+- Docker and Docker Compose
+- PostgreSQL 15+
+- Redis 7+
 - Telegram Bot Token
-- Chrome browser (for scraping)
 
-### **Installation**
+## 🛠️ Installation
+
+### Quick Start with Docker
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd forex_to_telegram
+   ```
+
+2. **Configure environment**
+   ```bash
+   cp env.example .env
+   # Edit .env with your configuration
+   ```
+
+3. **Deploy with Docker Compose**
+   ```bash
+   ./scripts/deploy.sh
+   ```
+
+### Manual Installation
+
+1. **Create virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements-modern.txt
+   ```
+
+3. **Set up database**
+   ```bash
+   # Start PostgreSQL and Redis
+   docker-compose -f docker-compose.modern.yml up -d postgres redis
+
+   # Run migrations
+   python scripts/migrate.py
+   ```
+
+4. **Start the application**
+   ```bash
+   uvicorn src.main:app --reload
+   ```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+Key configuration options in `.env`:
 
 ```bash
-# 1. Clone repository
-git clone <repository-url>
-cd forex_to_telegram
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=forex_bot
+DB_USER=forex_user
+DB_PASSWORD=your_password
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
 
-# 3. Set up environment
-cp .env.example .env
-# Edit .env with your credentials
-
-# 4. Initialize database
-python scripts/setup_with_timezone.py
-
-# 5. Run the bot
-python app.py
-```
-
-### **Environment Variables**
-```bash
-# Required
+# Telegram
 TELEGRAM_BOT_TOKEN=your_bot_token
-DATABASE_URL=postgresql://user:pass@host:port/db
-API_KEY=your_secure_api_key
+TELEGRAM_WEBHOOK_URL=https://yourdomain.com/api/v1/telegram/webhook
 
-# Optional (charts/data)
-ALPHA_VANTAGE_API_KEY=your_av_key
-WEBHOOK_URL=your_webhook_url
+# API Keys
+API_OPENAI_API_KEY=your_openai_key
+API_ALPHA_VANTAGE_KEY=your_alpha_vantage_key
 
-# Optional (GPT pair analysis via /gptanalysis)
-# Preferred variable name:
-OPENAI_API_KEY=your_openai_key
-# Backward-compatible fallback (if set, used when OPENAI_API_KEY is not set):
-CHATGPT_API_KEY=your_openai_key
-# Optional model tuning (with sensible defaults)
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_TEMPERATURE=0.25
-OPENAI_MAX_TOKENS=500
-# Toggle external GPT call on/off at runtime (local-only when false)
-OPENAI_ENABLED=true
-# Per user+symbol cooldown to control costs (seconds)
-OPENAI_RATE_LIMIT_SECONDS=15
-
-# Optional (data & charts)
-# Use Alpha Vantage as a fallback source (requires ALPHA_VANTAGE_API_KEY)
-ENABLE_ALPHA_VANTAGE=0
-# Try alternate Yahoo symbols (e.g., USDJPY=X → EURJPY=X)
-ENABLE_ALT_SYMBOLS=0
-# Allow synthetic mock data as last resort (useful for demos/tests)
-ALLOW_MOCK_DATA=0
-# Display timezone for charts and summaries
-DISPLAY_TIMEZONE=Europe/Prague
-# yfinance request pacing to avoid 429s
-YF_MIN_REQUEST_INTERVAL_SEC=3.0
-# Custom user agent / proxy for yfinance session
-YF_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36"
-YF_PROXY=
-# Persisted charts retention (days)
-CHART_RETENTION_DAYS=3
+# Security
+SECURITY_SECRET_KEY=your_secret_key_minimum_32_chars
 ```
 
-## 📋 **Bot Commands**
+### Service Configuration
 
-### 🤖 Forex News Bot — Command Guide
+The application uses Pydantic Settings for configuration management:
 
-**📌 Main Commands:**
-/start – Welcome & help menu
-/help – Show this guide
-/today – Today’s forex news
-/tomorrow – Tomorrow’s news
-/calendar – Pick a date from calendar
-/visualize – Charts of news events
-/settings – Configure preferences
-/gptanalysis – AI pair analysis
+- **Database Settings**: Connection pooling, timeouts, SSL
+- **Redis Settings**: Connection configuration and clustering
+- **Telegram Settings**: Bot token, webhook configuration
+- **API Settings**: External API keys and rate limiting
+- **Chart Settings**: Chart generation and caching
+- **Security Settings**: JWT tokens and encryption
+- **Logging Settings**: Log levels and formatting
 
-**✨ Key Features:**
-- 📊 Personalized news by currency & impact level
-- 💰 Currency filter (e.g., USD, EUR, JPY)
-- 📈 Impact selection (High / Medium / Low)
-- 🤖 AI analysis of currency pairs
-- ⏰ Daily digest at your chosen time
-- ⚙️ Full settings control
-- 📊 Charts for price vs news events
+## 📚 API Documentation
 
-**⚙️ Settings Menu Includes:**
-- Pick currencies you care about
-- Choose impact levels (High/Medium/Low)
-- Schedule daily digest
-- Quick /gptanalysis for any pair
+### Interactive Documentation
 
-**📊 Visualization Mode:**
-- Select currency & events
-- Generate price movement charts around news
-- Set your own time window for analysis
+Once the application is running, visit:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
-💡 Tip: Use /settings to customize everything for your trading style.
+### Key Endpoints
 
-## 🤖 **GPT Pair Analysis (/gptanalysis)**
+#### Users
+- `POST /api/v1/users/` - Create user
+- `GET /api/v1/users/{telegram_id}` - Get user
+- `PUT /api/v1/users/{telegram_id}` - Update user
+- `PUT /api/v1/users/{telegram_id}/preferences` - Update preferences
 
-- **Two-step selection**: 1) Choose base currency (e.g., USD) → 2) Choose quote currency (e.g., JPY)
-- **Human-readable output**: "Quick Overview" layout with Markdown for Telegram
-- **Local features pre-computed** (minimize tokens):
-  - Timeframe: last 1–2 days on 1H & 5m
-  - Price: current price and change vs previous session open
-  - Market structure: recent swing high/low, last BOS/CHOCH with timestamps
-  - Order blocks: last up/down candle before BOS (O/H/L/C, time)
-  - FVGs: compact ranges where price may react
-  - Liquidity zones: equal highs/lows, previous-day H/L, round numbers (00/50)
-  - Momentum: price change %, EMA20/EMA50 distance and slope (up/down/flat), ATR(14), ADR(5)
-- **Cost control**:
-  - Model: `gpt-4o-mini` (configurable via `OPENAI_MODEL`)
-  - Temperature: 0.2–0.3 (default `0.25`)
-  - Max tokens: ~400–600 (default `500`)
-  - Runtime toggle with `OPENAI_ENABLED`, per-user cooldown via `OPENAI_RATE_LIMIT_SECONDS`
-- **Privacy**: Only concise numeric summaries are sent to GPT. No data is stored in the DB from /gptanalysis.
+#### Forex News
+- `GET /api/v1/forex-news/` - Get news with filters
+- `POST /api/v1/forex-news/` - Create news
+- `GET /api/v1/forex-news/today/` - Get today's news
 
-## ⚙️ **User Settings**
+#### Charts
+- `POST /api/v1/charts/generate` - Generate chart
+- `POST /api/v1/charts/generate/image` - Generate chart image
+- `GET /api/v1/charts/currencies` - Get supported currencies
 
-### **Currency Preferences** 🌍
-**Major Currencies**: USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD
-**Additional**: CNY, INR, BRL, RUB, KRW, MXN, SGD, HKD
+#### Telegram
+- `POST /api/v1/telegram/webhook` - Telegram webhook
+- `GET /api/v1/telegram/webhook/info` - Webhook info
+- `POST /api/v1/telegram/webhook/set` - Set webhook
 
-### **Impact Levels** 📊
-- **🔴 High Impact** - Major market movers (NFP, FOMC, CPI)
-- **🟠 Medium Impact** - Moderate events (PMI, retail sales)
-- **🟡 Low Impact** - Minor announcements
+#### Notifications
+- `GET /api/v1/notifications/` - Get notifications
+- `POST /api/v1/notifications/` - Create notification
+- `GET /api/v1/notifications/pending/` - Get pending notifications
 
-### **Notification Settings** 🔔
-- **Timing**: 15, 30, or 60 minutes before events
-- **Impact Filter**: Choose which levels to get alerts for
-- **Smart Alerts**: Contextual notifications with event details
+## 🏗️ Architecture
 
-### **Digest & Timezone** ⏰
-- **Custom Time**: Any time from 00:00 to 23:59
-- **Timezone Support**: Global timezone conversion
-- **Personalized Content**: Based on your preferences
-
-## 🏗️ **Project Structure**
+### Project Structure
 
 ```
-forex_to_telegram/
-├── 📂 bot/                     # Core application
-│   ├── chart_service.py        # 📊 Chart generation & data fetching
-│   ├── visualize_handler.py    # 🎨 Chart UI & user interaction
-│   ├── telegram_handlers.py    # 🤖 Bot message handling
-│   ├── database_service.py     # 💾 Database operations
-│   ├── notification_service.py # 🔔 Real-time notifications
-│   ├── scraper.py             # 🌐 News scraping (no AI text added to news)
-│   ├── gpt_analysis.py        # 🤖 Local features + GPT pair analysis
-│   └── user_settings.py       # ⚙️ User preference management
-├── 📂 tests/                   # Test suite (32 test files)
-│   ├── test_chart_service.py   # Chart generation tests
-│   ├── test_asymmetric_*.py    # Time window tests
-│   └── test_*.py              # Comprehensive coverage
-├── 📂 scripts/                 # Utility scripts (6 utilities)
-│   ├── setup_database.py      # Database initialization
-│   ├── bulk_import.py         # Historical data import
-│   └── organize_tests.py      # Test organization
-├── 📂 migrations/             # Database migrations
-├── app.py                     # 🚀 Main application entry
-├── requirements.txt           # 📦 Dependencies
-└── README.md                  # 📖 This file
+src/
+├── core/                 # Core application components
+│   ├── config.py        # Configuration management
+│   ├── exceptions.py    # Custom exceptions
+│   └── logging.py       # Logging configuration
+├── models/              # Pydantic data models
+│   ├── user.py         # User models
+│   ├── forex_news.py   # Forex news models
+│   ├── chart.py        # Chart models
+│   └── notification.py # Notification models
+├── database/           # Database layer
+│   ├── connection.py   # Database connection
+│   └── models.py       # SQLAlchemy models
+├── services/           # Business logic layer
+│   ├── base.py        # Base service class
+│   ├── user_service.py # User service
+│   ├── forex_service.py # Forex service
+│   └── chart_service.py # Chart service
+├── api/                # API layer
+│   └── v1/            # API version 1
+│       ├── router.py  # Main router
+│       └── endpoints/ # API endpoints
+└── main.py            # FastAPI application
 ```
 
-## 📊 **Database Schema**
+### Service Layer Pattern
 
-### **Users Table**
-```sql
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    telegram_id BIGINT UNIQUE NOT NULL,
-    preferred_currencies TEXT DEFAULT '',
-    impact_levels TEXT DEFAULT 'high,medium',
-    analysis_required BOOLEAN DEFAULT TRUE,
-    digest_time TIME DEFAULT '08:00:00',
-    timezone VARCHAR(50) DEFAULT 'Europe/Prague',
-    notifications_enabled BOOLEAN DEFAULT FALSE,
-    notification_minutes INTEGER DEFAULT 30,
-    notification_impact_levels TEXT DEFAULT 'high',
-    chart_settings JSONB DEFAULT '{}',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+The application follows a service layer pattern:
+
+1. **Models**: Pydantic models for data validation
+2. **Database Models**: SQLAlchemy models for persistence
+3. **Services**: Business logic and data access
+4. **API Endpoints**: HTTP request/response handling
+5. **Dependency Injection**: FastAPI's built-in DI system
+
+### Async/Await Support
+
+All I/O operations are async:
+- Database queries
+- External API calls
+- Telegram bot operations
+- File operations
+- Redis operations
+
+## 🔄 Background Tasks
+
+### Celery Integration
+
+Background tasks are handled by Celery:
+
+- **News Scraping**: Automated forex news collection
+- **Chart Generation**: Async chart creation
+- **Notifications**: Scheduled notification sending
+- **Data Processing**: Heavy data processing tasks
+
+### Task Types
+
+- **Periodic Tasks**: Daily news scraping, digest generation
+- **Event-driven Tasks**: Chart generation, notifications
+- **Batch Tasks**: Bulk data processing, cleanup
+
+## 📊 Monitoring and Observability
+
+### Health Checks
+
+- **Application Health**: `/health` endpoint
+- **Database Health**: Connection and query checks
+- **Redis Health**: Connection and operation checks
+- **External APIs**: Service availability checks
+
+### Logging
+
+Structured logging with:
+- **JSON Format**: Production-ready structured logs
+- **Log Levels**: Configurable log levels
+- **Context**: Request IDs, user IDs, correlation IDs
+- **Performance**: Request timing and performance metrics
+
+### Metrics
+
+Prometheus metrics for:
+- **Request Metrics**: Count, duration, status codes
+- **Business Metrics**: User activity, news events
+- **System Metrics**: Database, Redis, external APIs
+- **Custom Metrics**: Chart generation, notification success
+
+## 🚀 Deployment
+
+### Docker Deployment
+
+The application is fully containerized:
+
+```bash
+# Build and start all services
+docker-compose -f docker-compose.modern.yml up -d
+
+# View logs
+docker-compose -f docker-compose.modern.yml logs -f
+
+# Scale services
+docker-compose -f docker-compose.modern.yml up -d --scale celery-worker=3
 ```
 
-### **Forex News Table**
-```sql
-CREATE TABLE forex_news (
-    id SERIAL PRIMARY KEY,
-    date TIMESTAMP NOT NULL,
-    time VARCHAR(50) NOT NULL,
-    currency VARCHAR(10) NOT NULL,
-    event TEXT NOT NULL,
-    actual VARCHAR(100),
-    forecast VARCHAR(100),
-    previous VARCHAR(100),
-    impact_level VARCHAR(20) NOT NULL,
-    analysis TEXT, -- legacy column; existing values preserved, no new AI analysis is stored
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+### Production Considerations
 
--- Performance indexes
-CREATE INDEX idx_date_currency_time ON forex_news(date, currency, time);
-CREATE INDEX idx_date_impact ON forex_news(date, impact_level);
-CREATE INDEX idx_currency_impact ON forex_news(currency, impact_level);
+1. **Environment Variables**: Use secure environment variable management
+2. **SSL/TLS**: Configure HTTPS for webhook endpoints
+3. **Load Balancing**: Use nginx or cloud load balancers
+4. **Monitoring**: Set up comprehensive monitoring
+5. **Backups**: Regular database and Redis backups
+6. **Security**: Regular security updates and vulnerability scanning
+
+### Scaling
+
+The application is designed for horizontal scaling:
+
+- **Stateless Services**: All services are stateless
+- **Database Connection Pooling**: Efficient connection management
+- **Redis Clustering**: Support for Redis clusters
+- **Celery Workers**: Multiple worker processes
+- **Load Balancing**: Multiple app instances
+
+## 🧪 Testing
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src
+
+# Run specific test file
+pytest tests/test_user_service.py
+
+# Run async tests
+pytest -k async
 ```
 
-## 🔧 **Technical Implementation**
+### Test Structure
 
-### **Chart Service Architecture**
-```python
-# Multi-layered data fetching strategy
-1. Yahoo Finance (Primary) → Real market data
-2. Alternative symbols → Backup symbols
-3. Alpha Vantage API → External fallback
-4. Mock data generation → Final fallback
+- **Unit Tests**: Individual service and model tests
+- **Integration Tests**: API endpoint tests
+- **Async Tests**: Async service tests
+- **Mock Tests**: External API mocking
 
-# Asymmetric time windows
-before_hours = 0.5  # 30 minutes before event
-after_hours = 3.0   # 3 hours after event
-start_time = event_time - timedelta(hours=before_hours)
-end_time = event_time + timedelta(hours=after_hours)
+## 🔧 Development
+
+### Code Quality
+
+- **Black**: Code formatting
+- **isort**: Import sorting
+- **mypy**: Type checking
+- **pre-commit**: Git hooks for quality checks
+
+### Development Setup
+
+```bash
+# Install development dependencies
+pip install -r requirements-modern.txt
+
+# Install pre-commit hooks
+pre-commit install
+
+# Run code quality checks
+black src/
+isort src/
+mypy src/
 ```
 
-### **Error Handling & Reliability**
-- **Retry Mechanisms**: 3 attempts with exponential backoff
-- **Multiple Data Sources**: Yahoo Finance, Alpha Vantage, mock data
-- **Telegram Timeout Prevention**: Immediate callback responses
-- **Graceful Degradation**: Quality charts even with API failures
+## 📈 Performance
 
-### **Performance Optimizations**
-- **Data Caching**: Intelligent caching for repeated requests
-- **Parallel Processing**: Multiple tool calls for efficiency
-- **Database Indexes**: Optimized queries for large datasets
+### Optimization Features
+
+- **Async Operations**: Non-blocking I/O operations
 - **Connection Pooling**: Efficient database connections
+- **Redis Caching**: Fast data access
+- **Background Tasks**: Non-blocking heavy operations
+- **Database Indexing**: Optimized queries
+- **Response Compression**: Reduced bandwidth usage
 
-## 🧪 **Testing Suite**
+### Performance Monitoring
 
-### **Comprehensive Coverage** (32 Test Files)
-```bash
-# Chart functionality
-python tests/test_chart_service.py
-python tests/test_asymmetric_time_windows.py
-python tests/test_fallback_chart.py
+- **Request Timing**: Track API response times
+- **Database Performance**: Query execution times
+- **Cache Hit Rates**: Redis performance metrics
+- **Background Task Performance**: Celery task metrics
 
-# User features
-python tests/test_user_features.py
-python tests/test_notifications.py
-python tests/test_timezone.py
+## 🔒 Security
 
-# Integration tests
-python tests/test_bot_commands.py
-python tests/test_webhook.py
-```
+### Security Features
 
-### **Test Organization**
-```bash
-python scripts/organize_tests.py
-# Outputs organized list of all 32 tests
-# Covers: Charts, Bot, Database, Webhooks, Timezones
-```
+- **JWT Authentication**: Secure token-based auth
+- **Input Validation**: Pydantic model validation
+- **SQL Injection Prevention**: SQLAlchemy ORM protection
+- **Rate Limiting**: API rate limiting
+- **CORS Configuration**: Cross-origin request handling
+- **Environment Security**: Secure configuration management
 
-## 🚀 **Deployment**
+### Security Best Practices
 
-### **Docker Deployment**
-```dockerfile
-FROM python:3.8-slim
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-EXPOSE 5000
-CMD ["python", "app.py"]
-```
+1. **Environment Variables**: Never commit secrets
+2. **HTTPS**: Use SSL/TLS in production
+3. **Regular Updates**: Keep dependencies updated
+4. **Access Control**: Implement proper authorization
+5. **Audit Logging**: Log security events
+6. **Vulnerability Scanning**: Regular security scans
 
-### **Environment Setup**
-```bash
-# Production deployment
-docker build -t forex-bot .
-docker run -d -p 5000:5000 \
-  -e TELEGRAM_BOT_TOKEN=your_token \
-  -e DATABASE_URL=your_db_url \
-  forex-bot
-```
+## 🤝 Contributing
 
-### **Health Monitoring**
-```bash
-# Health checks
-curl https://your-app-url/health
-curl https://your-app-url/db/stats
-curl https://your-app-url/ping
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Ensure all tests pass
+6. Submit a pull request
 
-# API endpoints
-curl https://your-app-url/status
-```
+### Development Guidelines
 
-## 📈 **API Endpoints**
+- Follow PEP 8 style guidelines
+- Write comprehensive tests
+- Document new features
+- Use type hints
+- Follow async/await patterns
+- Write clear commit messages
 
-### **Health & Monitoring**
-- `GET /ping` - Basic health check
-- `GET /health` - Detailed health status
-- `GET /status` - Application status with metrics
-- `GET /db/stats` - Database statistics
+## 📄 License
 
-### **Data Operations**
-- `GET /db/check/<date>` - Check news for date
-- `POST /db/import` - Bulk import with API key
-- `POST /manual_scrape` - Trigger scraping
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-### **Chart Operations** (Internal)
-- Chart generation via Telegram bot interface
-- Real-time data fetching with fallbacks
-- Asymmetric time window calculations
+## 🆘 Support
 
-## 🔐 **Security & Privacy**
+For support and questions:
 
-### **API Security**
-- **API Key Authentication**: All sensitive endpoints protected
-- **Environment Variables**: Secure credential storage
-- **Input Validation**: Sanitized user inputs
-- **Rate Limiting**: Built-in request throttling
+- **Documentation**: Check the API docs at `/docs`
+- **Issues**: Create GitHub issues for bugs
+- **Discussions**: Use GitHub discussions for questions
+- **Email**: Contact the development team
 
-### **Data Privacy**
-- **Minimal Data Storage**: Only necessary user preferences
-- **No Personal Information**: No names, emails, or sensitive data
-- **Secure Database**: PostgreSQL with encrypted connections
-- **Automatic Cleanup**: Configurable data retention
+## 🎯 Roadmap
 
-## 🆕 **Latest Updates (v3.0)**
+### Upcoming Features
 
-### **New Chart Features** ✨
-- ✅ **Asymmetric Time Windows**: 10+ flexible analysis options
-- ✅ **Cross-Rate Charts**: Any currency pair combinations
-- ✅ **JPY/USD Fix**: Correct pricing (~0.0067, not 1.0000)
-- ✅ **Enhanced Fallbacks**: Robust data fetching with mock generation
-- ✅ **Date Display**: Charts now show event dates clearly
-- ✅ **Improved UI**: Better button organization and feedback
+- **Machine Learning**: AI-powered news analysis
+- **Advanced Charts**: More chart types and indicators
+- **Mobile App**: Native mobile application
+- **Web Dashboard**: Web-based admin interface
+- **Multi-language**: Internationalization support
+- **Advanced Notifications**: Push notifications, email alerts
 
-### **Technical Improvements** 🔧
-- ✅ **Project Refactoring**: Tests moved to `tests/` folder
-- ✅ **Enhanced .gitignore**: PNG files and comprehensive exclusions
-- ✅ **32 Test Files**: Complete test coverage
-- ✅ **Error Handling**: Better logging and user feedback
-- ✅ **Performance**: Parallel processing and caching
+### Performance Improvements
 
-### **User Experience** 🎨
-### **/gptanalysis Improvements** 🤖
-- ✅ Fixed callback parsing to avoid malformed symbols (no more `quoteUSD_JPY=X`)
-- ✅ Added Markdown “Quick Overview” layout for clean, readable analysis
-- ✅ Local features enriched: equal highs/lows, last BOS/CHOCH, OB, FVGs, round levels
-- ✅ Momentum details: EMA20/EMA50 distance and slope, ATR(14), ADR(5)
-- ✅ Cost controls: runtime toggle (`OPENAI_ENABLED`) and per-user cooldown
-- ✅ **Immediate Feedback**: No more timeout errors
-- ✅ **Professional Charts**: TradingView-style visualizations
-- ✅ **Flexible Analysis**: Pre/post event timing options
-- ✅ **Reliable Delivery**: Charts always generate successfully
-
-## 🛠️ **Troubleshooting**
-
-### **Common Issues**
-
-#### **Chart Generation Fails**
-```bash
-# Check data sources
-2025-08-04 [INFO] Using asymmetric time window: 0.5h before, 3h after
-2025-08-04 [INFO] Successfully fetched 207 data points for EURUSD=X
-2025-08-04 [INFO] Successfully generated direct pair chart
-```
-
-#### **Callback Timeouts**
-```bash
-# Should see immediate response
-2025-08-04 [INFO] Processing visualize callback: viz_multi_EUR_13_0.5_3
-2025-08-04 [INFO] Handling multi-currency selection
-```
-
-#### **Database Connection**
-```bash
-# Test database connectivity
-python -c "from bot.database_service import ForexNewsService; from bot.config import Config; db = ForexNewsService(Config().get_database_url()); print('✅ Database connected')"
-```
-
-### **Debug Commands**
-```bash
-# Test chart generation
-python tests/test_chart_service.py
-
-# Test asymmetric windows
-python tests/test_asymmetric_time_windows.py
-
-# Verify callback handling
-python tests/test_callback_fixes.py
-```
-
-## 📚 **Development Guide**
-
-### **Adding New Features**
-```python
-# 1. Add to appropriate module (bot/)
-# 2. Create tests (tests/)
-# 3. Update README.md
-# 4. Test thoroughly
-# 5. Submit PR
-```
-
-### **Code Organization**
-- **`bot/`**: Core application logic
-- **`tests/`**: All test files (32 total)
-- **`scripts/`**: Utility scripts (6 utilities)
-- **`migrations/`**: Database schema changes
-
-### **Testing Standards**
-- **Unit Tests**: Individual component testing
-- **Integration Tests**: Full workflow testing
-- **Mock Data**: Fallback testing without APIs
-- **Error Scenarios**: Timeout and failure handling
-
-## 🤝 **Contributing**
-
-1. **Fork** the repository
-2. **Create** feature branch: `git checkout -b feature/amazing-feature`
-3. **Add tests** for new functionality
-4. **Test thoroughly**: `python -m pytest tests/`
-5. **Submit** pull request with detailed description
-
-## 📄 **License**
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 **Support**
-
-### **Getting Help**
-1. **📖 Documentation**: Check this README first
-2. **🧪 Test Suite**: Run relevant tests
-3. **📋 Logs**: Check application logs for errors
-4. **🐛 Issues**: Open GitHub issue with details
-
-### **Useful Resources**
-- **Test Organization**: `python scripts/organize_tests.py`
-- **Health Check**: `curl https://your-app-url/health`
-- **Database Stats**: `curl https://your-app-url/db/stats`
+- **GraphQL API**: More efficient data fetching
+- **Microservices**: Service decomposition
+- **Event Sourcing**: Event-driven architecture
+- **CQRS**: Command Query Responsibility Segregation
+- **Real-time Updates**: WebSocket support
 
 ---
 
-## 🎯 **Ready to Get Started?**
-
-**🚀 Deploy your personalized forex news bot with professional chart analysis!**
-
-**📊 Generate beautiful charts • 🔔 Get real-time alerts • 📰 Stay informed • 🎨 Analyze market moves**
-
-[⭐ Star this repo](https://github.com/your-repo) | [🐛 Report issues](https://github.com/your-repo/issues) | [💡 Request features](https://github.com/your-repo/discussions)
+**Forex News Bot v2.0** - Modern, scalable, and production-ready forex news automation.

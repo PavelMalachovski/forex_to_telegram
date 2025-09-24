@@ -1,0 +1,40 @@
+# Web server and scheduling
+flask==2.3.3
+apscheduler==3.10.4
+# Production WSGI server
+gunicorn==21.2.0
+
+# Telegram bot
+pyTelegramBotAPI==4.14.0
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.13.1
+
+# Scraper dependencies
+beautifulsoup4==4.12.2  # HTML parsing
+undetected-chromedriver==3.5.5  # Selenium-based stealth browser automation
+selenium==4.21.0  # Required by undetected-chromedriver
+requests==2.32.3         # HTTP requests
+pytz==2023.3             # Timezone handling
+
+# Chart generation dependencies
+yfinance==0.2.36         # Yahoo Finance API for historical data
+# Note: If yfinance continues to have issues, consider upgrading to a newer version
+# or using alternative data sources like Alpha Vantage API
+matplotlib==3.8.2        # Chart generation
+mplfinance==0.12.10b0    # Candlestick charts
+plotly==5.17.0           # Interactive charts
+pandas==2.1.4            # Data manipulation
+numpy==1.24.3            # Numerical operations
+urllib3==2.0.7           # HTTP client with retry support
+
+# Testing
+pytest==8.4.1
+pytest-asyncio==0.23.5
+
+# Optional: for faster BeautifulSoup parsing
+# lxml
+
+# Note: Google Chrome must be installed on the system for undetected-chromedriver to work.

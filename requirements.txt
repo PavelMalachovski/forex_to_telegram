@@ -1,40 +1,70 @@
-# Web server and scheduling
-flask==2.3.3
-apscheduler==3.10.4
-# Production WSGI server
-gunicorn==21.2.0
+# Modern FastAPI-based requirements
+# Web framework and API
+fastapi==0.115.12
+uvicorn[standard]==0.32.1
+gunicorn==23.0.0
 
-# Telegram bot
-pyTelegramBotAPI==4.14.0
+# Data validation and settings
+pydantic==2.10.3
+pydantic-settings==2.7.0
 
 # Database
-psycopg2-binary==2.9.9
-sqlalchemy==2.0.23
-alembic==1.13.1
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
 
-# Scraper dependencies
-beautifulsoup4==4.12.2  # HTML parsing
-undetected-chromedriver==3.5.5  # Selenium-based stealth browser automation
-selenium==4.21.0  # Required by undetected-chromedriver
-requests==2.32.3         # HTTP requests
-pytz==2023.3             # Timezone handling
+# Caching and performance
+redis==5.2.0
+aioredis==2.0.1
 
-# Chart generation dependencies
-yfinance==0.2.36         # Yahoo Finance API for historical data
-# Note: If yfinance continues to have issues, consider upgrading to a newer version
-# or using alternative data sources like Alpha Vantage API
-matplotlib==3.8.2        # Chart generation
-mplfinance==0.12.10b0    # Candlestick charts
-plotly==5.17.0           # Interactive charts
-pandas==2.1.4            # Data manipulation
-numpy==1.24.3            # Numerical operations
-urllib3==2.0.7           # HTTP client with retry support
+# Telegram bot
+python-telegram-bot==21.8
+aiohttp==3.11.10
+
+# Data processing and charts
+pandas==2.2.3
+numpy==2.2.0
+matplotlib==3.9.2
+mplfinance==0.12.10b0
+plotly==5.24.1
+yfinance==0.2.36
+
+# Web scraping
+beautifulsoup4==4.12.3
+selenium==4.27.0
+undetected-chromedriver==3.6.1
+aiohttp==3.11.10
+
+# Monitoring and observability
+structlog==24.4.0
+prometheus-client==0.21.1
+opentelemetry-api==1.28.0
+opentelemetry-sdk==1.28.0
+opentelemetry-instrumentation-fastapi==0.49b0
+opentelemetry-instrumentation-sqlalchemy==0.49b0
+
+# Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.12
+
+# Background tasks
+celery==5.4.0
+redis==5.2.0
 
 # Testing
-pytest==8.4.1
-pytest-asyncio==0.23.5
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+httpx==0.28.1
 
-# Optional: for faster BeautifulSoup parsing
-# lxml
+# Development tools
+black==24.10.0
+isort==5.13.2
+mypy==1.13.0
+pre-commit==4.0.1
 
-# Note: Google Chrome must be installed on the system for undetected-chromedriver to work.
+# Utilities
+python-dotenv==1.0.1
+pytz==2024.2
+tenacity==9.0.0

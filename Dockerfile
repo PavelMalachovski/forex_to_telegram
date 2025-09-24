@@ -1,36 +1,66 @@
-# Base image: Python 3.11 Bullseye
-FROM python:3.11-bullseye
+# Modern multi-stage Dockerfile for FastAPI application
+FROM python:3.11-slim as builder
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create and activate virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --upgrade pip && \
+    pip install -r /tmp/requirements.txt
+
+# Production stage
+FROM python:3.11-slim as production
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Set working directory
 WORKDIR /app
 
-# Copy only dependencies first for better Docker caching
-COPY requirements.txt .
+# Copy application code
+COPY src/ /app/src/
+COPY alembic.ini /app/
+COPY migrations/ /app/migrations/
 
-# Install system libraries and Google Chrome Stable
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      wget gnupg2 ca-certificates fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-      libgbm1 libasound2 libpango-1.0-0 libcairo2 libfontconfig1 \
-      libx11-xcb1 libxrender1 libglib2.0-0 libsm6 libice6 && \
-    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends google-chrome-stable && \
-    rm -rf /var/lib/apt/lists/*
+# Change ownership to appuser
+RUN chown -R appuser:appuser /app
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Switch to non-root user
+USER appuser
 
-# Copy the rest of the code
-COPY . .
+# Expose port
+EXPOSE 8000
 
-# Create migrations directory if it doesn't exist
-RUN mkdir -p migrations/versions
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
-# Expose the app port
-EXPOSE 10000
-
-# Start the application with database setup
-CMD ["sh", "-c", "python scripts/setup_with_timezone.py && gunicorn app:app --bind 0.0.0.0:${PORT:-10000} --timeout 120 --workers 1 --threads 2"]
+# Default command
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
