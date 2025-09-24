@@ -1,16 +1,18 @@
-from logging.config import fileConfig
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-from alembic import context
+"""Modern Alembic environment configuration for FastAPI application."""
+
+import asyncio
 import os
 import sys
-from sqlalchemy import text
+from logging.config import fileConfig
+from sqlalchemy import engine_from_config, pool
+from sqlalchemy.ext.asyncio import AsyncEngine
+from alembic import context
 
-# Add the project root to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+# Add the app directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
-# Import your models
-from bot.models import Base
+# Import the models
+from app.database.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -33,7 +35,23 @@ target_metadata = Base.metadata
 
 def get_url():
     """Get database URL from environment or config."""
-    return os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    # Try environment variable first
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+
+    # Try individual environment variables
+    db_host = os.getenv("DB_HOST", "localhost")
+    db_port = os.getenv("DB_PORT", "5432")
+    db_name = os.getenv("DB_NAME", "forex_bot")
+    db_user = os.getenv("DB_USER", "forex_user")
+    db_password = os.getenv("DB_PASSWORD", "forex_password")
+
+    # Construct URL
+    if db_password:
+        return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    else:
+        return f"postgresql://{db_user}@{db_host}:{db_port}/{db_name}"
 
 
 def run_migrations_offline() -> None:
@@ -60,28 +78,37 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+def do_run_migrations(connection):
+    """Run migrations with the given connection."""
+    context.configure(connection=connection, target_metadata=target_metadata)
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
+    with context.begin_transaction():
+        context.run_migrations()
 
-    """
+
+async def run_async_migrations():
+    """Run migrations in async mode."""
     configuration = config.get_section(config.config_ini_section)
     configuration["sqlalchemy.url"] = get_url()
-    connectable = engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+
+    connectable = AsyncEngine(
+        engine_from_config(
+            configuration,
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,
+            future=True,
+        )
     )
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
 
-        with context.begin_transaction():
-            context.run_migrations()
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
+    asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

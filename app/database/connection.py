@@ -26,14 +26,24 @@ class DatabaseManager:
 
         try:
             # Create async engine
-            self.engine = create_async_engine(
-                settings.database.url,
-                pool_size=settings.database.pool_size,
-                max_overflow=settings.database.max_overflow,
-                echo=settings.database.echo,
-                poolclass=StaticPool if "sqlite" in settings.database.url else None,
-                connect_args={"check_same_thread": False} if "sqlite" in settings.database.url else {},
-            )
+            engine_kwargs = {
+                "echo": settings.database.echo,
+            }
+
+            # Add SQLite-specific configuration
+            if "sqlite" in settings.database.url:
+                engine_kwargs.update({
+                    "poolclass": StaticPool,
+                    "connect_args": {"check_same_thread": False},
+                })
+            else:
+                # PostgreSQL/other databases
+                engine_kwargs.update({
+                    "pool_size": settings.database.pool_size,
+                    "max_overflow": settings.database.max_overflow,
+                })
+
+            self.engine = create_async_engine(settings.database.url, **engine_kwargs)
 
             # Create session factory
             self.session_factory = async_sessionmaker(
@@ -67,14 +77,14 @@ class DatabaseManager:
 
     async def get_session_async(self) -> AsyncGenerator[AsyncSession, None]:
         """Get async database session."""
-        async with self.session_factory() as session:
-            try:
-                yield session
-            except Exception:
-                await session.rollback()
-                raise
-            finally:
-                await session.close()
+        session = self.session_factory()
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
 
 # Global database manager instance

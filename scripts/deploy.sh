@@ -48,10 +48,10 @@ print_status "Environment variables validated"
 
 # Build and start services
 print_status "Building Docker images..."
-docker-compose -f docker-compose.modern.yml build
+docker-compose build
 
 print_status "Starting services..."
-docker-compose -f docker-compose.modern.yml up -d
+docker-compose up -d
 
 # Wait for services to be healthy
 print_status "Waiting for services to be healthy..."
@@ -61,7 +61,7 @@ sleep 30
 print_status "Checking service health..."
 
 # Check PostgreSQL
-if docker-compose -f docker-compose.modern.yml exec -T postgres pg_isready -U $DB_USER -d $DB_NAME > /dev/null 2>&1; then
+if docker-compose exec -T db pg_isready -U $DB_USER -d $DB_NAME > /dev/null 2>&1; then
     print_status "PostgreSQL is healthy"
 else
     print_error "PostgreSQL is not healthy"
@@ -69,7 +69,7 @@ else
 fi
 
 # Check Redis
-if docker-compose -f docker-compose.modern.yml exec -T redis redis-cli ping > /dev/null 2>&1; then
+if docker-compose exec -T redis redis-cli ping > /dev/null 2>&1; then
     print_status "Redis is healthy"
 else
     print_error "Redis is not healthy"
@@ -86,7 +86,7 @@ fi
 
 # Run database migrations
 print_status "Running database migrations..."
-docker-compose -f docker-compose.modern.yml exec app python scripts/migrate.py
+docker-compose exec app python scripts/migrate.py
 
 print_status "Deployment completed successfully! 🎉"
 
@@ -104,6 +104,6 @@ echo "  3. Set up monitoring and logging"
 echo "  4. Configure backup strategies"
 echo ""
 echo "🔧 Useful commands:"
-echo "  - View logs: docker-compose -f docker-compose.modern.yml logs -f"
-echo "  - Stop services: docker-compose -f docker-compose.modern.yml down"
-echo "  - Restart app: docker-compose -f docker-compose.modern.yml restart app"
+echo "  - View logs: docker-compose logs -f"
+echo "  - Stop services: docker-compose down"
+echo "  - Restart app: docker-compose restart app"

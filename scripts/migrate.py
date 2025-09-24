@@ -5,13 +5,14 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from alembic import command
 from alembic.config import Config
-from src.database.connection import db_manager
-from src.core.logging import configure_logging, get_logger
+from app.database.connection import db_manager
+from app.core.logging import configure_logging, get_logger
 
 configure_logging()
 logger = get_logger(__name__)
