@@ -40,7 +40,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.modern
+      dockerfile: Dockerfile
     environment:
       # Database
       DB_HOST: postgres
@@ -52,6 +52,10 @@ services:
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: 0
+      REDIS_MAX_RETRIES: 30
+      REDIS_RETRY_DELAY: 2
 
       # Telegram
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
@@ -85,12 +89,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
 
   # Celery Worker for Background Tasks
   celery-worker:
     build:
       context: .
-      dockerfile: Dockerfile.modern
+      dockerfile: Dockerfile
     command: celery -A src.workers.celery_app worker --loglevel=info
     environment:
       # Same environment as app
@@ -121,7 +126,7 @@ services:
   celery-beat:
     build:
       context: .
-      dockerfile: Dockerfile.modern
+      dockerfile: Dockerfile
     command: celery -A src.workers.celery_app beat --loglevel=info
     environment:
       # Same environment as app
@@ -152,7 +157,7 @@ services:
   flower:
     build:
       context: .
-      dockerfile: Dockerfile.modern
+      dockerfile: Dockerfile
     command: celery -A src.workers.celery_app flower --port=5555
     environment:
       # Same environment as app
