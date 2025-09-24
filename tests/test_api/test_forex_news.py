@@ -153,7 +153,7 @@ async def test_get_forex_news_by_date_range():
 
                 # Act
                 response = await client.get(
-                    f"/api/v1/forex-news/by-date-range?start_date={start_date}&end_date={end_date}"
+                    f"/api/v1/forex-news/by-date-range/?start_date={start_date}&end_date={end_date}"
                 )
 
             # Assert
@@ -180,7 +180,7 @@ async def test_get_forex_news_by_currency():
             currency = "USD"
             news_items = [ForexNewsModelFactory.build(currency=currency) for _ in range(2)]
 
-            with patch('app.services.forex_service.ForexService.get_forex_news_by_currency') as mock_service:
+            with patch('app.services.forex_service.ForexService.get_news_by_currency') as mock_service:
                 mock_service.return_value = news_items
 
                 # Act
@@ -211,7 +211,7 @@ async def test_get_forex_news_by_impact_level():
             impact_level = "high"
             news_items = [ForexNewsModelFactory.build(impact_level=impact_level) for _ in range(2)]
 
-            with patch('app.services.forex_service.ForexService.get_forex_news_by_impact_level') as mock_service:
+            with patch('app.services.forex_service.ForexService.get_news_by_impact_level') as mock_service:
                 mock_service.return_value = news_items
 
                 # Act
@@ -245,7 +245,7 @@ async def test_get_todays_forex_news():
                 mock_service.return_value = news_items
 
                 # Act
-                response = await client.get("/api/v1/forex-news/today")
+                response = await client.get("/api/v1/forex-news/today/")
 
             # Assert
             assert response.status_code == 200
@@ -270,11 +270,21 @@ async def test_get_upcoming_events():
             # Arrange
             news_items = [ForexNewsModelFactory.build() for _ in range(3)]
 
-            with patch('app.services.forex_service.ForexService.get_upcoming_events') as mock_service:
-                mock_service.return_value = news_items
+            # Mock the database dependency
+            with patch('app.database.connection.get_database') as mock_get_db:
+                from unittest.mock import AsyncMock
 
-                # Act
-                response = await client.get("/api/v1/forex-news/upcoming?hours=24")
+                # Create a mock database session
+                mock_session = AsyncMock()
+                async def mock_db_generator():
+                    yield mock_session
+                mock_get_db.return_value = mock_db_generator()
+
+                with patch('app.services.forex_service.ForexService.get_upcoming_events') as mock_service:
+                    mock_service.return_value = news_items
+
+                    # Act
+                    response = await client.get("/api/v1/forex-news/upcoming?hours=24")
 
             # Assert
             assert response.status_code == 200
@@ -443,7 +453,7 @@ async def test_get_forex_news_with_filters():
 
                 # Act
                 response = await client.get(
-                    "/api/v1/forex-news/filtered?currency=USD&impact_level=high"
+                    "/api/v1/forex-news/filtered/?currency=USD&impact_level=high"
                 )
 
             # Assert
@@ -475,7 +485,7 @@ async def test_bulk_create_forex_news():
 
                 # Act
                 response = await client.post(
-                    "/api/v1/forex-news/bulk",
+                    "/api/v1/forex-news/bulk/",
                     json=[item.model_dump(mode='json') for item in news_data_list]
                 )
 

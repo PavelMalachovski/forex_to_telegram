@@ -34,6 +34,20 @@ async def create_forex_news(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.get("/upcoming", response_model=List[ForexNewsResponse])
+async def get_upcoming_events(
+    hours: int = Query(24, ge=1, le=168, description="Hours ahead to look for upcoming events"),
+    db: AsyncSession = Depends(get_database),
+    forex_service: ForexService = Depends(get_forex_service)
+):
+    """Get upcoming events."""
+    try:
+        news_list = await forex_service.get_upcoming_events(db, hours)
+        return [ForexNewsResponse.model_validate(news) for news in news_list]
+    except DatabaseError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.get("/{news_id}", response_model=ForexNewsResponse)
 async def get_forex_news(
     news_id: int,
@@ -134,18 +148,6 @@ async def get_forex_news_by_impact_level(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.get("/upcoming/", response_model=List[ForexNewsResponse])
-async def get_upcoming_forex_news(
-    hours_ahead: int = Query(24, ge=1, le=168, description="Hours ahead to look for upcoming news"),
-    db: AsyncSession = Depends(get_database),
-    forex_service: ForexService = Depends(get_forex_service)
-):
-    """Get upcoming forex news."""
-    try:
-        news_list = await forex_service.get_upcoming_news(db, hours_ahead)
-        return [ForexNewsResponse.model_validate(news) for news in news_list]
-    except DatabaseError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("/search/", response_model=List[ForexNewsResponse])
@@ -177,7 +179,73 @@ async def get_forex_news_statistics(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.delete("/{news_id}")
+# Additional endpoints expected by tests
+@router.get("/by-date-range/", response_model=List[ForexNewsResponse])
+async def get_forex_news_by_date_range(
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    db: AsyncSession = Depends(get_database),
+    forex_service: ForexService = Depends(get_forex_service)
+):
+    """Get forex news by date range."""
+    try:
+        news_list = await forex_service.get_forex_news_by_date_range(db, start_date, end_date)
+        return [ForexNewsResponse.model_validate(news) for news in news_list]
+    except DatabaseError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.get("/today/", response_model=List[ForexNewsResponse])
+async def get_todays_forex_news(
+    db: AsyncSession = Depends(get_database),
+    forex_service: ForexService = Depends(get_forex_service)
+):
+    """Get today's forex news."""
+    try:
+        news_list = await forex_service.get_todays_forex_news(db)
+        return [ForexNewsResponse.model_validate(news) for news in news_list]
+    except DatabaseError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.get("/filtered/", response_model=List[ForexNewsResponse])
+async def get_forex_news_with_filters(
+    currency: Optional[str] = Query(None, description="Filter by currency"),
+    impact_level: Optional[str] = Query(None, description="Filter by impact level"),
+    db: AsyncSession = Depends(get_database),
+    forex_service: ForexService = Depends(get_forex_service)
+):
+    """Get forex news with filters."""
+    try:
+        filters = {}
+        if currency:
+            filters["currency"] = currency
+        if impact_level:
+            filters["impact_level"] = impact_level
+
+        news_list = await forex_service.get_forex_news_with_filters(db, filters)
+        return [ForexNewsResponse.model_validate(news) for news in news_list]
+    except DatabaseError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/bulk/", response_model=List[ForexNewsResponse], status_code=status.HTTP_201_CREATED)
+async def bulk_create_forex_news(
+    news_data_list: List[ForexNewsCreate],
+    db: AsyncSession = Depends(get_database),
+    forex_service: ForexService = Depends(get_forex_service)
+):
+    """Bulk create forex news."""
+    try:
+        created_news = await forex_service.bulk_create(db, news_data_list)
+        return [ForexNewsResponse.model_validate(news) for news in created_news]
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except DatabaseError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.delete("/{news_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_forex_news(
     news_id: int,
     db: AsyncSession = Depends(get_database),
@@ -188,6 +256,6 @@ async def delete_forex_news(
         success = await forex_service.delete(db, news_id)
         if not success:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Forex news not found")
-        return {"message": "Forex news deleted successfully"}
+        # Return 204 No Content - no response body
     except DatabaseError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

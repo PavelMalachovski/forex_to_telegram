@@ -68,11 +68,16 @@ class BaseService(Generic[ModelType]):
     async def update(self, db: AsyncSession, id: int, **kwargs) -> Optional[ModelType]:
         """Update a record by ID."""
         try:
+            # Check if record exists first
+            existing_record = await self.get(db, id)
+            if not existing_record:
+                raise ValidationError(f"{self.model.__name__} not found")
+
             # Remove None values
             update_data = {k: v for k, v in kwargs.items() if v is not None}
 
             if not update_data:
-                return await self.get(db, id)
+                return existing_record
 
             await db.execute(
                 update(self.model)
@@ -81,6 +86,9 @@ class BaseService(Generic[ModelType]):
             )
             await db.commit()
             return await self.get(db, id)
+        except ValidationError:
+            # Re-raise ValidationError directly to preserve status code
+            raise
         except Exception as e:
             await db.rollback()
             self.logger.error("Failed to update record", id=id, error=str(e), exc_info=True)
