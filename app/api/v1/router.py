@@ -8,7 +8,7 @@ from .endpoints import users, forex_news, charts, notifications, telegram, healt
 api_router = APIRouter()
 
 # Include endpoint routers
-api_router.include_router(health.router, prefix="/health", tags=["health"])
+api_router.include_router(health.router, tags=["health"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(forex_news.router, prefix="/forex-news", tags=["forex-news"])
 api_router.include_router(charts.router, prefix="/charts", tags=["charts"])

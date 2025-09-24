@@ -98,11 +98,27 @@ class User(UserBase):
     """User model with preferences."""
 
     id: int
-    preferences: UserPreferences
     created_at: datetime
     updated_at: datetime
     last_active: Optional[datetime] = None
     is_active: bool = True
+
+    # Individual preference fields (matching SQLAlchemy model)
+    preferred_currencies: List[str] = Field(default=[], description="Preferred currencies")
+    impact_levels: List[str] = Field(default=["high", "medium"], description="Impact levels to follow")
+    analysis_required: bool = Field(default=True, description="Require AI analysis")
+    digest_time: str = Field(default="08:00:00", description="Daily digest time")
+    timezone: str = Field(default="Europe/Prague", description="User timezone")
+
+    # Notification settings
+    notifications_enabled: bool = Field(default=False, description="Enable notifications")
+    notification_minutes: int = Field(default=30, description="Notification minutes before event")
+    notification_impact_levels: List[str] = Field(default=["high"], description="Notification impact levels")
+
+    # Chart settings
+    charts_enabled: bool = Field(default=False, description="Enable charts")
+    chart_type: str = Field(default="single", description="Chart type")
+    chart_window_hours: int = Field(default=2, description="Chart window hours")
 
     class Config:
         from_attributes = True

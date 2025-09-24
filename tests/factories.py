@@ -61,6 +61,7 @@ class UserModelFactory(factory.Factory):
     class Meta:
         model = UserModel
 
+    id = factory.Sequence(lambda n: n + 1)
     telegram_id = factory.Sequence(lambda n: 100000000 + n)
     username = factory.Sequence(lambda n: f"user{n}")
     first_name = factory.Faker("first_name")
@@ -68,8 +69,9 @@ class UserModelFactory(factory.Factory):
     language_code = fuzzy.FuzzyChoice(["en", "cs", "de", "fr", "es"])
     is_bot = False
     is_premium = fuzzy.FuzzyChoice([True, False])
+    is_active = True
 
-    # Individual preference fields (not a nested preferences object)
+    # Individual preference fields (matching SQLAlchemy model)
     preferred_currencies = factory.List([
         fuzzy.FuzzyChoice(["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"])
         for _ in range(2)

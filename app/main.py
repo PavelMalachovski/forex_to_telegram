@@ -15,7 +15,7 @@ import structlog
 
 from app.core.config import settings
 from app.core.logging import configure_logging
-from app.core.exceptions import ForexBotException
+from app.core.exceptions import ForexBotException, ValidationError
 from app.core.security import add_security_headers, log_requests, get_cors_config
 from app.database.connection import db_manager
 from app.services.cache_service import cache_service
@@ -118,6 +118,13 @@ def create_app() -> FastAPI:
             method=request.method,
         )
 
+        # Handle ValidationError with 400 status code
+        if isinstance(exc, ValidationError):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": exc.message}
+            )
+
         return JSONResponse(
             status_code=400,
             content={
@@ -126,6 +133,7 @@ def create_app() -> FastAPI:
                 "details": exc.details,
             }
         )
+
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
@@ -140,7 +148,7 @@ def create_app() -> FastAPI:
 
         return JSONResponse(
             status_code=exc.status_code,
-            content={"error": exc.detail}
+            content={"detail": exc.detail}
         )
 
     @app.exception_handler(Exception)

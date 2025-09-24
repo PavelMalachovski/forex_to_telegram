@@ -89,7 +89,11 @@ async def detailed_health_check(db: AsyncSession = Depends(get_database)) -> Dic
             "status": "unhealthy",
             "message": f"Redis connection failed: {str(e)}"
         }
-        health_status["status"] = "unhealthy"
+        # Don't fail overall health check for Redis issues in development
+        if settings.environment == "development":
+            logger.warning("Redis unavailable in development, continuing with healthy status")
+        else:
+            health_status["status"] = "unhealthy"
 
     # Check external APIs (if configured)
     try:
@@ -137,10 +141,16 @@ async def readiness_check(db: AsyncSession = Depends(get_database)) -> Dict[str,
 
         # Check Redis (if configured)
         if settings.redis.url:
-            import redis.asyncio as redis
-            redis_client = redis.from_url(settings.redis.url)
-            await redis_client.ping()
-            await redis_client.close()
+            try:
+                import redis.asyncio as redis
+                redis_client = redis.from_url(settings.redis.url)
+                await redis_client.ping()
+                await redis_client.close()
+            except Exception as redis_error:
+                if settings.environment == "development":
+                    logger.warning("Redis unavailable in development, continuing readiness check")
+                else:
+                    raise redis_error
 
         return {
             "status": "ready",

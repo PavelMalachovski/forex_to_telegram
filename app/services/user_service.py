@@ -1,6 +1,7 @@
 """User service implementation."""
 
 from typing import Optional, List
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, update
 
@@ -84,6 +85,9 @@ class UserService(BaseService[UserModel]):
             await db.commit()
             await db.refresh(user)
             return user
+        except ValidationError:
+            # Re-raise ValidationError without wrapping
+            raise
         except Exception as e:
             await db.rollback()
             logger.error("Failed to update user", telegram_id=telegram_id, error=str(e), exc_info=True)
@@ -269,3 +273,19 @@ class UserService(BaseService[UserModel]):
             await db.rollback()
             logger.error("Failed to delete user", telegram_id=telegram_id, error=str(e), exc_info=True)
             raise DatabaseError(f"Failed to delete user: {e}")
+
+    async def update_user_activity(self, db: AsyncSession, telegram_id: int) -> bool:
+        """Update user's last active timestamp."""
+        try:
+            user = await self.get_by_telegram_id(db, telegram_id)
+            if not user:
+                return False
+
+            user.last_active = datetime.utcnow()
+            await db.commit()
+            await db.refresh(user)
+            return True
+        except Exception as e:
+            await db.rollback()
+            logger.error("Failed to update user activity", telegram_id=telegram_id, error=str(e), exc_info=True)
+            raise DatabaseError(f"Failed to update user activity: {e}")
